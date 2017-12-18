@@ -67,6 +67,8 @@
 #include <pthread.h>
 #include <iconv.h>
 #include <ifaddrs.h>
+#include <sched.h>
+#include <syscall.h>
 
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -79,6 +81,8 @@
 #include <sys/signalfd.h>
 #include <sys/socket.h>
 #include <sys/inotify.h>
+#include <sys/sysinfo.h>
+
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>

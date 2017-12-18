@@ -466,4 +466,21 @@ namespace crx
         pclose(pf);
         return result;
     }
+
+    void thread_bind_core(int which)
+    {
+        if (which < 0 || which >= get_nprocs())     //which的取值范围为0~N-1
+            return;
+
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
+        CPU_SET(which, &mask);
+        if (syscall(__NR_gettid) == getpid()) {     //main thread
+            if (sched_setaffinity(0, sizeof(mask), &mask) < 0)
+                perror("thread_bind_core");
+        } else {
+            if (pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask) < 0)
+                perror("thread_bind_core");
+        }
+    }
 }

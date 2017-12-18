@@ -799,6 +799,7 @@ namespace crx
                 std::string headers = conn->stream_buffer.substr(0, delim_pos);
                 conn->stream_buffer.erase(0, delim_pos+4);			//截断整个头部，包含分隔符
                 auto str_vec = split(headers, "\r\n");
+
                 if (str_vec.size() <= 1)		//请求流中包含一个请求行以及至少一个头部字段
                     continue;
 

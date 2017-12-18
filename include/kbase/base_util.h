@@ -73,4 +73,7 @@ namespace crx
 
     //执行shell命令，并返回shell输出
     std::string CRX_SHARE run_shell_cmd(const char *cmd_string);
+
+    //将线程绑定到指定的cpu核上，若当前cpu为N核，则which的取值范围为0~N-1
+    void CRX_SHARE thread_bind_core(int which);
 }

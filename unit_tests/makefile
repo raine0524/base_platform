@@ -2,7 +2,7 @@ CXX = g++
 INCPATH = -I../include
 CFLAGS = -std=c++11 -O0 -g3 -Wall -c -fmessage-length=0
 
-LIBPATH = -L../lib64 -L/usr/lib/python3.5/config-3.5m-x86_64-linux-gnu -lkbase -lpython3.5
+LIBPATH = -L../lib64 -L/usr/lib/python3.5/config-3.5m-x86_64-linux-gnu -lkbase -lpython3.5 -pthread
 LFLAGS = -rdynamic -Wl,--unresolved-symbols=ignore-in-shared-libs -Wl,-rpath=. -Wl,-rpath=../lib64
 
 OBJPATH = obj/

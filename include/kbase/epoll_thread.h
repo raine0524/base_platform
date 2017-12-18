@@ -15,7 +15,6 @@ namespace crx
         //终止epoll线程
         void stop();
 
-
         //获取timer实例(需手动释放)
         timer* get_timer(std::function<void(void*)> f, void *args = nullptr);
 

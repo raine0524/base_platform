@@ -1,6 +1,7 @@
 #include "crx_pch.h"
 
-class py_plot_test : public crx::console {
+class py_plot_test : public crx::console
+{
 public:
 	virtual bool init(int argc, char *argv[]);
 	virtual void destroy() {}
@@ -9,7 +10,8 @@ private:
 	crx::py_env m_py_wrapper;
 };
 
-bool py_plot_test::init(int argc, char *argv[]) {
+bool py_plot_test::init(int argc, char *argv[])
+{
 	//m_py_wrapper.run_py_func("pltPowerFuns", "MyPlotTest", 0);
 
 	crx::py_plot *plot = m_py_wrapper.get_mat_plot();
@@ -42,7 +44,8 @@ bool py_plot_test::init(int argc, char *argv[]) {
 	return true;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
 	py_plot_test plot;
 	plot.run(argc, argv);
 }
