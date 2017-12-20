@@ -51,7 +51,7 @@ namespace crx
         int product_idx;		//将工人安排在第product_index条生产线上
 
         std::mutex mtx;
-        std::set<int> type_set;
+        std::unordered_set<int> type_set;
     };
 
     struct task_wrap    //将待处理的数据与处理器绑在一起放在指定的流水线上
@@ -111,7 +111,7 @@ namespace crx
         static void thread_proc(prod_line *line);
 
         std::mutex m_mtx;
-        std::map<int, std::set<evd_proc_impl*>> m_arrange;	//job type->processors
+        std::unordered_map<int, std::unordered_set<evd_proc_impl*>> m_arrange;	//job type->processors
         std::vector<prod_line*> m_lines;		//生产线
     };
 }

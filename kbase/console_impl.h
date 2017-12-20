@@ -38,6 +38,6 @@ namespace crx
          */
         bool m_is_service, m_init, m_as_shell;
         std::string m_pipe_name[2], m_pipe_dir;
-        std::map<bool, std::map<std::string, console_cmd>> m_cmds;		//m_cmds根据m_init当前的值区分为两类
+        std::unordered_map<bool, std::unordered_map<std::string, console_cmd>> m_cmds;      //m_cmds根据m_init当前的值区分为两类
     };
 }

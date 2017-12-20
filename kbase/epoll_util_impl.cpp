@@ -252,7 +252,7 @@ namespace crx
         impl->m_write_ev->send_signal((const char*)&sig, sizeof(sig));
     }
 
-    std::map<EXT_DST, std::string> g_ext_type =
+    std::unordered_map<int, std::string> g_ext_type =
             {
                     {DST_NONE, "stub"},
                     {DST_JSON, "application/json"},
@@ -272,7 +272,7 @@ namespace crx
         delete (http_client_impl*)m_obj;
     }
 
-    void http_client::request(int conn, const char *method, const char *post_page, std::map<std::string, std::string> *extra_headers,
+    void http_client::request(int conn, const char *method, const char *post_page, std::unordered_map<std::string, std::string> *extra_headers,
                               const char *ext_data, int ext_len, EXT_DST ed /*= DST_NONE*/)
     {
         std::string http_request = std::string(method)+" "+std::string(post_page)+" HTTP/1.1\r\n";		//构造请求行
@@ -301,12 +301,12 @@ namespace crx
         impl->m_write_ev->send_signal((const char*)&sig, sizeof(sig));
     }
 
-    void http_client::GET(int conn, const char *post_page, std::map<std::string, std::string> *extra_headers)
+    void http_client::GET(int conn, const char *post_page, std::unordered_map<std::string, std::string> *extra_headers)
     {
         request(conn, "GET", post_page, extra_headers, nullptr, 0);
     }
 
-    void http_client::POST(int conn, const char *post_page, std::map<std::string, std::string> *extra_headers,
+    void http_client::POST(int conn, const char *post_page, std::unordered_map<std::string, std::string> *extra_headers,
                            const char *ext_data, int ext_len, EXT_DST ed /*= DST_JSON*/)
     {
         request(conn, "POST", post_page, extra_headers, ext_data, ext_len, ed);

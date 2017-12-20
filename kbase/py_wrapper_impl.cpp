@@ -118,7 +118,7 @@ namespace crx
         va_start(vl, argc);
         int tuple_cnt = 0;				//元组中元素的个数
         bool exist_dict = false;		//指明是否存在关键字参数
-        std::map<std::string, int> arg_eqs;		//key是参数，value指明是否为关键字参数，-1表示非关键字参数，反之则为关键字参数
+        std::unordered_map<std::string, int> arg_eqs;		//key是参数，value指明是否为关键字参数，-1表示非关键字参数，反之则为关键字参数
         for (int i = 0; i < argc; ++i) {
             std::string val = va_arg(vl, const char*);
             int pos = find_nth_pos(val, "=", 0);

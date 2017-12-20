@@ -198,7 +198,7 @@ namespace crx
         }
     }
 
-    void xml_parser::for_each_child(std::function<void(std::string&, std::string&, std::map<std::string, std::string>&, void*)> f,
+    void xml_parser::for_each_child(std::function<void(std::string&, std::string&, std::unordered_map<std::string, std::string>&, void*)> f,
                                     void *arg /*= nullptr*/)
     {
         xml_impl *impl = (xml_impl*)m_obj;
@@ -209,7 +209,7 @@ namespace crx
         while (child) {
             std::string name = child->Name();			//节点名称
             std::string value = child->GetText();		//节点值
-            std::map<std::string, std::string> attr_map;		//节点的键值对属性
+            std::unordered_map<std::string, std::string> attr_map;		//节点的键值对属性
 
             const tinyxml2::XMLAttribute *attr = child->FirstAttribute();
             while (attr) {			//获取当前节点的所有属性

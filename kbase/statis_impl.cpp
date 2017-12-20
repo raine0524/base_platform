@@ -66,8 +66,8 @@ namespace crx
     public:
         pid_t m_pid;
         std::string m_proc_pid;
-        std::map<std::string, int> m_proc_status;
-        std::map<std::string, int> m_proc_meminfo;
+        std::unordered_map<std::string, int> m_proc_status;
+        std::unordered_map<std::string, int> m_proc_meminfo;
     };
 
     statis::statis(pid_t pid)

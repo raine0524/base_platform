@@ -28,7 +28,7 @@ namespace crx
         seria *m_seria;
         msgpack::sbuffer m_pack_buf;
         msgpack::packer<msgpack::sbuffer> m_packer;
-        std::map<std::string, std::string> m_dump_map;
+        std::unordered_map<std::string, std::string> m_dump_map;
     };
 
     seria::seria()
@@ -162,7 +162,7 @@ namespace crx
         }
     }
 
-    std::map<std::string, std::string> seria::dump(const char *data, int len)
+    std::unordered_map<std::string, std::string> seria::dump(const char *data, int len)
     {
         seria_impl *impl = static_cast<seria_impl*>(m_obj);
         if (!impl->m_dump_map.empty())

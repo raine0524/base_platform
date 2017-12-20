@@ -220,13 +220,13 @@ namespace crx
         void *m_tcp_args;		//回调参数
     };
 
-    extern std::map<EXT_DST, std::string> g_ext_type;
+    extern std::unordered_map<int, std::string> g_ext_type;
 
     struct http_client_conn : public tcp_client_conn
     {
         std::string stream_buffer;			//http缓冲流
         int m_status, m_content_len;
-        std::map<std::string, std::string> m_headers;
+        std::unordered_map<std::string, std::string> m_headers;
 
         http_client_conn()
                 :m_status(-1)
@@ -239,7 +239,7 @@ namespace crx
         //检查当前流中是否存在完整的http响应流，对可能的多个响应进行分包处理并执行相应的回调
         void check_http_stream(int fd, http_client_conn *conn);
 
-        std::function<void(int, int, std::map<std::string, std::string>&, std::string&, void*)> m_http_f;		//响应的回调函数
+        std::function<void(int, int, std::unordered_map<std::string, std::string>&, std::string&, void*)> m_http_f;		//响应的回调函数
         void *m_http_args;		//回调参数
     };
 
@@ -249,7 +249,7 @@ namespace crx
         int m_content_len;
         std::string m_method;		//请求方法
         std::string m_url;				//url(以"/"开始的字符串)
-        std::map<std::string, std::string> m_headers;
+        std::unordered_map<std::string, std::string> m_headers;
 
         http_server_conn()
                 :m_content_len(-1) {}
@@ -262,7 +262,7 @@ namespace crx
         void check_http_stream(int fd, http_server_conn *conn);
 
         //响应的回调函数
-        std::function<void(int, const std::string&, const std::string&, std::map<std::string, std::string>&, std::string*, void*)> m_http_f;
+        std::function<void(int, const std::string&, const std::string&, std::unordered_map<std::string, std::string>&, std::string*, void*)> m_http_f;
         void *m_http_args;		//回调参数
     };
 

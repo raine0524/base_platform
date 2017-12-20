@@ -128,14 +128,14 @@ namespace crx
          * @on_response: http请求的回调响应
          * @args: 响应的参数
          */
-        void request(int conn, const char *method, const char *post_page, std::map<std::string, std::string> *extra_headers,
+        void request(int conn, const char *method, const char *post_page, std::unordered_map<std::string, std::string> *extra_headers,
                      const char *ext_data, int ext_len, EXT_DST ed = DST_NONE);
 
         //发送一次GET请求
-        void GET(int conn, const char *post_page, std::map<std::string, std::string> *extra_headers);
+        void GET(int conn, const char *post_page, std::unordered_map<std::string, std::string> *extra_headers);
 
         //发送一次POST请求
-        void POST(int conn, const char *post_page, std::map<std::string, std::string> *extra_headers,
+        void POST(int conn, const char *post_page, std::unordered_map<std::string, std::string> *extra_headers,
                   const char *ext_data, int ext_len, EXT_DST ed = DST_JSON);
 
     protected:

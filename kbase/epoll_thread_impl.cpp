@@ -646,7 +646,7 @@ namespace crx
         eth_impl->async_write(ev, sig->data);
     }
 
-    http_client* epoll_thread::get_http_client(std::function<void(int, int, std::map<std::string, std::string>&, std::string&, void*)> f,
+    http_client* epoll_thread::get_http_client(std::function<void(int, int, std::unordered_map<std::string, std::string>&, std::string&, void*)> f,
                                                void *args /*= nullptr*/)
     {
         epoll_thread_impl *epoll_impl = static_cast<epoll_thread_impl*>(m_obj);
@@ -706,7 +706,7 @@ namespace crx
                     continue;
 
                 bool header_err = false;
-                std::map<std::string, std::string> header_kvs;
+                std::unordered_map<std::string, std::string> header_kvs;
                 for (size_t i = 0; i < str_vec.size(); ++i) {
                     if (0 == i) {		//首先解析响应行
                         //响应行包含空格分隔的三个字段，例如：HTTP/1.1(协议/版本) 200(状态码) OK(简单描述)
@@ -754,7 +754,7 @@ namespace crx
     }
 
     http_server* epoll_thread::get_http_server(uint16_t port, std::function<void(int, const std::string&, const std::string&,
-                                                                                 std::map<std::string, std::string>&, std::string*, void*)> f, void *args /*= nullptr*/)
+                                                                                 std::unordered_map<std::string, std::string>&, std::string*, void*)> f, void *args /*= nullptr*/)
     {
         epoll_thread_impl *epoll_impl = static_cast<epoll_thread_impl*>(m_obj);
         if (!epoll_impl->m_http_server) {
@@ -803,7 +803,7 @@ namespace crx
                     continue;
 
                 bool header_err = false;
-                std::map<std::string, std::string> header_kvs;
+                std::unordered_map<std::string, std::string> header_kvs;
                 for (size_t i = 0; i < str_vec.size(); ++i) {
                     if (0 == i) {		//首先解析请求行
                         //请求行包含空格分隔的三个字段，例如：POST(请求方法) /request(url) HTTP/1.1(协议/版本)

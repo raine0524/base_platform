@@ -51,7 +51,7 @@ namespace crx
          * ④响应体
          * ⑤回调参数
          */
-        http_client* get_http_client(std::function<void(int, int, std::map<std::string, std::string>&, std::string&, void*)> f, void *args = nullptr);
+        http_client* get_http_client(std::function<void(int, int, std::unordered_map<std::string, std::string>&, std::string&, void*)> f, void *args = nullptr);
 
         /**
          * 获取http服务端实例(自动释放)，回调函数中的6个参数依次为
@@ -63,7 +63,7 @@ namespace crx
          * ⑥回调参数
          */
         http_server* get_http_server(uint16_t port, std::function<void(int, const std::string&, const std::string&,
-                                                                       std::map<std::string, std::string>&, std::string*, void*)> f, void *args = nullptr);
+                                                                       std::unordered_map<std::string, std::string>&, std::string*, void*)> f, void *args = nullptr);
 
         /**
          * 获取文件系统监控实例(自动释放)，回调函数中的6个参数依次为

@@ -25,6 +25,6 @@ namespace crx
         std::string get_string(COMP_OPT opt = COMP_NONE);
 
         //反序列化操作，将数据流反序列化为map表
-        std::map<std::string, std::string> dump(const char *data, int len);
+        std::unordered_map<std::string, std::string> dump(const char *data, int len);
     };
 }
