@@ -88,7 +88,10 @@ namespace crx
 
     udp_ins::udp_ins()
     {
-        m_obj = new udp_ins_impl;
+        udp_ins_impl *impl = new udp_ins_impl;
+        memset(&impl->m_addr, 0, sizeof(impl->m_addr));
+        impl->m_addr.sin_family = AF_INET;
+        m_obj = impl;
     }
 
     uint16_t udp_ins::get_port()
@@ -99,14 +102,10 @@ namespace crx
 
     void udp_ins::send_data(const char *ip_addr, uint16_t port, const char *data, int len)
     {
-        struct sockaddr_in addr;
-        memset(&addr, 0, sizeof(addr));		//根据ip地址和端口构造sockaddr_in结构体
-        addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = inet_addr(ip_addr);
-        addr.sin_port = htons(port);
-
         udp_ins_impl *impl = static_cast<udp_ins_impl*>(m_obj);		//将数据发往指定主机上的指定进程
-        if (-1 == sendto(impl->fd, data, len, 0, (struct sockaddr*)&addr, sizeof(struct sockaddr)))
+        impl->m_addr.sin_addr.s_addr = inet_addr(ip_addr);
+        impl->m_addr.sin_port = htons(port);
+        if (-1 == sendto(impl->fd, data, len, 0, (struct sockaddr*)&impl->m_addr, sizeof(struct sockaddr)))
             perror("udp_ins::send_data::sendto");
     }
 
@@ -123,17 +122,14 @@ namespace crx
 
     tcp_client::tcp_client(bool expose)
     {
-        if (expose) {
-            tcp_client_impl *impl = new tcp_client_impl;
-            impl->m_expose = true;
-            m_obj = impl;
-        }
+        if (expose)
+            m_obj = new tcp_client_impl;
     }
 
     tcp_client::~tcp_client()
     {
         tcp_client_impl *impl = static_cast<tcp_client_impl*>(m_obj);
-        if (impl->m_expose)
+        if (PRT_NONE == impl->m_app_prt)
             delete impl;
     }
 
@@ -148,12 +144,9 @@ namespace crx
 
         tcp_client_impl *impl = static_cast<tcp_client_impl*>(m_obj);
         tcp_client_conn *conn = nullptr;
-        if (impl->m_expose) {		//此时使用的是基本的tcp协议
-            conn = new tcp_client_conn;
-        } else {
-            switch (impl->m_app_prt) {
-                case PRT_HTTP:		conn = new http_client_conn;    break;
-            }
+        switch (impl->m_app_prt) {
+            case PRT_NONE:      conn = new tcp_client_conn;     break;      //使用原始的tcp协议
+            case PRT_HTTP:		conn = new http_client_conn;    break;      //使用http协议
         }
         conn->fd = sock_fd;
         conn->conn_sock.m_sock_fd = sock_fd;		//保存创建的tcp套接字
@@ -223,7 +216,6 @@ namespace crx
     {
         if (expose) {
             tcp_server_impl *impl = new tcp_server_impl;
-            impl->m_expose = true;
             m_obj = impl;
         }
     }

@@ -81,21 +81,23 @@ namespace crx
 
         void set_text(double x_coor, double y_coor, const char *text, size_t font_size = 16);		//plot文本
 
-        void set_legend(int argc, ...);		//plot说明(可变参数都是const char*类型，必须在plot函数之后调用)
+        void set_legend(const std::vector<std::string>& legend_arr);    //plot说明(必须在plot函数之后调用)
 
-        void set_xlim(int argc, ...);       //plot X坐标轴(可变参数都是double类型)
+        void set_xlim(const std::vector<double>& xlim_arr);             //plot X坐标轴
 
-        void set_ylim(int argc, ...);       //plot Y坐标轴(可变参数都是double类型)
+        void set_ylim(const std::vector<double>& ylim_arr);             //plot Y坐标轴
 
-        void set_axis(int argc, ...);       //plot坐标轴(可变参数都是double类型，例如: 必须传入3.0而不是传入3)
+        void set_axis(const std::vector<double>& axis_arr);             //plot坐标轴
 
-        void plot(int argc, ...);           //plot绘图(可变参数都是plot_function_2d*类型)
+        void switch_figure(int which);      //切换到另外一个绘图窗口，若不存在则创建，which(非负)指明哪一个窗口
+
+        void plot(const std::vector<plot_function_2d>& funcs);          //plot绘图(可变参数都是plot_function_2d*类型)
 
         void clf();                         //清理当前绘图
 
         void pause(int millisec = 100);     //更新当前绘制窗口(time为绘图所需时间,100ms已够,且不用绘制过于频繁)
 
-        void close();                       //关闭当前绘制窗口
+        void close(int which);              //关闭指定的绘制窗口，若which为-1则关闭所有窗口
 
         void save_figure(const char *png_prefix, int dpi = 75);		//plot保存图片(图片名称将自动加上.png后缀)，支持多级目录保存方式
     };

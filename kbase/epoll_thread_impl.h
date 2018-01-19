@@ -89,6 +89,7 @@ namespace crx
 
         static void udp_ins_callback(eth_event *args);
 
+        sockaddr_in m_addr;
         net_socket m_net_sock;			//udp套接字
         std::string m_recv_buffer;		//接收缓冲区
 
@@ -98,7 +99,8 @@ namespace crx
 
     enum APP_PRT    //应用层协议的类型
     {
-        PRT_HTTP = 0,			//HTTP协议
+        PRT_NONE = 0,       //使用原始的传输层协议
+        PRT_HTTP,			//HTTP协议
     };
 
     class tcp_client_impl;
@@ -138,7 +140,7 @@ namespace crx
                 :m_timer(nullptr)
                 ,m_resolve_ev(nullptr)
                 ,m_write_ev(nullptr)
-                ,m_expose(false)
+                ,m_app_prt(PRT_NONE)
                 ,m_eth_impl(nullptr)
                 ,m_tcp_args(nullptr) {}
 
@@ -171,8 +173,6 @@ namespace crx
 
         timer *m_timer;
         event *m_resolve_ev, *m_write_ev;
-
-        bool m_expose;
         APP_PRT m_app_prt;
 
         epoll_thread_impl *m_eth_impl;
@@ -193,7 +193,7 @@ namespace crx
     public:
         tcp_server_impl()
                 :m_write_ev(nullptr)
-                ,m_expose(false)
+                ,m_app_prt(PRT_NONE)
                 ,m_tcp_args(nullptr) {}
 
         virtual ~tcp_server_impl()
@@ -211,8 +211,6 @@ namespace crx
 
         net_socket m_net_sock;			//tcp服务端监听套接字
         crx::event *m_write_ev;
-
-        bool m_expose;
         APP_PRT m_app_prt;
 
         //收到tcp数据流时触发的回调函数 @int类型的参数指明是哪一个连接

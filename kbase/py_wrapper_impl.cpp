@@ -189,7 +189,7 @@ namespace crx
 
         //从"matplotlib.pyplot"模块中获取绘图所需的一系列函数对象
         PyObject *mat_module = env_impl->m_persis_modules[mat_module_name];
-        std::vector<std::string> func_vec = {"title", "text", "legend", "axis", "gca",
+        std::vector<std::string> func_vec = {"title", "text", "legend", "axis", "gca", "figure",
                                              "plot", "clf", "pause", "close", "savefig"};
         for (auto& func_name : func_vec) {
             PyObject *py_func = PyObject_GetAttrString(mat_module, func_name.c_str());
@@ -311,7 +311,7 @@ namespace crx
         text_malloc.ret_val = PyObject_Call(py_func, text_malloc.py_args, text_malloc.py_kw);
     }
 
-    void py_plot::set_legend(int argc, ...)
+    void py_plot::set_legend(const std::vector<std::string>& legend_arr)
     {
         static const std::string this_key = "legend";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
@@ -324,25 +324,19 @@ namespace crx
         legend_malloc.py_args = PyTuple_New(1);
 
         Py_XDECREF(legend_malloc.py_lists[0]);
-        legend_malloc.py_lists[0] = PyList_New(argc);
+        legend_malloc.py_lists[0] = PyList_New(legend_arr.size());
 
-        va_list vl;
-        va_start(vl, argc);
-        for (int i = 0; i < argc; ++i) {
-            const char *val = va_arg(vl, const char*);
-            //将所有参数装入List列表对象中
-            PyList_SetItem(legend_malloc.py_lists[0], i, PyUnicode_FromString(val));
-        }
+        for (int i = 0; i < legend_arr.size(); ++i)     //将所有参数装入List列表对象中
+            PyList_SetItem(legend_malloc.py_lists[0], i, PyUnicode_FromString(legend_arr[i].c_str()));
         //再将该List列表对象作为元组中的一个普通元素
         PyTuple_SetItem(legend_malloc.py_args, 0, legend_malloc.py_lists[0]);
-        va_end(vl);
 
         //同上，保存"legend"函数的返回值
         Py_XDECREF(legend_malloc.ret_val);
         legend_malloc.ret_val = PyObject_CallObject(py_func, legend_malloc.py_args);
     }
 
-    void py_plot::set_xlim(int argc, ...)
+    void py_plot::set_xlim(const std::vector<double>& xlim_arr)
     {
         static const std::string this_key = "set_xlim";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
@@ -355,25 +349,19 @@ namespace crx
         xlim_malloc.py_args = PyTuple_New(1);
 
         Py_XDECREF(xlim_malloc.py_lists[0]);
-        xlim_malloc.py_lists[0] = PyList_New(2);
+        xlim_malloc.py_lists[0] = PyList_New(xlim_arr.size());
 
-        va_list vl;
-        va_start(vl, argc);
-        for (int i = 0; i < argc; ++i) {
-            double val = va_arg(vl, double);
-            //将所有参数装入List列表对象中
-            PyList_SetItem(xlim_malloc.py_lists[0], i, PyFloat_FromDouble(val));
-        }
+        for (int i = 0; i < xlim_arr.size(); ++i)       //将所有参数装入List列表对象中
+            PyList_SetItem(xlim_malloc.py_lists[0], i, PyFloat_FromDouble(xlim_arr[i]));
         //再将该List列表对象作为元组中的一个普通元素
         PyTuple_SetItem(xlim_malloc.py_args, 0, xlim_malloc.py_lists[0]);
-        va_end(vl);
 
         //同上，保存"axis"函数的返回值
         Py_XDECREF(xlim_malloc.ret_val);
         xlim_malloc.ret_val = PyObject_CallObject(py_func, xlim_malloc.py_args);
     }
 
-    void py_plot::set_ylim(int argc, ...)
+    void py_plot::set_ylim(const std::vector<double>& ylim_arr)
     {
         static const std::string this_key = "set_ylim";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
@@ -386,25 +374,19 @@ namespace crx
         ylim_malloc.py_args = PyTuple_New(1);
 
         Py_XDECREF(ylim_malloc.py_lists[0]);
-        ylim_malloc.py_lists[0] = PyList_New(2);
+        ylim_malloc.py_lists[0] = PyList_New(ylim_arr.size());
 
-        va_list vl;
-        va_start(vl, argc);
-        for (int i = 0; i < argc; ++i) {
-            double val = va_arg(vl, double);
-            //将所有参数装入List列表对象中
-            PyList_SetItem(ylim_malloc.py_lists[0], i, PyFloat_FromDouble(val));
-        }
+        for (int i = 0; i < ylim_arr.size(); ++i)       //将所有参数装入List列表对象中
+            PyList_SetItem(ylim_malloc.py_lists[0], i, PyFloat_FromDouble(ylim_arr[i]));
         //再将该List列表对象作为元组中的一个普通元素
         PyTuple_SetItem(ylim_malloc.py_args, 0, ylim_malloc.py_lists[0]);
-        va_end(vl);
 
         //同上，保存"axis"函数的返回值
         Py_XDECREF(ylim_malloc.ret_val);
         ylim_malloc.ret_val = PyObject_CallObject(py_func, ylim_malloc.py_args);
     }
 
-    void py_plot::set_axis(int argc, ...)
+    void py_plot::set_axis(const std::vector<double>& axis_arr)
     {
         static const std::string this_key = "axis";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
@@ -417,25 +399,40 @@ namespace crx
         axis_malloc.py_args = PyTuple_New(1);
 
         Py_XDECREF(axis_malloc.py_lists[0]);
-        axis_malloc.py_lists[0] = PyList_New(4);
+        axis_malloc.py_lists[0] = PyList_New(axis_arr.size());
 
-        va_list vl;
-        va_start(vl, argc);
-        for (int i = 0; i < argc; ++i) {
-            double val = va_arg(vl, double);
-            //将所有参数装入List列表对象中
-            PyList_SetItem(axis_malloc.py_lists[0], i, PyFloat_FromDouble(val));
-        }
+        for (int i = 0; i < axis_arr.size(); ++i)       //将所有参数装入List列表对象中
+            PyList_SetItem(axis_malloc.py_lists[0], i, PyFloat_FromDouble(axis_arr[i]));
         //再将该List列表对象作为元组中的一个普通元素
         PyTuple_SetItem(axis_malloc.py_args, 0, axis_malloc.py_lists[0]);
-        va_end(vl);
 
         //同上，保存"axis"函数的返回值
         Py_XDECREF(axis_malloc.ret_val);
         axis_malloc.ret_val = PyObject_CallObject(py_func, axis_malloc.py_args);
     }
 
-    void py_plot::plot(int argc, ...)
+    void py_plot::switch_figure(int which)
+    {
+        static const std::string this_key = "figure";
+        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
+
+        PyObject *py_func = obj_impl->m_persis_funcs[this_key];     //获取"figure"函数对象
+        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto& fig_malloc = plot_impl->m_func_objs[this_key];
+
+        //args
+        Py_XDECREF(fig_malloc.py_args);
+        fig_malloc.py_args = PyTuple_New(1);
+
+        //which作为figure函数的参数
+        PyTuple_SetItem(fig_malloc.py_args, 0, PyLong_FromLong(which));
+
+        //同上，保存"figure"函数的返回值
+        Py_XDECREF(fig_malloc.ret_val);
+        fig_malloc.ret_val = PyObject_CallObject(py_func, fig_malloc.py_args);
+    }
+
+    void py_plot::plot(const std::vector<plot_function_2d>& funcs)
     {
         static const std::string this_key = "plot";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
@@ -446,17 +443,15 @@ namespace crx
 
         //args
         Py_XDECREF(plot_malloc.py_args);
-        plot_malloc.py_args = PyTuple_New(argc*3);
+        plot_malloc.py_args = PyTuple_New(funcs.size()*3);
 
         for (auto& list : plot_malloc.py_lists)
             Py_XDECREF(list);
         plot_malloc.py_lists.clear();
-        plot_malloc.py_lists.resize(argc*2);
+        plot_malloc.py_lists.resize(funcs.size()*2);
 
-        va_list vl;
-        va_start(vl, argc);
-        for (int i = 0; i < argc; ++i) {
-            plot_function_2d *pf = va_arg(vl, plot_function_2d*);
+        for (int i = 0; i < funcs.size(); ++i) {
+            const plot_function_2d *pf = &funcs[i];
             plot_malloc.py_lists[i*2+0] = PyList_New(pf->point_vec.size());
             plot_malloc.py_lists[i*2+1] = PyList_New(pf->point_vec.size());
             //将二维函数对象中的点集按序分别装入两个不同的列表中，这两个列表分别对应函数对象的X及Y分量
@@ -476,7 +471,6 @@ namespace crx
             //将该样式字符串放在元组中的X、Y向量之后
             PyTuple_SetItem(plot_malloc.py_args, i*3+2, PyUnicode_FromString(style.c_str()));
         }
-        va_end(vl);
 
         //kw
         Py_XDECREF(plot_malloc.py_kw);
@@ -521,18 +515,21 @@ namespace crx
         pause_malloc.ret_val = PyObject_CallObject(py_func, pause_malloc.py_args);
     }
 
-    void py_plot::close()
+    void py_plot::close(int which)
     {
-        static const std::string this_key = "close";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-
-        PyObject *py_func = obj_impl->m_persis_funcs[this_key];     //获取"close"函数对象
         py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+
+        static const std::string this_key = "close";
         auto& close_malloc = plot_impl->m_func_objs[this_key];
+        PyObject *py_func = obj_impl->m_persis_funcs[this_key];     //获取"close"函数对象
 
         Py_XDECREF(close_malloc.py_args);
         close_malloc.py_args = PyTuple_New(1);
-        PyTuple_SetItem(close_malloc.py_args, 0, PyUnicode_FromString("all"));
+        if (-1 == which)
+            PyTuple_SetItem(close_malloc.py_args, 0, PyUnicode_FromString("all"));
+        else
+            PyTuple_SetItem(close_malloc.py_args, 0, PyLong_FromLong(which));
 
         Py_XDECREF(close_malloc.ret_val);
         close_malloc.ret_val = PyObject_CallObject(py_func, close_malloc.py_args);

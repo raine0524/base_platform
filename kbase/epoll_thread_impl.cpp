@@ -492,20 +492,20 @@ namespace crx
         }
 
         int sts = 0;
-        if (tc_conn->tcp_impl->m_expose) {       //判断当前使用的是否是基本的tcp_client
-            std::string stream;     //读该tcp连接上的数据并执行回调
-            sts = tc_conn->eth_impl->async_read(tc_conn->fd, stream);
-            if (!stream.empty())
-                tc_conn->tcp_impl->m_tcp_f(tc_conn->fd, stream, tc_conn->tcp_impl->m_tcp_args);
-        } else {
-            switch (tc_conn->tcp_impl->m_app_prt) {
-                case PRT_HTTP: {		//当前使用的是http_client
-                    auto http_conn = dynamic_cast<http_client_conn*>(tc_conn);
-                    auto http_impl = dynamic_cast<http_client_impl*>(tc_conn->tcp_impl);
-                    sts = http_impl->m_eth_impl->async_read(http_conn->fd, http_conn->stream_buffer);		//读http响应流
-                    http_impl->check_http_stream(http_conn->fd, http_conn);		//解决粘包问题，在获取完整的http响应信息后执行回调
-                    break;
-                }
+        switch (tc_conn->tcp_impl->m_app_prt) {
+            case PRT_NONE: {        //当前使用的是基本的tcp_client
+                std::string stream;     //读该tcp连接上的数据并执行回调
+                sts = tc_conn->eth_impl->async_read(tc_conn->fd, stream);
+                if (!stream.empty())
+                    tc_conn->tcp_impl->m_tcp_f(tc_conn->fd, stream, tc_conn->tcp_impl->m_tcp_args);
+                break;
+            }
+            case PRT_HTTP: {		//当前使用的是http_client
+                auto http_conn = dynamic_cast<http_client_conn*>(tc_conn);
+                auto http_impl = dynamic_cast<http_client_impl*>(tc_conn->tcp_impl);
+                sts = http_impl->m_eth_impl->async_read(http_conn->fd, http_conn->stream_buffer);		//读http响应流
+                http_impl->check_http_stream(http_conn->fd, http_conn);		//解决粘包问题，在获取完整的http响应信息后执行回调
+                break;
             }
         }
 
@@ -527,8 +527,14 @@ namespace crx
         eth_event *ev = impl->m_ev_array[sig->fd];
 
         if (ev) {
-            http_client_conn *conn = dynamic_cast<http_client_conn*>(ev);
-            sig->data->insert(sig->data->find("Host:")+6, conn->domain_name);
+            tcp_client_conn *tcp_conn = dynamic_cast<tcp_client_conn*>(ev);
+            switch (tcp_conn->tcp_impl->m_app_prt) {
+                case PRT_HTTP: {
+                    http_client_conn *conn = dynamic_cast<http_client_conn*>(ev);
+                    sig->data->insert(sig->data->find("Host:")+6, conn->domain_name);
+                    break;
+                }
+            }
             impl->async_write(ev, sig->data);
         } else {
             ev = new eth_event;
@@ -583,12 +589,9 @@ namespace crx
 
             setnonblocking(client_fd);			//将客户端连接文件描述符设为非阻塞并加入监听事件
             tcp_server_conn *conn = nullptr;
-            if (impl->m_expose) {
-                conn = new tcp_server_conn;
-            } else {
-                switch (impl->m_app_prt) {
-                    case PRT_HTTP:		conn = new http_server_conn;    break;
-                }
+            switch (impl->m_app_prt) {
+                case PRT_NONE:      conn = new tcp_server_conn;     break;
+                case PRT_HTTP:		conn = new http_server_conn;    break;
             }
 
             conn->fd = client_fd;
@@ -607,21 +610,20 @@ namespace crx
     {
         tcp_server_conn *conn = dynamic_cast<tcp_server_conn*>(ev);
         int sts = 0;
-        if (conn->ts_impl->m_expose) {		//判断当前使用的是否是基本的tcp_server
-            std::string stream;
-            sts = conn->eth_impl->async_read(conn->fd, stream);
-            if (!stream.empty())		//若获取到数据流则执行回调函数
-                conn->ts_impl->m_tcp_f(conn->fd, conn->ip_addr, conn->port,
-                                       stream, conn->ts_impl->m_tcp_args);
-        } else {
-            switch (conn->ts_impl->m_app_prt) {
-                case PRT_HTTP: {
-                    auto http_conn = dynamic_cast<http_server_conn*>(conn);
-                    auto http_impl = dynamic_cast<http_server_impl*>(conn->ts_impl);
-                    sts = http_impl->eth_impl->async_read(http_conn->fd, http_conn->stream_buffer);		//读http请求流
-                    http_impl->check_http_stream(http_conn->fd, http_conn);		//解决粘包问题，读取完整的http请求信息后执行回调
-                    break;
-                }
+        switch (conn->ts_impl->m_app_prt) {
+            case PRT_NONE: {    //当前使用的是基本的tcp_server
+                std::string stream;
+                sts = conn->eth_impl->async_read(conn->fd, stream);
+                if (!stream.empty())		//若获取到数据流则执行回调函数
+                    conn->ts_impl->m_tcp_f(conn->fd, conn->ip_addr, conn->port, stream, conn->ts_impl->m_tcp_args);
+                break;
+            }
+            case PRT_HTTP: {
+                auto http_conn = dynamic_cast<http_server_conn*>(conn);
+                auto http_impl = dynamic_cast<http_server_impl*>(conn->ts_impl);
+                sts = http_impl->eth_impl->async_read(http_conn->fd, http_conn->stream_buffer);		//读http请求流
+                http_impl->check_http_stream(http_conn->fd, http_conn);		//解决粘包问题，读取完整的http请求信息后执行回调
+                break;
             }
         }
 

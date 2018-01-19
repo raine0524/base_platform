@@ -54,6 +54,7 @@
 #include <vector>
 #include <deque>
 #include <bitset>
+#include <random>
 
 //////////////////////////////////////////////////////////////////////////
 //platform(linux) specific library
@@ -118,33 +119,37 @@
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
 
-namespace crx {
-static const long int nano_per_sec = 1000*1000*1000;
+namespace crx
+{
+    static const long int nano_per_sec = 1000*1000*1000;
 
-class CRX_SHARE kobj {
-public:
-	kobj() : m_obj(nullptr) {}
-	virtual ~kobj() {}
-	void *m_obj;
+    class CRX_SHARE kobj
+    {
+    public:
+        kobj() : m_obj(nullptr) {}
+        virtual ~kobj() {}
+        void *m_obj;
 
-private:
-	kobj(const kobj&) = delete;
-	kobj& operator=(const kobj&) = delete;
-};
+    private:
+        kobj(const kobj&) = delete;
+        kobj& operator=(const kobj&) = delete;
+    };
 
-struct CRX_SHARE datetime {		//日期时间
-	unsigned int date;		//format: YYYYMMDD
-	unsigned int time;		//format: HHMMSSmmm，最后三位为毫秒
+    struct CRX_SHARE datetime
+    {		//日期时间
+        unsigned int date;		//format: YYYYMMDD
+        unsigned int time;		//format: HHMMSSmmm，最后三位为毫秒
 
-	datetime()
-	:date(0)
-	,time(0) {}
-};
+        datetime()
+                :date(0)
+                ,time(0) {}
+    };
 
-enum ADDR_TYPE {
-	ADDR_MAC = 0,
-	ADDR_IP,
-};
+    enum ADDR_TYPE
+    {
+        ADDR_MAC = 0,
+        ADDR_IP,
+    };
 }
 
 //////////////////////////////////////////////////////////////////////////
