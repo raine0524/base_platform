@@ -13,62 +13,68 @@ namespace crx
 
     enum LINE_STYLE     //线的类型
     {
-        SOLID = 0,			//实线
-        DASHED,				//虚线
-        DASH_DOT,			//虚-点线
-        DOTTED,				//点线
+        STYLE_SOLID,         //实线
+        STYLE_DASHED,        //虚线
+        STYLE_DASH_DOT,      //虚-点线
+        STYLE_DOTTED,        //点线
     };
 
     enum POINT_MARKER       //点的记号
     {
-        POINT = 0,					//实心点
-        PIXEL,							//像素
-        CIRCLE,							//空心点
-        TRIANGLE_DOWN,		//下/上/左/右三角
-        TRIANGLE_UP,
-        TRIANGLE_LEFT,
-        TRIANGLE_RIGHT,
-        SQUARE,						//正方形
-        PENTAGON,					//五角星
-        STAR,							//星形
-        PLUS,							//'+'
-        X,									//'x'
-        DIAMOND,					//菱形
+        MARKER_NONE = 0,     //使用系统默认
+        MARKER_POINT,           //实心点
+        MARKER_PIXEL,           //像素
+        MARKER_CIRCLE,          //空心点
+        MARKER_TRIANGLE_DOWN,   //下/上/左/右三角
+        MARKER_TRIANGLE_UP,
+        MARKER_TRIANGLE_LEFT,
+        MARKER_TRIANGLE_RIGHT,
+        MARKER_SQUARE,          //正方形
+        MARKER_PENTAGON,        //五角星
+        MARKER_STAR,            //星形
+        MARKER_PLUS,            //'+'
+        MARKER_X,               //'x'
+        MARKER_DIAMOND,         //菱形
     };
 
     enum COLOR      //点和线的颜色
     {
-        BLUE = 0,			//蓝
-        GREEN,				//绿
-        RED,					//红
-        CYAN,				//青
-        MAGENTA,		//紫
-        YELLOW,			//黄
-        BLACK,				//黑
-        WHITE,				//白
+        COL_DEFAULT = 0,    //使用系统默认
+        COL_BLUE,           //蓝
+        COL_GREEN,          //绿
+        COL_RED,            //红
+        COL_CYAN,           //青
+        COL_MAGENTA,        //紫
+        COL_YELLOW,         //黄
+        COL_BLACK,          //黑
+        COL_WHITE,          //白
     };
 
-    struct plot_point_2d    //二维的点结构
+    enum DIM_TYPE
+    {
+        DIM_2,      //2维
+        DIM_3,      //3维
+    };
+
+    struct plot_point    //三维的点结构(绘制二维函数时不使用z字段)
     {
         double x;
         double y;
-
-        plot_point_2d()
-                :x(0)
-                ,y(0) {}
+        double z;
+        plot_point() : x(0), y(0), z(0) {}
     };
 
-    struct plot_function_2d     //二维函数绘图对象
+    struct plot_function     //函数绘图对象(支持三维)
     {
-        std::deque<plot_point_2d> point_vec;		//二维点集向量
+        std::deque<plot_point> point_vec;		//点集向量(支持三维)
         LINE_STYLE ls;				//线的类型
         POINT_MARKER pm;		//点的记号
         COLOR col;					//点和线的颜色
 
-        plot_function_2d()
-                :ls(SOLID)
-                ,pm(POINT)
-                ,col(BLUE) {}
+        plot_function()
+                :ls(STYLE_SOLID)
+                ,pm(MARKER_NONE)
+                ,col(COL_DEFAULT) {}
     };
 
     class CRX_SHARE py_plot : public py_object
@@ -87,11 +93,19 @@ namespace crx
 
         void set_ylim(const std::vector<double>& ylim_arr);             //plot Y坐标轴
 
+        void set_xlabel(const char *label);     //设置x轴标签
+
+        void set_ylabel(const char *label);     //设置y轴标签
+
+        void set_zlabel(const char *label);     //设置z轴标签
+
         void set_axis(const std::vector<double>& axis_arr);             //plot坐标轴
 
-        void switch_figure(int which);      //切换到另外一个绘图窗口，若不存在则创建，which(非负)指明哪一个窗口
+        void create_figure(int fig_num, DIM_TYPE type);     //创建一个绘图窗口并切换至该窗口，若窗口已存在则不做任何操作
 
-        void plot(const std::vector<plot_function_2d>& funcs);          //plot绘图(可变参数都是plot_function_2d*类型)
+        void switch_figure(int which);                      //切换到另外一个绘图窗口，若不存在则不做任何操作
+
+        void plot(std::vector<plot_function>& funcs, double linewidth);     //plot绘图(可变参数都是plot_function_2d*类型)
 
         void clf();                         //清理当前绘图
 
