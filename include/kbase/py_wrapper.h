@@ -105,7 +105,7 @@ namespace crx
 
         void switch_figure(int which);                      //切换到另外一个绘图窗口，若不存在则不做任何操作
 
-        void plot(std::vector<plot_function>& funcs, double linewidth);     //plot绘图(可变参数都是plot_function_2d*类型)
+        void plot(const std::vector<plot_function>& funcs, double linewidth = 1.0);     //plot绘图(可变参数都是plot_function_2d*类型)
 
         void clf();                         //清理当前绘图
 

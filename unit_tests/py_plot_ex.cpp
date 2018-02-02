@@ -95,7 +95,7 @@ void py_plot_test::plot_3d_func()
 
 bool py_plot_test::init(int argc, char *argv[])
 {
-	//m_py_wrapper.run_py_func("pltPowerFuns", "MyPlotTest", 0);
+//	m_py_wrapper.run_py_func("pltPowerFuns", "MyPlotTest", 0);
 	m_plot = m_py_wrapper.get_mat_plot();
     plot_2d_func();
     plot_3d_func();

@@ -522,7 +522,7 @@ namespace crx
         }
     }
 
-    void py_plot::plot(std::vector<plot_function>& funcs, double linewidth)
+    void py_plot::plot(const std::vector<plot_function>& funcs, double linewidth /*= 1.0*/)
     {
         static const std::string this_key = "plot";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);

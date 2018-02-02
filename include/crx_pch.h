@@ -70,6 +70,7 @@
 #include <ifaddrs.h>
 #include <sched.h>
 #include <syscall.h>
+#include <ucontext.h>
 
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -163,3 +164,4 @@ namespace crx
 #include "kbase/epoll_util.h"
 #include "kbase/epoll_thread.h"
 #include "kbase/console.h"
+#include "kbase/scheduler.h"

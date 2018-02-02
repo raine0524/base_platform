@@ -14,6 +14,7 @@
 #include "console_impl.h"
 #include "evd_thread_impl.h"
 #include "py_wrapper_impl.h"
+#include "scheduler_impl.h"
 
 namespace crx
 {
