@@ -17,9 +17,7 @@ namespace crx
     class net_socket
     {
     public:
-        net_socket()
-                :m_port(0)
-                ,m_sock_fd(-1)
+        net_socket() : m_port(0), m_sock_fd(-1)
         {
             bzero(&m_addr, sizeof(m_addr));
         }
@@ -34,16 +32,14 @@ namespace crx
         int create(PRT_TYPE ptype = PRT_TCP, USR_TYPE utype = USR_SERVER,
                    const char *ip_addr = nullptr, uint16_t port = 0)
         {
-            if (-1 == m_sock_fd) {
-                if (PRT_TCP == ptype)		//根据指定的协议创建对应的套接字
-                    m_sock_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
-                else		//PRT_UDP == ptype
-                    m_sock_fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
+            if (PRT_TCP == ptype)		//根据指定的协议创建对应的套接字
+                m_sock_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+            else		//PRT_UDP == ptype
+                m_sock_fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
 
-                if (-1 == m_sock_fd) {
-                    perror("net_socket::create::socket");
-                    return -1;
-                }
+            if (-1 == m_sock_fd) {
+                perror("net_socket::create::socket");
+                return -1;
             }
             m_ptype = ptype;		//保存当前套接所用的协议类型
 

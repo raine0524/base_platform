@@ -2,7 +2,7 @@
 
 namespace crx
 {
-    class CRX_SHARE console : public epoll_thread
+    class CRX_SHARE console : public scheduler
     {
     public:
         console();

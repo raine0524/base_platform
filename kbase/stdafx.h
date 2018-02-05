@@ -10,7 +10,6 @@
 #include "../include/msgpack.hpp"
 
 #include "net_base.h"
-#include "epoll_thread_impl.h"
 #include "console_impl.h"
 #include "evd_thread_impl.h"
 #include "py_wrapper_impl.h"

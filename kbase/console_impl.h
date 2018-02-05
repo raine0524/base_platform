@@ -12,12 +12,12 @@ namespace crx
     {
     public:
         console_impl(console *c);
-        virtual ~console_impl() {}
+        virtual ~console_impl();
 
         bool preprocess(int argc, char *argv[]);
-        bool execute_cmd(const std::vector<std::string>& args);
-        void wait_shell_input(int wr_fifo);
-        void wait_pipe_input(int stdout_bk);
+        bool execute_cmd(std::vector<std::string>& args);
+        void listen_keyboard_input(int wr_fifo);
+        void listen_pipe_input();
 
         static void start_daemon(std::vector<std::string>& args, console *c);
         static void stop_daemon(std::vector<std::string>& args, console *c);
@@ -38,6 +38,11 @@ namespace crx
          */
         bool m_is_service, m_init, m_as_shell;
         std::string m_pipe_name[2], m_pipe_dir;
+
+        bool m_pipe_conn;
+        int m_rd_fifo, m_wr_fifo;      //used in listen keyboard/pipe event
+
+        int m_stdout_backup;
         std::unordered_map<bool, std::unordered_map<std::string, console_cmd>> m_cmds;      //m_cmds根据m_init当前的值区分为两类
     };
 }
