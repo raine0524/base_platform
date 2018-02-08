@@ -298,6 +298,7 @@ namespace crx
             if (sts <= 0) {		//对端关闭或异常
                 excep = true;		//该变量指示出现异常
                 sch_impl->m_go_done = false;
+                sch_impl->remove_event(args);
             }
         };
         eth_ev->args = eth_ev;

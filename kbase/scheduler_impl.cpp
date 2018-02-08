@@ -202,9 +202,6 @@ namespace crx
             if (cnt == EPOLL_SIZE)
                 printf("[main_coroutine::epoll_wait WARN] 当前待处理的事件达到监听队列的上限 (%d)！\n", cnt);
 
-            if (!m_go_done)
-                break;
-
             size_t i = 0;
             while (i < cnt) {       //处理已触发的事件
                 int fd = events[i].data.fd;
