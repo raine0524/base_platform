@@ -152,9 +152,14 @@ namespace crx
         if (cmds.end() == cmds.find(args[0]))
             return false;
 
-        m_cmd_args = std::move(args);       //创建一个协程运行该命令
-        size_t co_id = m_c->co_create(exec_cmd_co, this, true);
-        m_c->co_yield(co_id);
+        if (!m_init) {      //带参执行命令
+            std::vector<std::string> fargs(args.begin()+1, args.end());
+            cmds[args[0]].f(fargs, m_c);
+        } else {        //运行时命令
+            m_cmd_args = std::move(args);       //创建一个协程运行该命令
+            size_t co_id = m_c->co_create(exec_cmd_co, this, true);
+            m_c->co_yield(co_id);
+        }
         return true;
     }
 
@@ -285,14 +290,13 @@ namespace crx
             std::string output;
             int sts = sch_impl->async_read(args->fd, output);
             if (!output.empty()) {
-                printf("%s", output.c_str());		//打印后台daemon进程输出的运行时信息
+                std::cout<<output;      //打印后台daemon进程输出的运行时信息
                 if (!stop_service && !excep)        //当前shell既不是用来停止后台服务，也未出现管道异常，则打印命令行提示符
                     std::cout<<g_server_name<<":\\>"<<std::flush;
             }
 
             if (sts <= 0) {		//对端关闭或异常
                 excep = true;		//该变量指示出现异常
-                sch_impl->remove_event(args);
                 sch_impl->m_go_done = false;
             }
         };
@@ -303,6 +307,9 @@ namespace crx
             listen_keyboard_input(wr_fifo);
         else        //若是停止后台daemon进程，则首先发送自定义的退出信号
             write(wr_fifo, service_quit_sig, strlen(service_quit_sig));
+
+        std::function<void(scheduler *sch, void *arg)> stub;
+        sch_impl->co_create(stub, nullptr, m_c, true, false, "main coroutine");        //创建主协程
         m_c->co_yield(0);       //切换至主协程
 
         if (excep)

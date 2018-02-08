@@ -12,8 +12,8 @@ namespace crx
 
     enum SUS_STATUS
     {
-        STS_WAIT_EVENT = 0,
-        STS_HAVE_REST,
+        STS_WAIT_EVENT = 0,     //等待注册事件触发后回切本协程
+        STS_HAVE_REST,          //短暂的休息一段时间，若无其他事件处理，那么主协程会在一个时间片之后切回本协程
     };
 
     struct coroutine

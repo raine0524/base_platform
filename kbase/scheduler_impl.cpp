@@ -769,7 +769,7 @@ namespace crx
 
         const char *cb_data = nullptr;
         size_t cb_len = 0;
-        if (conn->m_content_len != 1 || '\n' != *data) {     //请求流中包含请求体
+        if (len != 1 || '\n' != *data) {     //请求流中包含请求体
             cb_data = data;
             cb_len = (size_t)conn->m_content_len;
         }
