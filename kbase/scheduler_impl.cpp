@@ -45,8 +45,8 @@ namespace crx
         delete impl;
     }
 
-    size_t scheduler::co_create(std::function<void(scheduler *sch, void *arg)> f, void *arg, bool is_share /*= false*/,
-                                const char *comment /*= nullptr*/)
+    size_t scheduler::co_create(std::function<void(scheduler *sch, void *arg)> f, void *arg,
+                                bool is_share /*= false*/, const char *comment /*= nullptr*/)
     {
         auto impl = (scheduler_impl*)m_obj;
         return impl->co_create(f, arg, this, false, is_share, comment);
@@ -114,7 +114,7 @@ namespace crx
     }
 
     size_t scheduler_impl::co_create(std::function<void(scheduler *sch, void *arg)>& f, void *arg, scheduler *sch,
-                                  bool is_main_co, bool is_share /*= false*/, const char *comment /*= nullptr*/)
+                                     bool is_main_co, bool is_share /*= false*/, const char *comment /*= nullptr*/)
     {
         coroutine_impl *co_impl = nullptr;
         if (m_unused_list.empty()) {
