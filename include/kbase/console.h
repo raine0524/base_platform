@@ -30,7 +30,9 @@ namespace crx
          * "-start": 以服务形式在后台运行
          * "-stop": 终止后台运行的服务
          * "-restart": 重启后台运行的服务
+         * @param bind_flag: 是否将当前进程的主线程绑定到某个cpu核上，-1表示不绑定，INT_MAX表示随机绑定到一个核上
+         * 除此之外也可以将bing_flag绑定到用户指定的核上，此时bind_flag的取值范围为0~N-1，其中N为核心数
          */
-        int run(int argc, char *argv[]);
+        int run(int argc, char *argv[], int bind_flag = -1);
     };
 }

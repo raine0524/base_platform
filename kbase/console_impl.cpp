@@ -5,7 +5,7 @@ namespace crx
     const char *heart_beat = "just a heart beat";
     const char *service_quit_sig = "user_def_quit";
 
-    const char *unknown_cmd = "未知命令或参数！「请输入help(h)显示帮助」\n";
+    const char *unknown_cmd = "未知命令或参数！「请输入help(h)显示帮助」\n\n";
     const char *crash_info = "后台服务已崩溃，请检查当前目录下的core文件查看崩溃时的调用堆栈\n";
 
     std::string crx_tmp_dir = ".crx_tmp/";		//kbase库的临时目录，用于存放一系列在服务运行过程中需要用到的临时文件
@@ -135,6 +135,16 @@ namespace crx
         return false;		//预处理失败表示在当前环境下还需要做进一步处理
     }
 
+    void console_impl::exec_cmd_co(scheduler *sch, void *args)
+    {
+        auto impl = (console_impl*)args;
+        auto& cmd_args = impl->m_cmd_args;      //构造命令对应的参数，这些参数不包含命令本身
+        std::vector<std::string> fargs(cmd_args.begin()+1, cmd_args.end());
+
+        auto& cmds = impl->m_cmds[impl->m_init];
+        cmds[cmd_args[0]].f(fargs, impl->m_c);
+    }
+
     //执行命令，该命令分为带参运行形式以及运行时两种，由m_init变量指明当前执行的是哪种类型的命令
     bool console_impl::execute_cmd(std::vector<std::string>& args)
     {
@@ -142,9 +152,9 @@ namespace crx
         if (cmds.end() == cmds.find(args[0]))
             return false;
 
-        //构造命令对应的参数，这些参数不包含命令本身
-        std::vector<std::string> fargs(args.begin()+1, args.end());
-        cmds[args[0]].f(fargs, m_c);
+        m_cmd_args = std::move(args);       //创建一个协程运行该命令
+        size_t co_id = m_c->co_create(exec_cmd_co, this, true);
+        m_c->co_yield(co_id);
         return true;
     }
 
@@ -156,7 +166,7 @@ namespace crx
     void console_impl::listen_keyboard_input(int wr_fifo)
     {
         auto sch_impl = (scheduler_impl*)m_c->m_obj;
-        std::cout<<g_server_name<<":\\>"<<std::endl;
+        std::cout<<g_server_name<<":\\>"<<std::flush;
 
         m_wr_fifo = wr_fifo;
         setnonblocking(STDIN_FILENO);       //将标准输入设为非阻塞
@@ -167,26 +177,28 @@ namespace crx
         eth_ev->f = [&](scheduler *sch, eth_event *ev) {
             std::string input(256, 0);
             ssize_t ret = read(STDIN_FILENO, &input[0], input.size()-1);
-            if (-1 == ret || 0 == ret)
+            if (-1 == ret || 0 == ret) {
+                perror("console_impl::listen_keyboard_input");
                 return;
+            }
 
             input.resize((size_t)ret);
             input.pop_back();		//读终端输入时去掉最后一个换行符'\n'
             if (input.empty()) {
-                std::cout<<g_server_name<<":\\>"<<std::endl;
+                std::cout<<g_server_name<<":\\>"<<std::flush;
                 return;
             }
 
             //命令行输入的一系列参数都是以空格分隔
-            bool exit = ("q" == input) ? true : false;
-            auto str_vec = crx::split(input, " ");
+            bool exit = "q" == input;
+            auto str_vec = crx::split(input.data(), input.size(), " ");
             if (!str_vec.empty()) {
                 if (-1 == m_wr_fifo) {		//m_wr_fifo等于-1表示当前程序是以普通进程方式运行的
                     if (execute_cmd(str_vec)) {
                         if (!exit)
-                            std::cout<<g_server_name<<":\\>"<<std::endl;
+                            std::cout<<g_server_name<<":\\>"<<std::flush;
                     } else {        //若需要执行的命令并未通过add_cmd接口添加时，通知该命令未知
-                        std::cout<<unknown_cmd<<std::endl;
+                        std::cout<<unknown_cmd<<g_server_name<<":\\>"<<std::flush;
                     }
                 } else {		//若不等于-1则表示当前程序以shell方式运行
                     if ("h" == input || "q" == input)       //输入为"h"(帮助)或者"q"(退出)时直接执行相应命令
@@ -223,9 +235,9 @@ namespace crx
                 m_pipe_conn = true;
             }
 
-            auto sch_impl = (scheduler_impl*)sch->m_obj;
+            auto this_sch_impl = (scheduler_impl*)sch->m_obj;
             std::string cmd_buf;
-            int sts = sch_impl->async_read(ev->fd, cmd_buf);
+            int sts = this_sch_impl->async_read(ev->fd, cmd_buf);
             if (sts <= 0) {			//读管道输入异常，将标准输出恢复成原先的值，并关闭已经打开的写管道
                 dup2(m_stdout_backup, STDOUT_FILENO);
                 close(m_wr_fifo);
@@ -242,9 +254,9 @@ namespace crx
                 if (!strncmp(cmd_buf.data(), service_quit_sig, strlen(service_quit_sig))) {
                     quit_loop(str_vec, m_c);		//收到停止daemon进程的命令，直接退出循环
                 } else {
-                    str_vec = crx::split(cmd_buf, " ");		//命令行参数以空格作为分隔符
+                    str_vec = crx::split(cmd_buf.data(), cmd_buf.size(), " ");		//命令行参数以空格作为分隔符
                     if (!str_vec.empty() && !execute_cmd(str_vec))
-                        std::cout<<unknown_cmd<<std::endl;
+                        std::cout<<unknown_cmd<<g_server_name<<":\\>"<<std::flush;
                 }
             }
         };
@@ -275,7 +287,7 @@ namespace crx
             if (!output.empty()) {
                 printf("%s", output.c_str());		//打印后台daemon进程输出的运行时信息
                 if (!stop_service && !excep)        //当前shell既不是用来停止后台服务，也未出现管道异常，则打印命令行提示符
-                    std::cout<<g_server_name<<":\\>"<<std::endl;
+                    std::cout<<g_server_name<<":\\>"<<std::flush;
             }
 
             if (sts <= 0) {		//对端关闭或异常
@@ -323,6 +335,9 @@ namespace crx
     {
         auto sch_impl = (scheduler_impl*)c->m_obj;
         auto con_impl = (console_impl*)sch_impl->m_obj;
+        for (auto co_impl : sch_impl->m_cos)
+            co_impl->status = CO_UNKNOWN;
+
         if (!con_impl->m_as_shell) {			//以shell方式运行时不需要执行init/destroy操作
             printf("[%s] 已发送控制台退出信号，正在执行退出操作...\n", g_server_name.c_str());
             fflush(stdout);
@@ -369,10 +384,40 @@ namespace crx
         cmd_map[cmd] = {comment, f};
     }
 
-    int console::run(int argc, char *argv[])
+    void console_impl::bind_core(int which)
+    {
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
+        CPU_SET(which, &mask);
+        if (syscall(__NR_gettid) == getpid()) {     //main thread
+            if (sched_setaffinity(0, sizeof(mask), &mask) < 0)
+                perror("thread_bind_core");
+        } else {
+            if (pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask) < 0)
+                perror("thread_bind_core");
+        }
+    }
+
+    int console::run(int argc, char *argv[], int bind_flag /*= -1*/)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
         auto con_impl = (console_impl*)sch_impl->m_obj;
+
+        int cpu_num = get_nprocs();
+        if (-1 != bind_flag) {
+            if (INT_MAX == bind_flag) {
+                con_impl->bind_core(con_impl->m_random()%cpu_num);
+            } else {
+                assert(0 <= bind_flag && bind_flag < cpu_num);      //bind_flag的取值范围为0~cpu_num-1
+                con_impl->bind_core(bind_flag);
+            }
+        }
+
+        sch_impl->m_epoll_fd = epoll_create(EPOLL_SIZE);
+        if (__glibc_unlikely(-1 == sch_impl->m_epoll_fd)) {
+            perror("run::epoll_create");
+            return EXIT_FAILURE;
+        }
 
         //首先执行预处理操作，预处理主要和当前运行环境以及运行时所带参数有关
         if (con_impl->preprocess(argc, argv))
@@ -396,6 +441,8 @@ namespace crx
             con_impl->listen_pipe_input();
         }
 
+        std::function<void(scheduler *sch, void *arg)> stub;
+        sch_impl->co_create(stub, nullptr, this, true, false, "main coroutine");        //创建主协程
         sch_impl->m_sch->co_yield(0);       //切换至主协程
 
         if (con_impl->m_is_service) {			//退出时移除所创建的读写fifo

@@ -28,13 +28,9 @@ namespace crx
     class CRX_SHARE event : public kobj
     {
     public:
-        //发送事件信号
-        void send_signal(const char *signal, size_t len);
+        void send_signal(int signal);       //发送事件信号
 
-        void send_signal(std::string& signal);
-
-        //释放事件对象
-        void release();
+        void release();     //释放事件对象
 
     protected:
         event() = default;

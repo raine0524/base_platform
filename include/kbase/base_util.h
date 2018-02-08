@@ -57,7 +57,7 @@ namespace crx
     std::string CRX_SHARE &trim(std::string& s);
 
     //将字符串s按照分隔符delimiters进行分隔
-    std::vector<std::string> CRX_SHARE split(const std::string& s, const char *delimiters);
+    std::vector<std::string> CRX_SHARE split(const char *src, size_t len, const char *delim);
 
     /**
      * 将域名形式的主机地址server转换为点分十进制格式的ip地址，成功则返回true，反之返回false。若server已经是ip地址，
@@ -73,7 +73,4 @@ namespace crx
 
     //执行shell命令，并返回shell输出
     std::string CRX_SHARE run_shell_cmd(const char *cmd_string);
-
-    //将线程绑定到指定的cpu核上，若当前cpu为N核，则which的取值范围为0~N-1
-    void CRX_SHARE thread_bind_core(int which);
 }

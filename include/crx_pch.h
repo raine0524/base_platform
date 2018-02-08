@@ -99,9 +99,7 @@
 //python3
 #include <python3.5/Python.h>
 
-//unbound(asynchronous name resolver)
-#include <unbound.h>
-
+//mysql
 #include <mysql_driver.h>
 #include <mysql_connection.h>
 #include <cppconn/exception.h>
@@ -110,9 +108,6 @@
 #include <cppconn/resultset.h>
 #include <cppconn/prepared_statement.h>
 #include <cppconn/statement.h>
-
-//tinyxml2
-#include "tinyxml2.h"
 
 //rapidjson
 #include "rapidjson/document.h"
@@ -136,14 +131,12 @@ namespace crx
         kobj& operator=(const kobj&) = delete;
     };
 
-    struct CRX_SHARE datetime
-    {		//日期时间
+    struct CRX_SHARE datetime   //日期时间
+    {
         unsigned int date;		//format: YYYYMMDD
         unsigned int time;		//format: HHMMSSmmm，最后三位为毫秒
 
-        datetime()
-                :date(0)
-                ,time(0) {}
+        datetime() : date(0), time(0) {}
     };
 
     enum ADDR_TYPE
@@ -156,6 +149,7 @@ namespace crx
 //////////////////////////////////////////////////////////////////////////
 //kbase library (self custome interface)
 #include "kbase/base_util.h"
+#include "kbase/tinyxml2.h"
 #include "kbase/serialize.h"
 #include "kbase/xml.h"
 #include "kbase/evd_thread.h"

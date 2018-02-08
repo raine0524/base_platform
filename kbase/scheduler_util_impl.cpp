@@ -42,17 +42,10 @@ namespace crx
         delete this;
     }
 
-    void event::send_signal(const char *signal, size_t len)
+    void event::send_signal(int signal)
     {
         event_impl *impl = static_cast<event_impl*>(m_obj);
-        impl->m_signals.push_back(std::string(signal, len));    //将信号加入事件相关的信号集
-        eventfd_write(impl->fd, 1);     //设置事件
-    }
-
-    void event::send_signal(std::string& signal)
-    {
-        event_impl *impl = static_cast<event_impl*>(m_obj);
-        impl->m_signals.push_back(std::move(signal));    //将信号加入事件相关的信号集
+        impl->m_signals.push_back(signal);    //将信号加入事件相关的信号集
         eventfd_write(impl->fd, 1);     //设置事件
     }
 
@@ -104,7 +97,7 @@ namespace crx
             case PRT_HTTP:		conn = new http_client_conn;    break;      //使用http协议
         }
         conn->fd = sock_fd;
-        conn->co_id = sch_impl->m_running_co;
+        conn->co_id = (size_t)sch_impl->m_running_co;
         conn->sch_impl = sch_impl;
         conn->f = tcp_impl->tcp_client_callback;
         conn->args = conn;

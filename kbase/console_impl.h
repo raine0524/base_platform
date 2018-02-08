@@ -14,19 +14,31 @@ namespace crx
         console_impl(console *c);
         virtual ~console_impl();
 
+        void bind_core(int which);       //将线程绑定到指定的cpu核上
+
         bool preprocess(int argc, char *argv[]);
+
         bool execute_cmd(std::vector<std::string>& args);
+
         void listen_keyboard_input(int wr_fifo);
+
         void listen_pipe_input();
 
         static void start_daemon(std::vector<std::string>& args, console *c);
+
         static void stop_daemon(std::vector<std::string>& args, console *c);
+
         static void quit_loop(std::vector<std::string>& args, console *c);
+
         static void print_help(std::vector<std::string>& args, console *c);
 
     private:
+        static void exec_cmd_co(scheduler *sch, void *args);
+
         void connect_service(bool stop_service);
+
         void cons_pipe_name(const char *argv_0);
+
         bool check_service_exist();
 
     public:
@@ -41,8 +53,10 @@ namespace crx
 
         bool m_pipe_conn;
         int m_rd_fifo, m_wr_fifo;      //used in listen keyboard/pipe event
+        std::vector<std::string> m_cmd_args;       //args used in cmd
 
         int m_stdout_backup;
         std::unordered_map<bool, std::unordered_map<std::string, console_cmd>> m_cmds;      //m_cmds根据m_init当前的值区分为两类
+        std::random_device m_random;
     };
 }

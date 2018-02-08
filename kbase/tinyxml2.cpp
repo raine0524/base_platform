@@ -21,7 +21,7 @@ must not be misrepresented as being the original software.
 distribution.
 */
 
-#include "tinyxml2.h"
+#include "kbase/tinyxml2.h"
 #include <stdarg.h>
 #include <stdio.h>
 

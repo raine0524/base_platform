@@ -2,27 +2,28 @@
 
 namespace crx
 {
+    static const int EPOLL_SIZE = 512;
+
+    static const int STACK_SIZE = 256*1024;     //栈大小设置为256K
+
     class scheduler_impl;
     struct eth_event
     {
-        int fd, co_id;      //@fd: 该epoll事件对应的文件描述符, @co_id: 处理该事件的协程
-        scheduler_impl *sch_impl;
-
+        int fd;      //与epoll事件关联的文件描述符
         std::function<void(crx::scheduler *sch, eth_event*)> f;     //回调函数
         eth_event *args;         //回调参数
 
-        eth_event()
-                :fd(-1)
-                ,co_id(0)
-                ,args(nullptr) {}
+        size_t co_id;       //与该事件关联的协程
+        scheduler_impl *sch_impl;
 
-        virtual ~eth_event()
-        {
-            if (-1 != fd && STDIN_FILENO != fd) {
-                close(fd);
-                fd = -1;
-            }
-        }
+        bool go_done;
+        std::list<eth_event*> ev_list;
+
+        eth_event();
+
+        virtual ~eth_event();
+
+        static void co_callback(scheduler *sch, void *arg);
     };
 
     class timer_impl : public eth_event
@@ -46,8 +47,8 @@ namespace crx
 
         static void event_callback(scheduler *sch, eth_event *args);
 
-        std::list<std::string> m_signals;		//同一个事件可以由多个线程通过发送不同的信号同时触发
-        std::function<void(std::string&, void*)> m_f;		//事件触发时的回调函数
+        std::list<int> m_signals;		//同一个事件可以由多个线程通过发送不同的信号同时触发
+        std::function<void(int, void*)> m_f;		//事件触发时的回调函数
         void *m_args;			//回调参数
     };
 
@@ -75,6 +76,37 @@ namespace crx
         PRT_HTTP,			//HTTP协议
     };
 
+    template<typename IMPL_TYPE, typename CONN_TYPE>
+    void handle_tcp_stream(IMPL_TYPE tcp_impl, CONN_TYPE tcp_conn)
+    {
+        if (tcp_conn->stream_buffer.empty())
+            return;
+
+        if (tcp_impl->m_protocol_hook) {
+            char *start = &tcp_conn->stream_buffer[0];
+            size_t buf_len = tcp_conn->stream_buffer.size(), read_len = 0;
+            while (read_len < buf_len) {
+                size_t remain_len = buf_len-read_len;
+                int ret = tcp_impl->m_protocol_hook(start, remain_len, tcp_impl->m_protocol_args);
+                if (0 == ret)
+                    break;
+
+                int abs_ret = std::abs(ret);
+                assert(abs_ret <= remain_len);
+                if (ret > 0)
+                    tcp_impl->m_tcp_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->port,
+                                      start, ret, tcp_impl->m_tcp_args);
+                start += abs_ret;
+                read_len += abs_ret;
+            }
+            if (read_len)
+                tcp_conn->stream_buffer.erase(0, read_len);
+        } else {
+            tcp_impl->m_tcp_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->port, &tcp_conn->stream_buffer[0],
+                              tcp_conn->stream_buffer.size(), tcp_impl->m_tcp_args);
+        }
+    };
+
     struct tcp_client_conn : public eth_event       //名字解析使用getaddrinfo_a
     {
         std::string domain_name;        //连接对端使用的主机地址
@@ -85,21 +117,35 @@ namespace crx
         net_socket conn_sock;
         std::string stream_buffer;      //tcp缓冲流
 
-        tcp_client_conn() : port(0), is_connect(false) {}
+        tcp_client_conn() : port(0), is_connect(false)
+        {
+            stream_buffer.reserve(8192);
+        }
     };
 
     class tcp_client_impl
     {
     public:
-        tcp_client_impl() : m_app_prt(PRT_NONE), m_sch(nullptr), m_tcp_args(nullptr) {}
+        tcp_client_impl()
+                :m_co_id(0)
+                ,m_sch(nullptr)
+                ,m_app_prt(PRT_NONE)
+                ,m_protocol_args(nullptr)
+                ,m_tcp_args(nullptr) {}
 
         static void tcp_client_callback(scheduler *sch, eth_event *ev);
+
+        size_t m_co_id;
+        scheduler *m_sch;
 
         APP_PRT m_app_prt;
         std::list<tcp_client_conn*> m_resolve_list;
 
-        scheduler *m_sch;
-        std::function<void(int, std::string&, void*)> m_tcp_f;		//收到tcp数据流时触发的回调函数
+        eth_event *m_trigger_ev;
+        std::function<int(char*, size_t, void*)> m_protocol_hook;      //协议钩子
+        void *m_protocol_args;  //协议回调参数
+
+        std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> m_tcp_f;    //收到tcp数据流时触发的回调函数
         void *m_tcp_args;		//回调参数
     };
 
@@ -108,6 +154,11 @@ namespace crx
         std::string ip_addr;        //连接对端的ip地址
         uint16_t port;              //对端端口
         std::string stream_buffer;  //tcp缓冲流
+
+        tcp_server_conn() : port(0)
+        {
+            stream_buffer.reserve(8192);        //预留8k字节
+        }
     };
 
     class tcp_server_impl : public eth_event
@@ -119,7 +170,9 @@ namespace crx
                 ,m_tcp_args(nullptr) {}
 
         void start_listen(scheduler_impl *impl, uint16_t port);
+
         static void tcp_server_callback(scheduler *sch, eth_event *ev);
+
         static void read_tcp_stream(scheduler *sch, eth_event *ev);
 
         struct sockaddr_in m_accept_addr;
@@ -128,8 +181,12 @@ namespace crx
         net_socket m_net_sock;			//tcp服务端监听套接字
         APP_PRT m_app_prt;
 
+        eth_event *m_trigger_ev;
+        std::function<int(char*, size_t, void*)> m_protocol_hook;      //协议钩子
+        void *m_protocol_args;  //协议回调参数
+
         //收到tcp数据流时触发的回调函数 @int类型的参数指明是哪一个连接
-        std::function<void(int, const std::string&, uint16_t, std::string&, void*)> m_tcp_f;
+        std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> m_tcp_f;
         void *m_tcp_args;		//回调参数
     };
 
@@ -148,10 +205,13 @@ namespace crx
     public:
         http_client_impl() : m_http_args(nullptr) {}
 
-        //检查当前流中是否存在完整的http响应流，对可能的多个响应进行分包处理并执行相应的回调
-        void check_http_stream(int fd, http_client_conn *conn);
+        static void protocol_hook(int fd, const std::string& ip_addr, uint16_t port,
+                                  char *data, size_t len, void *arg);
 
-        std::function<void(int, int, std::unordered_map<std::string, std::string>&, std::string&, void*)> m_http_f;		//响应的回调函数
+        //检查当前流中是否存在完整的http响应流，对可能的多个响应进行分包处理并执行相应的回调
+        static int check_http_stream(char* data, size_t len, void* arg);
+
+        std::function<void(int, int, std::unordered_map<std::string, std::string>&, const char*, size_t, void*)> m_http_f;		//响应的回调函数
         void *m_http_args;		//回调参数
     };
 
@@ -168,11 +228,17 @@ namespace crx
     class http_server_impl : public tcp_server_impl
     {
     public:
+        http_server_impl() : m_http_args(nullptr) {}
+
+        static void protocol_hook(int fd, const std::string& ip_addr, uint16_t port,
+                                  char *data, size_t len, void *arg);
+
         //检查当前流中是否存在完整的http请求流，对可能连续的多个请求进行分包处理并执行相应的回调
-        void check_http_stream(int fd, http_server_conn *conn);
+        static int check_http_stream(char* data, size_t len, void* arg);
 
         //响应的回调函数
-        std::function<void(int, const std::string&, const std::string&, std::unordered_map<std::string, std::string>&, std::string*, void*)> m_http_f;
+        std::function<void(int, const std::string&, const std::string&, std::unordered_map<std::string, std::string>&,
+                           const char*, size_t, void*)> m_http_f;
         void *m_http_args;		//回调参数
     };
 
@@ -204,6 +270,7 @@ namespace crx
 
     struct coroutine_impl : public coroutine
     {
+        SUS_STATUS sus_sts;
         std::function<void(crx::scheduler *sch, void *arg)> f;
         void *arg;
 
@@ -212,7 +279,8 @@ namespace crx
         size_t capacity, size;
 
         coroutine_impl()
-                :arg(nullptr)
+                :sus_sts(STS_WAIT_EVENT)
+                ,arg(nullptr)
                 ,stack(nullptr)
                 ,capacity(0)
                 ,size(0)

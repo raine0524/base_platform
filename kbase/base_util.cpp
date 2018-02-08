@@ -167,7 +167,7 @@ namespace crx
             if (res.empty())
                 continue;
 
-            auto str_vec = crx::split(res, "\n");
+            auto str_vec = crx::split(res.data(), res.size(), "\n");
             if (str_vec.size() == 2) {		//将修饰后的函数名变换为源文件中对应的函数名
                 sprintf(cmd_string, "c++filt %s", str_vec[0].c_str());
                 res = str_vec[1]+" => "+run_shell_cmd(cmd_string);
@@ -380,17 +380,23 @@ namespace crx
         return s;
     }
 
-    std::vector<std::string> split(const std::string& s, const char *delimiters)
+    std::vector<std::string> split(const char *src, size_t len, const char *delim)
     {
+        size_t delim_len = strlen(delim);
         std::vector<std::string> tokens;
-        std::size_t start = 0, end = 0;
-        while (std::string::npos != (end = s.find(delimiters, start))) {		//在原始串s中查找从start开始的分隔符delimiters
-            std::string temp = s.substr(start, end - start);		//若找到则截取start与end之间的子串
-            if (temp != "") tokens.push_back(temp);			//判断是否为空，非空则加入结果集
-            start = end + strlen(delimiters);
+        const char *start = src, *end = src+len, *pos = nullptr;
+        while (start < end) {
+            pos = strstr(start, delim);
+            if (!pos || pos > end-delim_len) {      //未找到子串或已超出查找范围
+                tokens.push_back(std::string(start, end-start));
+                break;
+            }
+
+            if (start != pos) {
+                tokens.push_back(std::string(start, pos-start));
+                start = pos+delim_len;
+            }
         }
-        std::string temp = s.substr(start);
-        if (temp != "") tokens.push_back(temp);
         return tokens;
     }
 
@@ -465,22 +471,5 @@ namespace crx
             result.append(buffer);
         pclose(pf);
         return result;
-    }
-
-    void thread_bind_core(int which)
-    {
-        if (which < 0 || which >= get_nprocs())     //which的取值范围为0~N-1
-            return;
-
-        cpu_set_t mask;
-        CPU_ZERO(&mask);
-        CPU_SET(which, &mask);
-        if (syscall(__NR_gettid) == getpid()) {     //main thread
-            if (sched_setaffinity(0, sizeof(mask), &mask) < 0)
-                perror("thread_bind_core");
-        } else {
-            if (pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask) < 0)
-                perror("thread_bind_core");
-        }
     }
 }
