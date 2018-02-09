@@ -77,7 +77,7 @@ namespace crx
     };
 
     template<typename IMPL_TYPE, typename CONN_TYPE>
-    void handle_tcp_stream(IMPL_TYPE tcp_impl, CONN_TYPE tcp_conn)
+    void handle_tcp_stream(int conn, IMPL_TYPE tcp_impl, CONN_TYPE tcp_conn)
     {
         if (tcp_conn->stream_buffer.empty())
             return;
@@ -87,7 +87,7 @@ namespace crx
             size_t buf_len = tcp_conn->stream_buffer.size(), read_len = 0;
             while (read_len < buf_len) {
                 size_t remain_len = buf_len-read_len;
-                int ret = tcp_impl->m_protocol_hook(start, remain_len, tcp_impl->m_protocol_args);
+                int ret = tcp_impl->m_protocol_hook(conn, start, remain_len, tcp_impl->m_protocol_args);
                 if (0 == ret)
                     break;
 
@@ -141,8 +141,7 @@ namespace crx
         APP_PRT m_app_prt;
         std::list<tcp_client_conn*> m_resolve_list;
 
-        eth_event *m_trigger_ev;
-        std::function<int(char*, size_t, void*)> m_protocol_hook;      //协议钩子
+        std::function<int(int, char*, size_t, void*)> m_protocol_hook;      //协议钩子
         void *m_protocol_args;  //协议回调参数
 
         std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> m_tcp_f;    //收到tcp数据流时触发的回调函数
@@ -181,8 +180,7 @@ namespace crx
         net_socket m_net_sock;			//tcp服务端监听套接字
         APP_PRT m_app_prt;
 
-        eth_event *m_trigger_ev;
-        std::function<int(char*, size_t, void*)> m_protocol_hook;      //协议钩子
+        std::function<int(int, char*, size_t, void*)> m_protocol_hook;      //协议钩子
         void *m_protocol_args;  //协议回调参数
 
         //收到tcp数据流时触发的回调函数 @int类型的参数指明是哪一个连接
@@ -209,7 +207,7 @@ namespace crx
                                   char *data, size_t len, void *arg);
 
         //检查当前流中是否存在完整的http响应流，对可能的多个响应进行分包处理并执行相应的回调
-        static int check_http_stream(char* data, size_t len, void* arg);
+        static int check_http_stream(int fd, char* data, size_t len, void* arg);
 
         std::function<void(int, int, std::unordered_map<std::string, std::string>&, const char*, size_t, void*)> m_http_f;		//响应的回调函数
         void *m_http_args;		//回调参数
@@ -234,7 +232,7 @@ namespace crx
                                   char *data, size_t len, void *arg);
 
         //检查当前流中是否存在完整的http请求流，对可能连续的多个请求进行分包处理并执行相应的回调
-        static int check_http_stream(char* data, size_t len, void* arg);
+        static int check_http_stream(int fd, char* data, size_t len, void* arg);
 
         //响应的回调函数
         std::function<void(int, const std::string&, const std::string&, std::unordered_map<std::string, std::string>&,

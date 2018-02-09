@@ -278,7 +278,9 @@ namespace crx
         int wr_fifo = open(m_pipe_name[0].c_str(), O_WRONLY | O_NONBLOCK);
         int rd_fifo = open(m_pipe_name[1].c_str(), O_RDONLY | O_NONBLOCK);
         crx::setnonblocking(rd_fifo);
-        write(wr_fifo, heart_beat, strlen(heart_beat));			//发送心跳包建立实际的连接过程
+
+        if (!stop_service)
+            write(wr_fifo, heart_beat, strlen(heart_beat));			//发送心跳包建立实际的连接过程
 
         bool excep = false;
         auto sch_impl = (scheduler_impl*)m_c->m_obj;

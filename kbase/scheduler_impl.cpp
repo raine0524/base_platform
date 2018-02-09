@@ -183,6 +183,7 @@ namespace crx
 
         //协程执行完成后退出，此时处于不可用状态，进入未使用队列等待复用
         sch_impl->m_running_co = 0;
+        sch_impl->m_cos[0]->status = CO_RUNNING;
         co_impl->status = CO_UNKNOWN;
         sch_impl->m_unused_list.push_back(co_impl->co_id);
     }
@@ -491,7 +492,7 @@ namespace crx
         }
     }
 
-    void scheduler::register_tcp_hook(bool client, std::function<int(char*, size_t, void*)> f,
+    void scheduler::register_tcp_hook(bool client, std::function<int(int, char*, size_t, void*)> f,
                                       void *args /*= nullptr*/)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
@@ -529,8 +530,7 @@ namespace crx
         auto tcp_conn = dynamic_cast<tcp_client_conn*>(ev);
 
         int sts = sch_impl->async_read(tcp_conn->fd, tcp_conn->stream_buffer);        //读tcp响应流
-        tcp_impl->m_trigger_ev = ev;
-        handle_tcp_stream(tcp_impl, tcp_conn);
+        handle_tcp_stream(ev->fd, tcp_impl, tcp_conn);
 
         if (sts <= 0) {     //读文件描述符检测到异常或发现对端已关闭连接
 //            if (sts < 0)
@@ -607,8 +607,7 @@ namespace crx
         auto tcp_conn = dynamic_cast<tcp_server_conn*>(ev);
 
         int sts = sch_impl->async_read(tcp_conn->fd, tcp_conn->stream_buffer);
-        tcp_impl->m_trigger_ev = ev;
-        handle_tcp_stream(tcp_impl, tcp_conn);
+        handle_tcp_stream(ev->fd, tcp_impl, tcp_conn);
 
         if (sts <= 0) {		//读文件描述符检测到异常或发现对端已关闭连接
 //            if (sts < 0)
@@ -663,12 +662,14 @@ namespace crx
      *
      * Hello World!
      */
-    int http_client_impl::check_http_stream(char* data, size_t len, void* arg)
+    int http_client_impl::check_http_stream(int fd, char* data, size_t len, void* arg)
     {
         auto http_impl = (http_client_impl*)arg;
         auto sch_impl = (scheduler_impl*)http_impl->m_sch->m_obj;
-        auto conn = dynamic_cast<http_client_conn*>(http_impl->m_trigger_ev);
+        if (fd >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[fd])
+            return -(int)len;       //检查是否越界以及连接是否有效
 
+        auto conn = dynamic_cast<http_client_conn*>(sch_impl->m_ev_array[fd]);
         if (-1 == conn->m_content_len) {        //与之前的http响应流已完成分包处理，开始处理新的响应
             if (len < 4)        //首先验证流的开始4个字节是否为签名"HTTP"
                 return 0;
@@ -788,12 +789,14 @@ namespace crx
      *
      * Hello World!
      */
-    int http_server_impl::check_http_stream(char* data, size_t len, void* arg)
+    int http_server_impl::check_http_stream(int fd, char* data, size_t len, void* arg)
     {
         auto http_impl = (http_server_impl*)arg;
         auto sch_impl = http_impl->sch_impl;
-        auto conn = dynamic_cast<http_server_conn*>(http_impl->m_trigger_ev);
+        if (fd >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[fd])
+            return -(int)len;       //检查是否越界以及连接是否有效
 
+        auto conn = dynamic_cast<http_server_conn*>(sch_impl->m_ev_array[fd]);
         if (-1 == conn->m_content_len) {        //与之前的http请求流已完成分包处理，开始处理新的请求
             char *delim_pos = strstr(data, "\r\n\r\n");
             if (!delim_pos || delim_pos > data+len-4) {     //还未取到分隔符或已超出查找范围

@@ -66,9 +66,10 @@ namespace crx
          * 注册tcp钩子，这个函数将在收到tcp流之后回调，主要用于定制应用层协议，并将协议与原始的tcp流进行解耦
          * @param client 若为true，则为tcp_client注册该钩子，只有收到tcp响应流时才会触发该回掉，否则为tcp_server注册
          * @param f
-         *          --> @param① char*  当前可用于解析的tcp流的首地址
-         *          --> @param② size_t 可用于解析的tcp流的长度，上层应在解析时判断是否在安全范围内
-         *          --> @param③ args   回掉参数
+         *          --> @param① int    指定的连接，不同的连接有不同的流上下文，因此应用层需要针对每个连接分别维护其上下文
+         *          --> @param② char*  当前可用于解析的tcp流的首地址
+         *          --> @param③ size_t 可用于解析的tcp流的长度，上层应在解析时判断是否在安全范围内
+         *          --> @param④ args   回掉参数
          *          --> @return ret 返回 =0 时，通知下层需要有跟多的数据才能完整的解析一次协议请求
          *                          返回 <0 时，通知下层只需要截断以data为首地址，abs(ret)长度的流即可
          *                          返回 >0 时，通知下层可以执行get_tcp_client/server这两个函数中注册的回掉函数，在执行完
@@ -77,7 +78,7 @@ namespace crx
          *                             即为此处的返回值
          * @param args 回掉参数
          */
-        void register_tcp_hook(bool client, std::function<int(char*, size_t, void*)> f, void *args = nullptr);
+        void register_tcp_hook(bool client, std::function<int(int, char*, size_t, void*)> f, void *args = nullptr);
 
         //获取tcp客户端实例(自动释放)，回调函数的3个参数分别为指定的连接，收到的tcp数据流以及回调参数
         tcp_client* get_tcp_client(std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> f,
