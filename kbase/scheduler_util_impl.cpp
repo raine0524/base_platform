@@ -112,7 +112,6 @@ namespace crx
             conn->conn_sock.create(PRT_TCP, USR_CLIENT, server, port);
             sch_impl->add_event(conn, EPOLLOUT);        //套接字异步connect时其可写表明与对端server已经连接成功
         } else {        //需要对域名进行解析
-
         }
         return sock_fd;
     }

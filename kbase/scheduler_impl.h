@@ -16,14 +16,27 @@ namespace crx
         size_t co_id;       //与该事件关联的协程
         scheduler_impl *sch_impl;
 
-        bool go_done;
-        std::list<eth_event*> ev_list;
+        eth_event()
+                :fd(-1)
+                ,args(nullptr)
+                ,co_id(0)
+                ,sch_impl(nullptr) {}
 
-        eth_event();
+        virtual ~eth_event() {
+            if (-1 != fd && STDIN_FILENO != fd) {
+                close(fd);
+                fd = -1;
+            }
+        }
+    };
 
-        virtual ~eth_event();
+    class sigctl_impl : public eth_event
+    {
+    public:
+        sigctl_impl();
+        ~sigctl_impl() override = default;
 
-        static void co_callback(scheduler *sch, void *arg);
+        sigset_t m_mask;
     };
 
     class timer_impl : public eth_event
@@ -254,7 +267,9 @@ namespace crx
         fs_monitor_impl() : m_monitor_args(nullptr) {}
 
         static void fs_monitory_callback(scheduler *sch, eth_event *ev);
+
         void recursive_monitor(const std::string& root_dir, bool add, uint32_t mask);
+
         void trigger_event(bool add, int watch_id, const std::string& path, bool recur_flag, uint32_t mask);
 
         struct stat m_st;
@@ -307,6 +322,7 @@ namespace crx
                 ,m_go_done(false)
                 ,m_epoll_fd(-1)
                 ,m_obj(nullptr)
+                ,m_sigctl(nullptr)
                 ,m_http_client(nullptr)
                 ,m_http_server(nullptr)
                 ,m_tcp_client(nullptr)
@@ -362,6 +378,7 @@ namespace crx
         std::vector<eth_event*> m_ev_array;
         void *m_obj;        //扩展数据区
 
+        sigctl *m_sigctl;
         http_client *m_http_client;
         http_server *m_http_server;
         tcp_client *m_tcp_client;

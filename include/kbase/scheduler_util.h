@@ -3,6 +3,20 @@
 namespace crx
 {
     class scheduler;
+    class CRX_SHARE sigctl : public kobj
+    {
+    public:
+        void add_signo(int signo);
+
+        void remove_signo(int signo);
+
+        void clear_signo(int signo);
+
+    protected:
+        sigctl() = default;
+        friend scheduler;
+    };
+
     class CRX_SHARE timer : public kobj
     {
     public:

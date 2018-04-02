@@ -208,12 +208,14 @@ namespace crx
                 int fd = events[i].data.fd;
                 auto ev = m_ev_array[fd];
                 if (ev) {
-                    if (!ev->co_id) {
+                    /*
+                     * 为避免不必要的协程切换操作，库中通过get_xxx方式获取的实例均把co_id设置为0(即主协程的co_id)，除非在一次
+                     * 函数调用链中涉及到I/O操作，否则均不会调用co_create函数
+                     */
+                    if (!ev->co_id)
                         ev->f(sch, ev->args);
-                    } else if (CO_UNKNOWN != m_cos[ev->co_id]->status) {
-                        ev->ev_list.push_back(ev);
+                    else if (CO_UNKNOWN != m_cos[ev->co_id]->status)
                         m_sch->co_yield(ev->co_id);
-                    }
                 }
                 ++i;
             }
@@ -326,35 +328,13 @@ namespace crx
         handle_event(EPOLL_CTL_MOD, ev->fd, EPOLLIN);
     }
 
-    eth_event::eth_event()
-            :fd(-1)
-            ,args(nullptr)
-            ,co_id(0)
-            ,sch_impl(nullptr)
-            ,go_done(true) {}
-
-    eth_event::~eth_event()
+    sigctl* scheduler::get_sigctl(std::function<void(int, void*)> f, void *args /*= nullptr*/)
     {
-        if (-1 != fd && STDIN_FILENO != fd) {
-            close(fd);
-            fd = -1;
-        }
-    }
+        auto sch_impl = (scheduler_impl*)m_obj;
+        if (!sch_impl->m_sigctl) {
 
-    void eth_event::co_callback(scheduler *sch, void *arg)
-    {
-        auto ev_impl = (eth_event*)arg;
-        ev_impl->go_done = true;
-        while (ev_impl->go_done) {
-            if (ev_impl->ev_list.empty())
-                ev_impl->sch_impl->m_sch->co_yield(0);  //切回主协程，等待事件触发
-
-            while (!ev_impl->ev_list.empty()) {
-                auto ev = ev_impl->ev_list.front();
-                ev->f(sch, ev->args);
-                ev_impl->ev_list.pop_front();
-            }
         }
+        return sch_impl->m_sigctl;
     }
 
     timer* scheduler::get_timer(std::function<void(void*)> f, void *args /*= nullptr*/)
@@ -365,7 +345,7 @@ namespace crx
         tmr_impl->fd = timerfd_create(CLOCK_REALTIME, TFD_NONBLOCK);    //创建一个非阻塞的定时器资源
         if (__glibc_likely(-1 != tmr_impl->fd)) {
             auto sch_impl = (scheduler_impl*)m_obj;
-            tmr_impl->co_id = (size_t)sch_impl->m_running_co;
+            tmr_impl->co_id = 0;
             tmr_impl->sch_impl = sch_impl;
             tmr_impl->f = tmr_impl->timer_callback;
             tmr_impl->args = tmr_impl;
@@ -402,7 +382,7 @@ namespace crx
         ev_impl->fd = eventfd(0, EFD_NONBLOCK);			//创建一个非阻塞的事件资源
         if (__glibc_likely(-1 != ev_impl->fd)) {
             auto sch_impl = (scheduler_impl*)m_obj;
-            ev_impl->co_id = (size_t)sch_impl->m_running_co;
+            ev_impl->co_id = 0;
             ev_impl->sch_impl = sch_impl;
             ev_impl->f = ev_impl->event_callback;
             ev_impl->args = ev_impl;
@@ -446,7 +426,7 @@ namespace crx
 
         if (__glibc_likely(-1 != ui_impl->fd)) {
             auto sch_impl = (scheduler_impl*)m_obj;
-            ui_impl->co_id = (size_t)sch_impl->m_running_co;
+            ui_impl->co_id = 0;
             ui_impl->sch_impl = sch_impl;
             ui_impl->f = ui_impl->udp_ins_callback;
             ui_impl->args = ui_impl;
@@ -510,7 +490,7 @@ namespace crx
     tcp_client* scheduler::get_tcp_client(std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> f,
                                           void *args /*= nullptr*/)
     {
-        auto *sch_impl = (scheduler_impl*)m_obj;
+        auto sch_impl = (scheduler_impl*)m_obj;
         if (!sch_impl->m_tcp_client) {
             sch_impl->m_tcp_client = new tcp_client;		//创建一个新的tcp_client
             sch_impl->m_tcp_client->m_obj = new tcp_client_impl;
@@ -551,7 +531,7 @@ namespace crx
             sch_impl->m_tcp_server->m_obj = new tcp_server_impl;
 
             auto tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
-            tcp_impl->co_id = co_create(tcp_impl->co_callback, tcp_impl);
+            tcp_impl->co_id = 0;
             tcp_impl->m_tcp_f = std::move(f);		//保存回调函数及参数
             tcp_impl->m_tcp_args = args;
             tcp_impl->start_listen(sch_impl, port);			//开始监听
@@ -745,7 +725,7 @@ namespace crx
             sch_impl->m_http_server->m_obj = new http_server_impl;
 
             auto http_impl = (http_server_impl*)sch_impl->m_http_server->m_obj;
-            http_impl->co_id = co_create(http_impl->co_callback, http_impl);
+            http_impl->co_id = 0;
             http_impl->m_app_prt = PRT_HTTP;
             http_impl->m_protocol_hook = http_impl->check_http_stream;
             http_impl->m_protocol_args = http_impl;
@@ -874,7 +854,7 @@ namespace crx
             sch_impl->m_fs_monitor->m_obj = new fs_monitor_impl;
 
             auto monitor_impl = (fs_monitor_impl*)sch_impl->m_fs_monitor->m_obj;
-            monitor_impl->co_id = co_create(monitor_impl->co_callback, monitor_impl);
+            monitor_impl->co_id = 0;
             monitor_impl->fd = inotify_init1(IN_NONBLOCK);
             monitor_impl->sch_impl = sch_impl;
             monitor_impl->f = monitor_impl->fs_monitory_callback;

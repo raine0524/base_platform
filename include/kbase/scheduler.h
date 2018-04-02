@@ -44,6 +44,9 @@ namespace crx
         //获取当前调度器中所有可用的协程，可用指协程状态为CO_READY, CO_RUNNING, CO_SUSPEND之一
         std::vector<coroutine*> get_avail_cos();
 
+        //获取signal实例(自动释放)
+        sigctl* get_sigctl(std::function<void(int, void*)> f, void *args = nullptr);
+
         //获取timer实例(需手动释放)
         timer* get_timer(std::function<void(void*)> f, void *args = nullptr);
 

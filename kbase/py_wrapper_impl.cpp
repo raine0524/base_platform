@@ -240,7 +240,7 @@ namespace crx
 
     void py_plot::set_title(const char *title, size_t font_size /*= 16*/)
     {
-        static const std::string this_key = "title";
+        const char *this_key = "title";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
 
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"title"函数对象
@@ -265,7 +265,7 @@ namespace crx
 
     void py_plot::set_text(double x_coor, double y_coor, const char *text, size_t font_size /*= 16*/)
     {
-        static const std::string this_key = "text";
+        const char *this_key = "text";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
 
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"text"函数对象
@@ -293,7 +293,7 @@ namespace crx
 
     void py_plot::set_legend(const std::vector<std::string>& legend_arr)
     {
-        static const std::string this_key = "legend";
+        const char *this_key = "legend";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
 
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"legend"函数对象
@@ -318,7 +318,7 @@ namespace crx
 
     void py_plot::set_xlim(const std::vector<double>& xlim_arr)
     {
-        static const std::string this_key = "set_xlim";
+        const char *this_key = "set_xlim";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
         py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
 
@@ -347,7 +347,7 @@ namespace crx
 
     void py_plot::set_ylim(const std::vector<double>& ylim_arr)
     {
-        static const std::string this_key = "set_ylim";
+        const char *this_key = "set_ylim";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
         py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
 
@@ -376,7 +376,7 @@ namespace crx
 
     void py_plot::set_xlabel(const char *label)
     {
-        static const std::string this_key = "set_xlabel";
+        const char *this_key = "set_xlabel";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
         py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
         plot_impl->set_label(this_key, label);
@@ -384,7 +384,7 @@ namespace crx
 
     void py_plot::set_ylabel(const char *label)
     {
-        static const std::string this_key = "set_ylabel";
+        const char *this_key = "set_ylabel";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
         py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
         plot_impl->set_label(this_key, label);
@@ -392,7 +392,7 @@ namespace crx
 
     void py_plot::set_zlabel(const char *label)
     {
-        static const std::string this_key = "set_zlabel";
+        const char *this_key = "set_zlabel";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
         py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
         plot_impl->set_label(this_key, label);
@@ -423,7 +423,7 @@ namespace crx
 
     void py_plot::set_axis(const std::vector<double>& axis_arr)
     {
-        static const std::string this_key = "axis";
+        const char *this_key = "axis";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
 
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"axis"函数对象
@@ -471,7 +471,7 @@ namespace crx
 
     void py_plot_impl::call_figure(int fig_num)
     {
-        static const std::string this_key = "figure";
+        const char *this_key = "figure";
         PyObject *py_func = m_obj_impl->m_persis_funcs[this_key];     //获取"figure"函数对象
         auto& fig_malloc = m_func_objs[this_key];
 
@@ -495,7 +495,7 @@ namespace crx
         for (auto& pair : fig_gca.axis_attrs)
             Py_XDECREF(pair.second);
 
-        static const std::string this_key = "gca";
+        const char *this_key = "gca";
         PyObject *py_func = m_obj_impl->m_persis_funcs[this_key];   //获取"gca"函数对象
 
         //从"matplotlib.pyplot"模块中获取当前坐标实例
@@ -524,7 +524,7 @@ namespace crx
 
     void py_plot::plot(const std::vector<plot_function>& funcs, double linewidth /*= 1.0*/)
     {
-        static const std::string this_key = "plot";
+        const char *this_key = "plot";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
         py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
         if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(plot_impl->m_curr_fig))
@@ -608,7 +608,7 @@ namespace crx
 
     void py_plot::clf()
     {
-        static const std::string this_key = "clf";
+        const char *this_key = "clf";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
         py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
         if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(plot_impl->m_curr_fig))
@@ -624,7 +624,7 @@ namespace crx
 
     void py_plot::pause(int millisec /*= 100*/)
     {
-        static const std::string this_key = "pause";
+        const char *this_key = "pause";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
 
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];     //获取"pause"函数对象
@@ -644,7 +644,7 @@ namespace crx
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
         py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
 
-        static const std::string this_key = "close";
+        const char *this_key = "close";
         auto& close_malloc = plot_impl->m_func_objs[this_key];
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];     //获取"close"函数对象
 
@@ -670,7 +670,7 @@ namespace crx
 
     void py_plot::save_figure(const char *png_prefix, int dpi /*= 75*/)
     {
-        static const std::string this_key = "savefig";
+        const char *this_key = "savefig";
         py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
 
         std::string str_prefix = png_prefix;
