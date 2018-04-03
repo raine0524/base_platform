@@ -30,6 +30,7 @@ bool py_plot_test::init(int argc, char *argv[])
                                         const char* data, size_t len, void *args) {
         printf("get data: %s\n", data);
     });
+    return true;
 }
 
 int main(int argc, char *argv[])
