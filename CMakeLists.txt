@@ -17,4 +17,4 @@ set(LIBRARY_OUTPUT_PATH ../lib64)
 
 add_library(kbase SHARED ${SOURCE_FILES})
 
-target_link_libraries(kbase z pthread)
+target_link_libraries(kbase z pthread anl)

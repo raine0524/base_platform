@@ -18,7 +18,7 @@ namespace crx
 
         bool preprocess(int argc, char *argv[]);
 
-        bool execute_cmd(std::vector<std::string>& args);
+        bool execute_cmd(const std::vector<std::string>& args);
 
         void listen_keyboard_input(int wr_fifo);
 
@@ -33,8 +33,6 @@ namespace crx
         static void print_help(std::vector<std::string>& args, console *c);
 
     private:
-        static void exec_cmd_co(scheduler *sch, void *args);
-
         void connect_service(bool stop_service);
 
         void cons_pipe_name(const char *argv_0);
@@ -43,7 +41,7 @@ namespace crx
 
     public:
         console *m_c;
-        /**
+        /*
          * @m_is_service：当前服务以daemon进程在后台运行时，该值为true，否则为false
          * @m_init：预处理完成后该值为true，主要用于区分当前的控制台命令是带参运行形式的命令还是运行时命令
          * @m_as_shell：若后台服务正在运行过程中再次启动该程序，则新的进程作为daemon进程的shell存在
@@ -53,7 +51,6 @@ namespace crx
 
         bool m_pipe_conn;
         int m_rd_fifo, m_wr_fifo;      //used in listen keyboard/pipe event
-        std::vector<std::string> m_cmd_args;       //args used in cmd
 
         int m_stdout_backup;
         std::unordered_map<bool, std::unordered_map<std::string, console_cmd>> m_cmds;      //m_cmds根据m_init当前的值区分为两类

@@ -26,7 +26,7 @@ namespace crx
 
     py_env::~py_env()
     {
-        py_env_impl *impl = static_cast<py_env_impl*>(m_obj);
+        auto impl = (py_env_impl*)m_obj;
         for (auto& obj : impl->m_objects)		//释放获取的一系列py_object对象
             delete obj;
         impl->m_objects.clear();
@@ -59,7 +59,7 @@ namespace crx
 
     bool py_env::load_module(const char *module)
     {
-        py_env_impl *impl = static_cast<py_env_impl*>(m_obj);
+        auto impl = (py_env_impl*)m_obj;
         if (impl->m_persis_modules.end() != impl->m_persis_modules.find(module)) {		//判断当前模块是否已在持久化模块集合中
             printf("[load_modules] 模块 %s 之前已被加载，不再加载！\n", module);
             return true;
@@ -80,7 +80,7 @@ namespace crx
 
     void py_env::unload_module(const char *module)
     {
-        py_env_impl *impl = static_cast<py_env_impl*>(m_obj);
+        auto impl = (py_env_impl*)m_obj;
         if (impl->m_persis_modules.end() == impl->m_persis_modules.find(module)) {			//同上
             printf("[unload_modules] 模块 %s 之前还未加载，不再卸载！\n", module);
             return;
@@ -94,7 +94,7 @@ namespace crx
 
     bool py_env::find_module(const char *module)
     {
-        py_env_impl *impl = static_cast<py_env_impl*>(m_obj);		//查找指定模块是否在持久化模块集合中
+        auto impl = (py_env_impl*)m_obj;		//查找指定模块是否在持久化模块集合中
         if (impl->m_persis_modules.end() != impl->m_persis_modules.find(module))
             return true;
         else
@@ -103,7 +103,7 @@ namespace crx
 
     PyObject* py_env::run_py_func(const char *module, const char *func, int argc, ...)
     {
-        py_env_impl *impl = static_cast<py_env_impl*>(m_obj);
+        auto impl = (py_env_impl*)m_obj;
         if (impl->m_persis_modules.end() == impl->m_persis_modules.find(module) &&
             !load_module(module))
             return nullptr;
@@ -164,7 +164,7 @@ namespace crx
 
     void py_env::release_retobj(PyObject *ret)
     {
-        py_env_impl *impl = static_cast<py_env_impl*>(m_obj);
+        auto impl = (py_env_impl*)m_obj;
         if (impl->m_results_set.end() == impl->m_results_set.find(ret))
             return;
 
@@ -183,10 +183,10 @@ namespace crx
             return nullptr;
 
         py_plot *plot = new py_plot;			//创建一个新的py_plot对象
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(plot->m_obj);
+        auto obj_impl = (py_object_impl*)plot->m_obj;
         obj_impl->env = this;
 
-        py_env_impl *env_impl = static_cast<py_env_impl*>(m_obj);
+        auto env_impl = (py_env_impl*)m_obj;
         env_impl->m_objects.insert(plot);
 
         //从"matplotlib.pyplot"模块中获取绘图所需的一系列函数对象
@@ -211,7 +211,7 @@ namespace crx
 
     py_object::~py_object()
     {
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
+        auto obj_impl = (py_object_impl*)m_obj;
         for (auto& func : obj_impl->m_persis_funcs)			//释放已取得的函数对象
             Py_XDECREF(func.second);
         obj_impl->m_persis_funcs.clear();
@@ -220,31 +220,31 @@ namespace crx
 
     void py_object::release()
     {
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-        py_env_impl *env_impl = static_cast<py_env_impl*>(obj_impl->env->m_obj);
+        auto obj_impl = (py_object_impl*)m_obj;
+        auto env_impl = (py_env_impl*)obj_impl->env->m_obj;
         env_impl->m_objects.erase(this);			//销毁py_object对象并释放已申请的内存资源
         delete this;
     }
 
     py_plot::py_plot()
     {
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
+        auto obj_impl = (py_object_impl*)m_obj;
         obj_impl->obj = new py_plot_impl(obj_impl);
     }
 
     py_plot::~py_plot()
     {
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
+        auto obj_impl = (py_object_impl*)m_obj;
         delete (py_plot_impl*)obj_impl->obj;
     }
 
     void py_plot::set_title(const char *title, size_t font_size /*= 16*/)
     {
         const char *this_key = "title";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
+        auto obj_impl = (py_object_impl*)m_obj;
 
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"title"函数对象
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         auto& title_malloc = plot_impl->m_func_objs[this_key];
 
         Py_XDECREF(title_malloc.py_args);
@@ -266,10 +266,10 @@ namespace crx
     void py_plot::set_text(double x_coor, double y_coor, const char *text, size_t font_size /*= 16*/)
     {
         const char *this_key = "text";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
+        auto obj_impl = (py_object_impl*)m_obj;
 
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"text"函数对象
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         auto& text_malloc = plot_impl->m_func_objs[this_key];
 
         Py_XDECREF(text_malloc.py_args);
@@ -294,10 +294,10 @@ namespace crx
     void py_plot::set_legend(const std::vector<std::string>& legend_arr)
     {
         const char *this_key = "legend";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
+        auto obj_impl = (py_object_impl*)m_obj;
 
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"legend"函数对象
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         auto& legend_malloc = plot_impl->m_func_objs[this_key];
 
         Py_XDECREF(legend_malloc.py_args);
@@ -319,8 +319,8 @@ namespace crx
     void py_plot::set_xlim(const std::vector<double>& xlim_arr)
     {
         const char *this_key = "set_xlim";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto obj_impl = (py_object_impl*)m_obj;
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
 
         if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(plot_impl->m_curr_fig))
             return;
@@ -348,8 +348,8 @@ namespace crx
     void py_plot::set_ylim(const std::vector<double>& ylim_arr)
     {
         const char *this_key = "set_ylim";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto obj_impl = (py_object_impl*)m_obj;
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
 
         if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(plot_impl->m_curr_fig))
             return;
@@ -377,24 +377,24 @@ namespace crx
     void py_plot::set_xlabel(const char *label)
     {
         const char *this_key = "set_xlabel";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto obj_impl = (py_object_impl*)m_obj;
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         plot_impl->set_label(this_key, label);
     }
 
     void py_plot::set_ylabel(const char *label)
     {
         const char *this_key = "set_ylabel";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto obj_impl = (py_object_impl*)m_obj;
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         plot_impl->set_label(this_key, label);
     }
 
     void py_plot::set_zlabel(const char *label)
     {
         const char *this_key = "set_zlabel";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto obj_impl = (py_object_impl*)m_obj;
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         plot_impl->set_label(this_key, label);
     }
 
@@ -424,10 +424,10 @@ namespace crx
     void py_plot::set_axis(const std::vector<double>& axis_arr)
     {
         const char *this_key = "axis";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
+        auto obj_impl = (py_object_impl*)m_obj;
 
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"axis"函数对象
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         auto& axis_malloc = plot_impl->m_func_objs[this_key];
 
         Py_XDECREF(axis_malloc.py_args);
@@ -448,8 +448,8 @@ namespace crx
 
     void py_plot::create_figure(int fig_num, DIM_TYPE type)
     {
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto obj_impl = (py_object_impl*)m_obj;
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         if (plot_impl->m_fig_gca.end() != plot_impl->m_fig_gca.find(fig_num))       //绘图窗口已存在
             return;
 
@@ -460,9 +460,8 @@ namespace crx
 
     void py_plot::switch_figure(int which)
     {
-
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto obj_impl = (py_object_impl*)m_obj;
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(which))     //绘图窗口不存在
             return;
         else
@@ -525,8 +524,8 @@ namespace crx
     void py_plot::plot(const std::vector<plot_function>& funcs, double linewidth /*= 1.0*/)
     {
         const char *this_key = "plot";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto obj_impl = (py_object_impl*)m_obj;
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(plot_impl->m_curr_fig))
             return;
 
@@ -609,8 +608,8 @@ namespace crx
     void py_plot::clf()
     {
         const char *this_key = "clf";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto obj_impl = (py_object_impl*)m_obj;
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(plot_impl->m_curr_fig))
             return;
 
@@ -625,10 +624,10 @@ namespace crx
     void py_plot::pause(int millisec /*= 100*/)
     {
         const char *this_key = "pause";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
+        auto obj_impl = (py_object_impl*)m_obj;
 
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];     //获取"pause"函数对象
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         auto& pause_malloc = plot_impl->m_func_objs[this_key];
 
         Py_XDECREF(pause_malloc.py_args);
@@ -641,8 +640,8 @@ namespace crx
 
     void py_plot::close(int which)
     {
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto obj_impl = (py_object_impl*)m_obj;
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
 
         const char *this_key = "close";
         auto& close_malloc = plot_impl->m_func_objs[this_key];
@@ -671,7 +670,7 @@ namespace crx
     void py_plot::save_figure(const char *png_prefix, int dpi /*= 75*/)
     {
         const char *this_key = "savefig";
-        py_object_impl *obj_impl = static_cast<py_object_impl*>(m_obj);
+        auto obj_impl = (py_object_impl*)m_obj;
 
         std::string str_prefix = png_prefix;
         size_t pos = str_prefix.rfind("/");
@@ -679,7 +678,7 @@ namespace crx
             mkdir_multi(str_prefix.substr(0, pos).c_str());
 
         PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"savefig"函数对象
-        py_plot_impl *plot_impl = static_cast<py_plot_impl*>(obj_impl->obj);
+        auto plot_impl = (py_plot_impl*)obj_impl->obj;
         auto& savefig_malloc = plot_impl->m_func_objs[this_key];
 
         Py_XDECREF(savefig_malloc.py_args);
@@ -690,7 +689,7 @@ namespace crx
 
         Py_XDECREF(savefig_malloc.py_kw);
         savefig_malloc.py_kw = PyDict_New();
-        /**
+        /*
          * dpi表示单位显示面积上的像素点的个数，dpi值越大图像越清晰，同时图像所占用的存储容量也越大
          * 这是savefig函数的一个关键字参数
          */

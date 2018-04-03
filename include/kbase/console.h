@@ -14,7 +14,7 @@ namespace crx
         //控制台销毁函数，用于释放当前进程占用的一系列资源
         virtual void destroy() = 0;
 
-        /**
+        /*
          * 为当前控制台增加可以手动发送的命令
          * @cmd: 表示命令的字符串
          * @f: 当手动输入命令时控制台调用的回调函数，其中std::vector<std::string>是去除命令后的其他参数
@@ -25,7 +25,7 @@ namespace crx
         void add_cmd(const char *cmd, std::function<void(std::vector<std::string>&, console*)> f,
                      const char *comment);
 
-        /**
+        /*
          * 控制台带参运行时将会检测最后一个参数是否为-start/-stop
          * "-start": 以服务形式在后台运行
          * "-stop": 终止后台运行的服务

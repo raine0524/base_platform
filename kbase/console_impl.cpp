@@ -135,35 +135,20 @@ namespace crx
         return false;		//预处理失败表示在当前环境下还需要做进一步处理
     }
 
-    void console_impl::exec_cmd_co(scheduler *sch, void *args)
-    {
-        auto impl = (console_impl*)args;
-        auto& cmd_args = impl->m_cmd_args;      //构造命令对应的参数，这些参数不包含命令本身
-        std::vector<std::string> fargs(cmd_args.begin()+1, cmd_args.end());
-
-        auto& cmds = impl->m_cmds[impl->m_init];
-        cmds[cmd_args[0]].f(fargs, impl->m_c);
-    }
-
     //执行命令，该命令分为带参运行形式以及运行时两种，由m_init变量指明当前执行的是哪种类型的命令
-    bool console_impl::execute_cmd(std::vector<std::string>& args)
+    bool console_impl::execute_cmd(const std::vector<std::string>& args)
     {
         auto& cmds = m_cmds[m_init];
         if (cmds.end() == cmds.find(args[0]))
             return false;
 
-        if (!m_init) {      //带参执行命令
-            std::vector<std::string> fargs(args.begin()+1, args.end());
-            cmds[args[0]].f(fargs, m_c);
-        } else {        //运行时命令
-            m_cmd_args = std::move(args);       //创建一个协程运行该命令
-            size_t co_id = m_c->co_create(exec_cmd_co, this, true);
-            m_c->co_yield(co_id);
-        }
+        //构造命令对应的参数，这些参数不包含命令本身
+        std::vector<std::string> fargs(args.begin()+1, args.end());
+        cmds[args[0]].f(fargs, m_c);
         return true;
     }
 
-    /**
+    /*
      * 函数用于等待shell输入
      * @当前程序以普通进程运行时将调用该例程等待命令行输入
      * @当前程序以shell方式运行时将调用该例程将命令行输入参数传给后台运行的服务
@@ -206,10 +191,13 @@ namespace crx
                         std::cout<<unknown_cmd<<g_server_name<<":\\>"<<std::flush;
                     }
                 } else {		//若不等于-1则表示当前程序以shell方式运行
-                    if ("h" == input || "q" == input)       //输入为"h"(帮助)或者"q"(退出)时直接执行相应命令
+                    if ("h" == input || "q" == input) {     //输入为"h"(帮助)或者"q"(退出)时直接执行相应命令
                         execute_cmd(str_vec);
-                    else        //否则将命令行参数传给后台daemon进程
+                        if ("h" == input)
+                            std::cout<<g_server_name<<":\\>"<<std::flush;
+                    } else {        //否则将命令行参数传给后台daemon进程
                         write(m_wr_fifo, input.data(), input.size());
+                    }
                 }
             }
         };
@@ -261,7 +249,7 @@ namespace crx
                 } else {
                     str_vec = crx::split(cmd_buf.data(), cmd_buf.size(), " ");		//命令行参数以空格作为分隔符
                     if (!str_vec.empty() && !execute_cmd(str_vec))
-                        std::cout<<unknown_cmd<<g_server_name<<":\\>"<<std::flush;
+                        std::cout<<unknown_cmd<<std::flush;
                 }
             }
         };
@@ -269,7 +257,7 @@ namespace crx
         sch_impl->add_event(eth_ev);
     }
 
-    /**
+    /*
      * 该函数用于连接后台daemon进程
      * @stop_service为true时终止后台进程，false时仅仅作为shell与后台进程进行交互
      */

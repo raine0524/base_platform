@@ -16,19 +16,19 @@ namespace crx
 
     void evd_job::set_type(int type)
     {
-        evd_job_impl *impl = static_cast<evd_job_impl*>(m_obj);
+        auto impl = (evd_job_impl*)m_obj;
         impl->m_type = type;
     }
 
     int evd_job::get_type()
     {
-        evd_job_impl *impl = static_cast<evd_job_impl*>(m_obj);
+        auto impl = (evd_job_impl*)m_obj;
         return impl->m_type;
     }
 
     void evd_job::release()
     {
-        evd_job_impl *impl = static_cast<evd_job_impl*>(m_obj);
+        auto impl = (evd_job_impl*)m_obj;
         impl->reduce_ref();
     }
 
@@ -39,7 +39,7 @@ namespace crx
 
     void evd_proc::release()
     {
-        evd_proc_impl *impl = static_cast<evd_proc_impl*>(m_obj);
+        auto impl = (evd_proc_impl*)m_obj;
         impl->reduce_ref();
     }
 
@@ -78,7 +78,7 @@ namespace crx
 
     void evd_pool::start(size_t cnt)
     {
-        evd_pool_impl *impl = static_cast<evd_pool_impl*>(m_obj);
+        auto impl = (evd_pool_impl*)m_obj;
         std::lock_guard<std::mutex> lck(impl->m_mtx);
         if (cnt == impl->m_lines.size())
             return;
@@ -165,12 +165,12 @@ namespace crx
         evd_pool_impl *pool_impl = (evd_pool_impl*)m_obj;
         std::lock_guard<std::mutex> lck_outer(pool_impl->m_mtx);
 
-        evd_job_impl *job_impl = static_cast<evd_job_impl*>(job->m_obj);
+        auto job_impl = (evd_job_impl*)job->m_obj;
         int type = job_impl->m_type;			//判断工作安排中是否需要处理此种类型的工作
         if (pool_impl->m_arrange.end() == pool_impl->m_arrange.find(type))
             return;
 
-        /**
+        /*
          * 在注册处理器时会为每个工人指定一个固定的生产线, 该生产线
          * 是在注册时点上工作强度最小的那条流水线
          */

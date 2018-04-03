@@ -12,14 +12,11 @@ namespace crx
         int fd;      //与epoll事件关联的文件描述符
         std::function<void(crx::scheduler *sch, eth_event*)> f;     //回调函数
         eth_event *args;         //回调参数
-
-        size_t co_id;       //与该事件关联的协程
         scheduler_impl *sch_impl;
 
         eth_event()
                 :fd(-1)
                 ,args(nullptr)
-                ,co_id(0)
                 ,sch_impl(nullptr) {}
 
         virtual ~eth_event() {
@@ -33,10 +30,22 @@ namespace crx
     class sigctl_impl : public eth_event
     {
     public:
-        sigctl_impl();
+        sigctl_impl()
+        {
+            sigemptyset(&m_mask);
+            bzero(&m_fd_info, sizeof(m_fd_info));
+        }
         ~sigctl_impl() override = default;
 
+        static void sigctl_callback(scheduler *sch, eth_event *args);
+
+        void handle_sigs(const std::vector<int>& sigset, bool add);
+
         sigset_t m_mask;
+        signalfd_siginfo m_fd_info;
+
+        std::function<void(int, uint64_t, void*)> m_f;    //信号回调函数
+        void *m_args;       //回调参数
     };
 
     class timer_impl : public eth_event
@@ -122,6 +131,10 @@ namespace crx
 
     struct tcp_client_conn : public eth_event       //名字解析使用getaddrinfo_a
     {
+        gaicb *name_reqs[1];
+        addrinfo req_spec;
+        sigevent sigev;
+
         std::string domain_name;        //连接对端使用的主机地址
         std::string ip_addr;            //转换之后的ip地址
         uint16_t port;					//对端端口
@@ -132,7 +145,15 @@ namespace crx
 
         tcp_client_conn() : port(0), is_connect(false)
         {
-            stream_buffer.reserve(8192);
+            stream_buffer.reserve(4096);
+            name_reqs[0] = new gaicb;
+            bzero(name_reqs[0], sizeof(gaicb));
+        }
+
+        ~tcp_client_conn() override
+        {
+            freeaddrinfo(name_reqs[0]->ar_result);
+            delete name_reqs[0];
         }
     };
 
@@ -145,6 +166,14 @@ namespace crx
                 ,m_app_prt(PRT_NONE)
                 ,m_protocol_args(nullptr)
                 ,m_tcp_args(nullptr) {}
+
+        static void name_resolve_callback(int signo, uint64_t sigval, void *args)
+        {
+            if (SIGUSR1 == signo) {
+                auto tcp_impl = (tcp_client_impl*)args;
+                tcp_impl->m_sch->co_yield(sigval);
+            }
+        }
 
         static void tcp_client_callback(scheduler *sch, eth_event *ev);
 
@@ -205,10 +234,10 @@ namespace crx
 
     struct http_client_conn : public tcp_client_conn
     {
-        int m_status, m_content_len;
-        std::unordered_map<std::string, std::string> m_headers;
+        int status, content_len;
+        std::unordered_map<std::string, std::string> headers;
 
-        http_client_conn() : m_status(-1), m_content_len(-1) {}
+        http_client_conn() : status(-1), content_len(-1) {}
     };
 
     class http_client_impl : public tcp_client_impl
@@ -228,12 +257,12 @@ namespace crx
 
     struct http_server_conn : public tcp_server_conn
     {
-        int m_content_len;
-        std::string m_method;		//请求方法
-        std::string m_url;				//url(以"/"开始的字符串)
-        std::unordered_map<std::string, std::string> m_headers;
+        int content_len;
+        std::string method;		//请求方法
+        std::string url;				//url(以"/"开始的字符串)
+        std::unordered_map<std::string, std::string> headers;
 
-        http_server_conn() : m_content_len(-1) {}
+        http_server_conn() : content_len(-1) {}
     };
 
     class http_server_impl : public tcp_server_impl
@@ -323,26 +352,36 @@ namespace crx
                 ,m_epoll_fd(-1)
                 ,m_obj(nullptr)
                 ,m_sigctl(nullptr)
-                ,m_http_client(nullptr)
-                ,m_http_server(nullptr)
                 ,m_tcp_client(nullptr)
                 ,m_tcp_server(nullptr)
+                ,m_http_client(nullptr)
+                ,m_http_server(nullptr)
                 ,m_fs_monitor(nullptr) {}
 
         virtual ~scheduler_impl() = default;
 
+    public:
         size_t co_create(std::function<void(crx::scheduler *sch, void *arg)>& f, void *arg, scheduler *sch,
                       bool is_main_co, bool is_share = false, const char *comment = nullptr);
+
+        static void coroutine_wrap(uint32_t low32, uint32_t hi32);
 
         void main_coroutine(scheduler *sch);
 
         void save_stack(coroutine_impl *co, const char *top);
 
+    public:
         void add_event(eth_event *ev, uint32_t event = EPOLLIN);
 
         void remove_event(eth_event *ev);
 
-        /**
+        /*
+         * 添加epoll事件，每个事件都采用edge-trigger的模式，只要可读/写，就一直进行读/写，直到不再有数据或者
+         * 文件不再可读/出错，因此在此函数中会将文件设置为非阻塞状态，fd应当保证是一个有效的文件描述符
+         */
+        void handle_event(int op, int fd, uint32_t event);
+
+        /*
          * @fd: 非阻塞文件描述符
          * @read_str: 将读到的数据追加在read_str尾部
          * @return param
@@ -352,20 +391,11 @@ namespace crx
          */
         int async_read(int fd, std::string& read_str);
 
-        /**
+        /*
          * @ev: eth_event对象
          * @data: 待写的数据
          */
         void async_write(eth_event *ev, const char *data, size_t len);
-
-    private:
-        static void coroutine_wrap(uint32_t low32, uint32_t hi32);
-
-        /**
-         * 添加epoll事件，每个事件都采用edge-trigger的模式，只要可读/写，就一直进行读/写，直到不再有数据或者
-         * 文件不再可读/出错，因此在此函数中会将文件设置为非阻塞状态，fd应当保证是一个有效的文件描述符
-         */
-        void handle_event(int op, int fd, uint32_t event);
 
     public:
         scheduler *m_sch;
@@ -379,10 +409,10 @@ namespace crx
         void *m_obj;        //扩展数据区
 
         sigctl *m_sigctl;
-        http_client *m_http_client;
-        http_server *m_http_server;
         tcp_client *m_tcp_client;
         tcp_server *m_tcp_server;
+        http_client *m_http_client;
+        http_server *m_http_server;
         fs_monitor *m_fs_monitor;
     };
 }

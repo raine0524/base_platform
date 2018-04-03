@@ -2,6 +2,11 @@
 
 namespace crx
 {
+    /*
+     * NOTE: 在当前进程中使用此处的python相关组件时，最好不要使用系统的信号机制，因为在python提供出来的接口中封装了一套自己的
+     * 信号处理机制，这使得一些信号的表现形式比较奇怪，与系统的默认行为不符
+     */
+
     class CRX_SHARE py_object : public kobj
     {
     public:
@@ -134,7 +139,7 @@ namespace crx
         //查找指定模块'module'
         bool find_module(const char *module);
 
-        /**
+        /*
          * 运行python模块中的函数(支持关键字参数，例如"block=False"形式的参数)：
          * @module：模块名
          * @func：函数名

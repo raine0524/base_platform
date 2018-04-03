@@ -6,11 +6,11 @@ namespace crx
     class CRX_SHARE sigctl : public kobj
     {
     public:
-        void add_signo(int signo);
+        void add_sigs(const std::vector<int>& sigset);
 
-        void remove_signo(int signo);
+        void remove_sigs(const std::vector<int>& sigset);
 
-        void clear_signo(int signo);
+        void clear_sigs();
 
     protected:
         sigctl() = default;
@@ -20,7 +20,7 @@ namespace crx
     class CRX_SHARE timer : public kobj
     {
     public:
-        /**
+        /*
          * 启动定时器 (终止定时器只需要将timer类销毁即可)
          * @delay: 初始延迟
          * @interval: 间隔
@@ -72,7 +72,7 @@ namespace crx
     class CRX_SHARE tcp_client : public kobj
     {
     public:
-        /**
+        /*
          * 发起tcp连接请求，该接口是线程安全的
          * @server: 服务器主机地址，同时支持点分十进制格式的ip以及域名形式的主机地址
          * @port: 服务器的端口
@@ -115,7 +115,7 @@ namespace crx
     class CRX_SHARE http_client : public tcp_client
     {
     public:
-        /**
+        /*
          * 向指定http server 发送指定的method请求，一次请求的示例如下：
          * method(GET/POST...) / HTTP/1.1 (常用的就是GET以及POST方法)
          * Host: localhost
@@ -159,7 +159,7 @@ namespace crx
     class CRX_SHARE fs_monitor : public kobj
     {
     public:
-        /**
+        /*
          * 监控指定的文件系统对象，path可以是目录或是文件，也可以是已挂载的移动介质中的对象(可多次调用同时监控多个目标)
          * @param path 文件系统对象
          * @param mask 监控事件，默认的监控事件为创建/删除/修改
@@ -167,7 +167,7 @@ namespace crx
          */
         void add_watch(const char *path, uint32_t mask = IN_CREATE | IN_DELETE | IN_MODIFY, bool recursive = true);
 
-        /**
+        /*
          * 移除正在监控的对象
          * @param path 文件系统对象
          * @param recursive 若path为目录，该参数指明是否递归移除子目录的监控

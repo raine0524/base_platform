@@ -22,7 +22,7 @@ namespace crx
             bzero(&m_addr, sizeof(m_addr));
         }
 
-        /**
+        /*
          * 创建一个socket，并且设置重用ip地址和端口
          * @ptype：tcp/udp socket
          * @utype：server/client end
@@ -61,7 +61,7 @@ namespace crx
             m_port = port;		//保存所用端口(若创建套接字时未指定使用的端口，则系统将自动选择一个可用端口)
 
             if (USR_SERVER == utype) {		//服务器端
-                /**
+                /*
                  * 将套接字与地址进行绑定(通常在指定端口上监听任意ip地址的请求)
                  * 无论传输层协议是tcp还是udp，在服务器端都需要首先进行绑定操作
                  */
@@ -87,7 +87,7 @@ namespace crx
             return m_sock_fd;
         }
 
-        /**
+        /*
          * 开启TCP_NODELAY，禁用Nagle's Algorithm，在每次发送少量数据的情况下，
          * 该算法会缓存数据直到收到已发送数据的Ack时才将数据发送出去
          */

@@ -34,7 +34,7 @@ namespace crx
     seria::seria()
     {
         seria_impl *impl = new seria_impl(this);
-        /**
+        /*
          * 在序列化串中预留5个字节的空间，第一个字节为int32类型在msgpack中对应的标志，后面的4个字节
          * 用于指明当前整个序列化串的大小
          */
@@ -73,7 +73,7 @@ namespace crx
             impl->zip();
         else if (COMP_LZMA == opt)
             impl->lzma();
-        //** 构造序列化串，此处将发生拷贝操作，影响性能
+        // 构造序列化串，此处将发生拷贝操作，影响性能
         return std::string(impl->m_pack_buf.data(), impl->m_pack_buf.size());
     }
 
@@ -164,10 +164,10 @@ namespace crx
 
     std::unordered_map<std::string, std::string> seria::dump(const char *data, int len)
     {
-        seria_impl *impl = static_cast<seria_impl*>(m_obj);
+        auto impl = (seria_impl*)m_obj;
         if (!impl->m_dump_map.empty())
             impl->m_dump_map.clear();
-        if (static_cast<char>(0xd2u) != *data) {		//验证第一个字节的魔数是否等于0xd2u
+        if (0xd2u != *data) {		//验证第一个字节的魔数是否等于0xd2u
             printf("[seria::dump] 当前数据流的验证码 0x%x 出错，不再继续执行反序列化\n", *data);
             return impl->m_dump_map;
         }
@@ -181,7 +181,7 @@ namespace crx
         impl->deseria(data, len);		//反序列化
         if (impl->m_dump_map.end() != impl->m_dump_map.find("__comp__") &&
             !strncmp(comp_flag, impl->m_dump_map["__comp__"].data(), impl->m_dump_map["__comp__"].size())) {
-            /**
+            /*
              * 查找压缩标志并验证签名，确认启用了压缩，验证签名是为了防止真实数据中同样含有"__comp__" key
              * 但是仍有可能在真实数据中与该签名同样的value，不过出现这种状况的概率较小
              */

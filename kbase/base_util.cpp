@@ -136,7 +136,7 @@ namespace crx
             int last = sym_str.rfind(']');
             std::string ins_addr(strings[i]+first+1, last-first-1);
 
-            /**
+            /*
              * judge whether shared library or not, example:
              * 			so_name				func_symbol				  offset			address
              * ../so/libkbase_d.so(_ZN3crx7console3runEiPPc+0xb9) [0x7fc1fdf920b3]
@@ -207,7 +207,7 @@ namespace crx
         if (!src_data || src_len <= 0)		//接口安全性检查
             return "";
 
-        /**
+        /*
          * A chinese character in variable-length charset occupies 3 bytes at most,
          * so 5 times of source size reserved is enough
          */

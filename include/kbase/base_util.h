@@ -44,7 +44,7 @@ namespace crx
     //获取指定文件的大小
     int CRX_SHARE get_file_size(const char *file);
 
-    /**
+    /*
      * 获取字符串src中第n个pattern出现的位置，若n值为-1则查找src串中的最后一个pattern
      * @src 待查找模式串的原始字符串
      * @pattern 要查找的模式串
@@ -59,7 +59,7 @@ namespace crx
     //将字符串s按照分隔符delimiters进行分隔
     std::vector<std::string> CRX_SHARE split(const char *src, size_t len, const char *delim);
 
-    /**
+    /*
      * 将域名形式的主机地址server转换为点分十进制格式的ip地址，成功则返回true，反之返回false。若server已经是ip地址，
      * 则该函数执行server = ip_addr并返回true(使用glibc库中的gethostbyname进行域名解析，该函数将阻塞当前执行流
      * 且是不可重入的，因此当前例程主要是用来进行测试用的。在tcp_client类中的connect接口采用异步的方式进行域名解析)

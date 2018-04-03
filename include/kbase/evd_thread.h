@@ -2,7 +2,7 @@
 
 namespace crx
 {
-    /**
+    /*
      * 将待处理的数据继承evd_thread_job类，并为这一类的数据设置一个类型，随后调用evd_thread_pool的job_dispatch接口，
      * 之后关注此种类型数据的evd_thread_processor将会收到这一数据，并在process_task中进行处理
      */

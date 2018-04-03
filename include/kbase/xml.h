@@ -9,7 +9,7 @@ namespace crx
 
 		virtual ~xml_parser();
 
-		/**
+		/*
          * 加载xml文件
          * @xml_file：文件名
          * @root：加载之后切换到的根节点
