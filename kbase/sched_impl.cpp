@@ -265,12 +265,12 @@ namespace crx
     }
 
     //异步读的一个原则是只要可读就一直读，直到errno被置为EAGAIN提示等待更多数据可读
-    int scheduler_impl::async_read(int fd, std::string& read_str)
+    int scheduler_impl::async_read(eth_event *ev, std::string& read_str)
     {
         size_t read_size = read_str.size();
         while (true) {
             read_str.resize(read_size+1024);
-            ssize_t ret = read(fd, &read_str[read_size], 1024);
+            ssize_t ret = read(ev->fd, &read_str[read_size], 1024);
             read_size = read_str.size();
             if (-1 == ret) {
                 read_str.resize(read_size-1024);        //本次循环未读到任何数据
@@ -299,21 +299,21 @@ namespace crx
         size_t write_len = 0;
         while (true) {
             ssize_t sts = write(ev->fd, data+write_len, len-write_len);
-            if (sts > 0)
+            if (sts > 0) {      //正常写入
                 write_len += sts;
-
-            if (write_len == len)     //数据已全部写完
-                return;
-
-            if (-1 == sts && EAGAIN != errno) {      //写数据出现异常，不再监听该文件描述符上的事件
+            } else if (-1 == sts && EAGAIN != errno) {      //写数据出现异常，不再监听该文件描述符上的事件
                 perror("scheduler_impl::async_write");
                 remove_event(ev);
                 return;
             }
 
             //仍有部分数据未写完，在该文件描述符上监听可写事件，在可写时将剩余数据写入
-            handle_event(EPOLL_CTL_MOD, ev->fd, EPOLLOUT);
-            m_sch->co_yield(0);     //切回主协程处理其他事件
+            if (write_len < len) {
+                handle_event(EPOLL_CTL_MOD, ev->fd, EPOLLOUT);
+                m_sch->co_yield(0);     //切回主协程处理其他事件
+            } else {        //数据已全部写完
+                break;
+            }
         }
 
         //所有数据写完之后继续在该文件描述符上监听可读事件
@@ -549,12 +549,11 @@ namespace crx
 
         if (!tcp_conn->is_connect) {
             tcp_conn->is_connect = true;
-            sch_impl->handle_event(EPOLL_CTL_MOD, ev->fd, EPOLLIN);
             tcp_impl->m_sch->co_yield(tcp_conn->this_co);
             return;
         }
 
-        int sts = sch_impl->async_read(tcp_conn->fd, tcp_conn->stream_buffer);        //读tcp响应流
+        int sts = sch_impl->async_read(tcp_conn, tcp_conn->stream_buffer);        //读tcp响应流
         handle_tcp_stream(ev->fd, tcp_impl, tcp_conn);
 
         if (sts <= 0) {     //读文件描述符检测到异常或发现对端已关闭连接
@@ -576,6 +575,7 @@ namespace crx
             sch_impl->m_tcp_server->m_obj = new tcp_server_impl;
 
             auto tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
+            tcp_impl->m_sch = this;
             tcp_impl->m_tcp_f = std::move(f);		//保存回调函数及参数
             tcp_impl->m_tcp_args = args;
             tcp_impl->start_listen(sch_impl, port);			//开始监听
@@ -630,7 +630,7 @@ namespace crx
         auto tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
         auto tcp_conn = dynamic_cast<tcp_server_conn*>(ev);
 
-        int sts = sch_impl->async_read(tcp_conn->fd, tcp_conn->stream_buffer);
+        int sts = sch_impl->async_read(tcp_conn, tcp_conn->stream_buffer);
         handle_tcp_stream(ev->fd, tcp_impl, tcp_conn);
 
         if (sts <= 0) {		//读文件描述符检测到异常或发现对端已关闭连接
@@ -672,10 +672,21 @@ namespace crx
         auto http_impl = (http_client_impl*)arg;
         auto sch_impl = (scheduler_impl*)http_impl->m_sch->m_obj;
         auto conn = dynamic_cast<http_client_conn*>(sch_impl->m_ev_array[fd]);
-        http_impl->m_http_f(fd, conn->status, conn->headers, data, (size_t)conn->content_len,
+
+        const char *cb_data = nullptr;
+        size_t cb_len = 0;
+        if (len != 1 || '\n' != *data) {
+            cb_data = data;
+            cb_len = (size_t)conn->content_len;
+        }
+
+        http_impl->m_http_f(fd, conn->status, conn->headers, cb_data, cb_len,
                             http_impl->m_http_args);
-        conn->content_len = -1;
-        conn->headers.clear();
+
+        if (sch_impl->m_ev_array[fd]) {
+            conn->content_len = -1;
+            conn->headers.clear();
+        }
     }
 
     /*
@@ -733,7 +744,7 @@ namespace crx
                 if (0 == i) {		//首先解析响应行
                     //响应行包含空格分隔的三个字段，例如：HTTP/1.1(协议/版本) 200(状态码) OK(简单描述)
                     auto line_elem = split(line.data(), line.size(), " ");
-                    if (3 != line_elem.size()) {		//响应行出错，无效的响应流
+                    if (line_elem.size() < 3) {		//响应行出错，无效的响应流
                         header_err = true;
                         break;
                     }
@@ -751,8 +762,15 @@ namespace crx
                 return -(int)(valid_header_len+4);
             }
             conn->content_len = std::stoi(conn->headers["Content-Length"]);
-            assert(conn->content_len > 0);
-            return -(int)(valid_header_len+4);      //先截断http头部
+            assert(conn->content_len >= 0);
+
+            //先截断http头部
+            if (conn->content_len == 0) {
+                conn->content_len = 1;
+                return -(int)(valid_header_len+3);
+            } else {
+                return -(int)(valid_header_len+4);
+            }
         }
 
         if (len < conn->content_len)      //响应体中不包含足够的数据，等待该连接上更多的数据到来
@@ -773,6 +791,7 @@ namespace crx
 
             auto http_impl = (http_server_impl*)sch_impl->m_http_server->m_obj;
             http_impl->m_app_prt = PRT_HTTP;
+            http_impl->m_sch = this;
             http_impl->m_protocol_hook = http_impl->check_http_stream;
             http_impl->m_protocol_args = http_impl;
             http_impl->m_tcp_f = http_impl->protocol_hook;
@@ -800,8 +819,11 @@ namespace crx
 
         http_impl->m_http_f(fd, conn->method, conn->url, conn->headers,
                             cb_data, cb_len, http_impl->m_http_args);
-        conn->content_len = -1;
-        conn->headers.clear();
+
+        if (sch_impl->m_ev_array[fd]) {
+            conn->content_len = -1;
+            conn->headers.clear();
+        }
     }
 
     /*
@@ -851,7 +873,7 @@ namespace crx
                 if (0 == i) {		//首先解析请求行
                     //请求行包含空格分隔的三个字段，例如：POST(请求方法) /request(url) HTTP/1.1(协议/版本)
                     auto line_elem = split(line.data(), line.size(), " ");
-                    if (3 != line_elem.size()) {		//请求行出错，无效的请求流
+                    if (line_elem.size() < 3) {		//请求行出错，无效的请求流
                         header_err = true;
                         break;
                     }

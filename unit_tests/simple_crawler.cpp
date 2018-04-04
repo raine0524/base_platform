@@ -30,7 +30,10 @@ bool py_plot_test::init(int argc, char *argv[])
 {
     m_http_client = get_http_client([&](int conn, int status, std::unordered_map<std::string, std::string>& header_kvs,
                                         const char* data, size_t len, void *args) {
-        printf("get data: %s\n", data);
+        printf("\nresponse: %d %d\n\n", conn, status);
+        if (data)
+            printf("%s\n", data);
+        m_http_client->release(conn);
     });
     return true;
 }

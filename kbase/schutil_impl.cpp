@@ -63,7 +63,6 @@ namespace crx
     {
         auto tmr_impl = (timer_impl*)m_obj;
         tmr_impl->sch_impl->remove_event(tmr_impl);       //移除该定时器相关的监听事件
-        delete tmr_impl;        //释放定时器相关资源
         delete this;
     }
 
@@ -78,7 +77,6 @@ namespace crx
     {
         auto ev_impl = (event_impl*)m_obj;
         ev_impl->sch_impl->remove_event(ev_impl);        //移除该定时器相关的监听事件
-        delete ev_impl;
         delete this;
     }
 
@@ -101,7 +99,6 @@ namespace crx
     {
         auto ui_impl = (udp_ins_impl*)m_obj;
         ui_impl->sch_impl->remove_event(ui_impl);        //移除该定时器相关的监听事件
-        delete ui_impl;
         delete this;
     }
 
@@ -158,7 +155,6 @@ namespace crx
         conn->args = conn;
         conn->sch_impl = sch_impl;
         sch_impl->add_event(conn, EPOLLOUT);        //套接字异步connect时其可写表明与对端server已经连接成功
-        tcp_impl->m_sch->co_yield(0);
         return conn->fd;
     }
 
@@ -215,13 +211,13 @@ namespace crx
     {
         auto http_impl = (http_client_impl*)m_obj;
         auto sch_impl = (scheduler_impl*)http_impl->m_sch->m_obj;
-        //判断连接是否有效
+        //判断当前连接是否已经加入监听
         if (conn >= sch_impl->m_ev_array.size())
             return;
 
         auto http_conn = dynamic_cast<http_client_conn*>(sch_impl->m_ev_array[conn]);
         if (!http_conn->is_connect)     //还未建立连接
-            return;
+            http_impl->m_sch->co_yield(0);
 
         std::string http_request = std::string(method)+" "+std::string(post_page)+" HTTP/1.1\r\n";		//构造请求行
         http_request += "Host: "+http_conn->domain_name+"\r\n";		//构造请求头中的Host字段

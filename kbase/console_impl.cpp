@@ -230,7 +230,7 @@ namespace crx
 
             auto this_sch_impl = (scheduler_impl*)sch->m_obj;
             std::string cmd_buf;
-            int sts = this_sch_impl->async_read(ev->fd, cmd_buf);
+            int sts = this_sch_impl->async_read(ev, cmd_buf);
             if (sts <= 0) {			//读管道输入异常，将标准输出恢复成原先的值，并关闭已经打开的写管道
                 dup2(m_stdout_backup, STDOUT_FILENO);
                 close(m_wr_fifo);
@@ -278,7 +278,7 @@ namespace crx
         eth_ev->sch_impl = sch_impl;
         eth_ev->f = [&](scheduler *sch, eth_event *args) {
             std::string output;
-            int sts = sch_impl->async_read(args->fd, output);
+            int sts = sch_impl->async_read(args, output);
             if (!output.empty()) {
                 std::cout<<output;      //打印后台daemon进程输出的运行时信息
                 if (!stop_service && !excep)        //当前shell既不是用来停止后台服务，也未出现管道异常，则打印命令行提示符

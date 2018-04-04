@@ -98,37 +98,6 @@ namespace crx
         PRT_HTTP,			//HTTP协议
     };
 
-    template<typename IMPL_TYPE, typename CONN_TYPE>
-    void handle_tcp_stream(int conn, IMPL_TYPE tcp_impl, CONN_TYPE tcp_conn)
-    {
-        if (tcp_conn->stream_buffer.empty())
-            return;
-
-        if (tcp_impl->m_protocol_hook) {
-            char *start = &tcp_conn->stream_buffer[0];
-            size_t buf_len = tcp_conn->stream_buffer.size(), read_len = 0;
-            while (read_len < buf_len) {
-                size_t remain_len = buf_len-read_len;
-                int ret = tcp_impl->m_protocol_hook(conn, start, remain_len, tcp_impl->m_protocol_args);
-                if (0 == ret)
-                    break;
-
-                int abs_ret = std::abs(ret);
-                assert(abs_ret <= remain_len);
-                if (ret > 0)
-                    tcp_impl->m_tcp_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->port,
-                                      start, ret, tcp_impl->m_tcp_args);
-                start += abs_ret;
-                read_len += abs_ret;
-            }
-            if (read_len)
-                tcp_conn->stream_buffer.erase(0, read_len);
-        } else {
-            tcp_impl->m_tcp_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->port, &tcp_conn->stream_buffer[0],
-                              tcp_conn->stream_buffer.size(), tcp_impl->m_tcp_args);
-        }
-    };
-
     struct tcp_client_conn : public eth_event       //名字解析使用getaddrinfo_a
     {
         gaicb *name_reqs[1];
@@ -185,9 +154,7 @@ namespace crx
 
         size_t m_co_id;
         scheduler *m_sch;
-
         APP_PRT m_app_prt;
-        std::list<tcp_client_conn*> m_resolve_list;
 
         std::function<int(int, char*, size_t, void*)> m_protocol_hook;      //协议钩子
         void *m_protocol_args;  //协议回调参数
@@ -214,6 +181,7 @@ namespace crx
         tcp_server_impl()
                 :m_addr_len(0)
                 ,m_app_prt(PRT_NONE)
+                ,m_sch(nullptr)
                 ,m_tcp_args(nullptr) {}
 
         void start_listen(scheduler_impl *impl, uint16_t port);
@@ -227,6 +195,7 @@ namespace crx
 
         net_socket m_net_sock;			//tcp服务端监听套接字
         APP_PRT m_app_prt;
+        scheduler *m_sch;
 
         std::function<int(int, char*, size_t, void*)> m_protocol_hook;      //协议钩子
         void *m_protocol_args;  //协议回调参数
@@ -395,7 +364,7 @@ namespace crx
          *      -> 0: 所读文件正常关闭
          *      -> -1: 出现异常，异常由errno描述
          */
-        int async_read(int fd, std::string& read_str);
+        int async_read(eth_event *ev, std::string& read_str);
 
         /*
          * @ev: eth_event对象
@@ -420,5 +389,38 @@ namespace crx
         http_client *m_http_client;
         http_server *m_http_server;
         fs_monitor *m_fs_monitor;
+    };
+
+    template<typename IMPL_TYPE, typename CONN_TYPE>
+    void handle_tcp_stream(int conn, IMPL_TYPE tcp_impl, CONN_TYPE tcp_conn)
+    {
+        if (tcp_conn->stream_buffer.empty())
+            return;
+
+        auto sch_impl = (scheduler_impl*)tcp_impl->m_sch->m_obj;
+        if (tcp_impl->m_protocol_hook) {
+            char *start = &tcp_conn->stream_buffer[0];
+            size_t buf_len = tcp_conn->stream_buffer.size(), read_len = 0;
+            while (read_len < buf_len) {
+                size_t remain_len = buf_len-read_len;
+                int ret = tcp_impl->m_protocol_hook(conn, start, remain_len, tcp_impl->m_protocol_args);
+                if (0 == ret)
+                    break;
+
+                int abs_ret = std::abs(ret);
+                assert(abs_ret <= remain_len);
+                if (ret > 0)
+                    tcp_impl->m_tcp_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->port,
+                                      start, ret, tcp_impl->m_tcp_args);
+
+                start += abs_ret;
+                read_len += abs_ret;
+            }
+            if (read_len && sch_impl->m_ev_array[conn])
+                tcp_conn->stream_buffer.erase(0, read_len);
+        } else {
+            tcp_impl->m_tcp_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->port, &tcp_conn->stream_buffer[0],
+                              tcp_conn->stream_buffer.size(), tcp_impl->m_tcp_args);
+        }
     };
 }

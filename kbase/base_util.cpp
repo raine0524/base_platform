@@ -395,6 +395,8 @@ namespace crx
             if (start != pos) {
                 tokens.push_back(std::string(start, pos-start));
                 start = pos+delim_len;
+            } else {        //过滤起始位置处存在的分隔符
+                start += delim_len;
             }
         }
         return tokens;
