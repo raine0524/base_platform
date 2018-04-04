@@ -11,9 +11,9 @@
 
 #include "net_base.h"
 #include "console_impl.h"
-#include "evd_thread_impl.h"
-#include "py_wrapper_impl.h"
-#include "scheduler_impl.h"
+#include "evdth_impl.h"
+#include "pywrap_impl.h"
+#include "sched_impl.h"
 
 namespace crx
 {

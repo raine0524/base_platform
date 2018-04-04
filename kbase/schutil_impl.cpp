@@ -117,6 +117,9 @@ namespace crx
             case PRT_NONE:      conn = new tcp_client_conn;     break;      //使用原始的tcp协议
             case PRT_HTTP:		conn = new http_client_conn;    break;      //使用http协议
         }
+
+        conn->this_co = sch_impl->m_running_co;
+        conn->app_prt = tcp_impl->m_app_prt;
         conn->domain_name = server;		//记录当前连接的主机地址
         conn->port = port;
 
@@ -132,7 +135,7 @@ namespace crx
             req->ar_request = &conn->req_spec;
 
             bzero(&conn->sigev, sizeof(conn->sigev));
-            conn->sigev.sigev_value.sival_ptr = reinterpret_cast<void*>(sch_impl->m_running_co);
+            conn->sigev.sigev_value.sival_ptr = reinterpret_cast<void*>(conn->this_co);
             conn->sigev.sigev_signo = SIGRTMIN+14;
             conn->sigev.sigev_notify = SIGEV_SIGNAL;
             int ret = getaddrinfo_a(GAI_NOWAIT, conn->name_reqs, 1, &conn->sigev);
@@ -143,18 +146,19 @@ namespace crx
             tcp_impl->m_sch->co_yield(0);
 
             char host[64] = {0};
-            auto res = req->ar_result;
-            inet_ntop(res->ai_family, res->ai_addr->sa_data, host, sizeof(host)-1);
+            auto addr = &((sockaddr_in*)req->ar_result->ai_addr)->sin_addr;
+            inet_ntop(req->ar_result->ai_family, addr, host, sizeof(host)-1);
             conn->ip_addr = host;
         } else {        //已经是ip地址
             conn->ip_addr = server;
         }
 
-        conn->fd = conn->conn_sock.create(PRT_TCP, USR_CLIENT, conn->ip_addr.c_str(), conn->port);;
+        conn->fd = conn->conn_sock.create(PRT_TCP, USR_CLIENT, conn->ip_addr.c_str(), conn->port);
         conn->f = tcp_impl->tcp_client_callback;
         conn->args = conn;
         conn->sch_impl = sch_impl;
         sch_impl->add_event(conn, EPOLLOUT);        //套接字异步connect时其可写表明与对端server已经连接成功
+        tcp_impl->m_sch->co_yield(0);
         return conn->fd;
     }
 

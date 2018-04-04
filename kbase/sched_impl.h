@@ -134,7 +134,9 @@ namespace crx
         gaicb *name_reqs[1];
         addrinfo req_spec;
         sigevent sigev;
+        size_t this_co;
 
+        APP_PRT app_prt;
         std::string domain_name;        //连接对端使用的主机地址
         std::string ip_addr;            //转换之后的ip地址
         uint16_t port;					//对端端口
@@ -143,7 +145,11 @@ namespace crx
         net_socket conn_sock;
         std::string stream_buffer;      //tcp缓冲流
 
-        tcp_client_conn() : port(0), is_connect(false)
+        tcp_client_conn()
+                :this_co(0)
+                ,app_prt(PRT_NONE)
+                ,port(0)
+                ,is_connect(false)
         {
             stream_buffer.reserve(4096);
             name_reqs[0] = new gaicb;
@@ -169,7 +175,7 @@ namespace crx
 
         static void name_resolve_callback(int signo, uint64_t sigval, void *args)
         {
-            if (SIGUSR1 == signo) {
+            if (SIGRTMIN+14 == signo) {
                 auto tcp_impl = (tcp_client_impl*)args;
                 tcp_impl->m_sch->co_yield(sigval);
             }

@@ -19,7 +19,9 @@ void py_plot_test::get_web_page(std::vector<std::string>& urls)
         size_t co_id = co_create([&](crx::scheduler *sch, void *arg) {
             int conn = m_http_client->connect(url.c_str(), 80);
             m_http_client->GET(conn, "/", nullptr);
-        }, nullptr, true);
+            }, nullptr, true);
+
+        printf("url: %s, co_id: %lu\n", url.c_str(), co_id);
         co_yield(co_id);
     }
 }

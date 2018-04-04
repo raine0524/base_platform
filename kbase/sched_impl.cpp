@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "scheduler_impl.h"
 
 namespace crx
 {
@@ -349,9 +348,6 @@ namespace crx
             int ret = read(impl->fd, &impl->m_fd_info, st_size);
             if (ret == st_size) {
                 impl->m_f(impl->m_fd_info.ssi_signo, impl->m_fd_info.ssi_ptr, impl->m_args);
-                printf("signo = %d\n", impl->m_fd_info.ssi_signo);
-                printf("pid   = %d\n", impl->m_fd_info.ssi_pid);
-                printf("uid   = %d\n", impl->m_fd_info.ssi_uid);
             } else {
                 if (-1 == ret && EAGAIN != errno)
                     perror("sigctl_callback");
@@ -544,12 +540,17 @@ namespace crx
     void tcp_client_impl::tcp_client_callback(scheduler *sch, eth_event *ev)
     {
         auto sch_impl = (scheduler_impl*)sch->m_obj;
-        auto tcp_impl = (tcp_client_impl*)sch_impl->m_tcp_client->m_obj;
         auto tcp_conn = dynamic_cast<tcp_client_conn*>(ev);
+        tcp_client_impl *tcp_impl = nullptr;
+        switch (tcp_conn->app_prt) {
+            case PRT_NONE:      tcp_impl = (tcp_client_impl*)sch_impl->m_tcp_client->m_obj;
+            case PRT_HTTP:      tcp_impl = (http_client_impl*)sch_impl->m_http_client->m_obj;
+        }
 
         if (!tcp_conn->is_connect) {
             tcp_conn->is_connect = true;
             sch_impl->handle_event(EPOLL_CTL_MOD, ev->fd, EPOLLIN);
+            tcp_impl->m_sch->co_yield(tcp_conn->this_co);
             return;
         }
 
@@ -660,7 +661,7 @@ namespace crx
             http_impl->m_http_args = args;
 
             sigctl *ctl = get_sigctl(http_impl->name_resolve_callback, http_impl);
-            ctl->add_sigs({SIGINT, SIGRTMIN+14});
+            ctl->add_sigs({SIGRTMIN+14});
         }
         return sch_impl->m_http_client;
     }
