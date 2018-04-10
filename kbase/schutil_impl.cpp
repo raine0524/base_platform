@@ -2,6 +2,18 @@
 
 namespace crx
 {
+    void ecs_trans::feed_args(const std::vector<mem_ref>& args)
+    {
+        auto impl = (ecs_trans_impl*)m_obj;
+        impl->m_write_se.reset();
+        for (size_t i = 0; i < args.size(); ++i) {
+            auto& arg = args[i];
+            impl->m_write_se.insert(std::to_string(i).c_str(), arg.data, arg.len);
+        }
+        auto ref = impl->m_write_se.get_string();
+        write(impl->m_pipefd[1], ref.data, ref.len);
+    }
+
     void sigctl::add_sigs(const std::vector<int>& sigset)
     {
         auto impl = (sigctl_impl*)m_obj;

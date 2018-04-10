@@ -119,6 +119,12 @@ namespace crx
 {
     static const long int nano_per_sec = 1000*1000*1000;
 
+    enum ADDR_TYPE
+    {
+        ADDR_MAC = 0,
+        ADDR_IP,
+    };
+
     class CRX_SHARE kobj
     {
     public:
@@ -139,10 +145,13 @@ namespace crx
         datetime() : date(0), time(0) {}
     };
 
-    enum ADDR_TYPE
+    struct mem_ref
     {
-        ADDR_MAC = 0,
-        ADDR_IP,
+        const char *data;
+        size_t len;
+
+        mem_ref() { bzero(this, sizeof(mem_ref)); }
+        mem_ref(const char *s, size_t l) : data(s), len(l) {}
     };
 }
 

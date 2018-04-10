@@ -57,7 +57,7 @@ namespace crx
     std::string CRX_SHARE &trim(std::string& s);
 
     //将字符串s按照分隔符delimiters进行分隔
-    std::vector<std::string> CRX_SHARE split(const char *src, size_t len, const char *delim);
+    std::vector<mem_ref> CRX_SHARE split(const char *src, size_t len, const char *delim);
 
     /*
      * 将域名形式的主机地址server转换为点分十进制格式的ip地址，成功则返回true，反之返回false。若server已经是ip地址，

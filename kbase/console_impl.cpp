@@ -82,6 +82,7 @@ namespace crx
         auto sch_impl = (scheduler_impl*)m_c->m_obj;
         cons_pipe_name(argv[0]);
 
+        std::vector<std::string> stub_args;
         if (argc >= 2) {		//当前服务以带参模式运行，检测最后一个参数是否为{"-start", "-stop", "-restart"}之一
             if (!strcmp("-start", argv[argc-1])) {		//启动服务
                 if (!access(m_pipe_name[0].c_str(), F_OK)) {		//管道文件存在
@@ -92,15 +93,13 @@ namespace crx
                         printf("[%s] %s", g_server_name.c_str(), crash_info);
                     }
                 }
-                std::vector<std::string> args = {"-start"};
-                execute_cmd(args);
+                execute_cmd("-start", stub_args);
             }
 
             if (!strcmp("-stop", argv[argc-1])) {		//终止服务
-                std::vector<std::string> args = {"-stop"};
                 if (!access(m_pipe_name[0].c_str(), F_OK)) {		//管道文件存在
                     if (check_service_exist())			//进一步确认当前服务正在运行中，执行终止操作
-                        execute_cmd(args);
+                        execute_cmd("-stop", stub_args);
                     else		//后台服务已崩溃，打印出错信息
                         printf("[%s] %s", g_server_name.c_str(), crash_info);
                 } else {
@@ -110,15 +109,13 @@ namespace crx
             }
 
             if (!strcmp("-restart", argv[argc-1])) {				//重启服务
-                std::vector<std::string> args = {"-stop"};
                 if (!access(m_pipe_name[0].c_str(), F_OK)) {		//管道文件存在，终止后台服务或打印崩溃信息
                     if (check_service_exist())
-                        execute_cmd(args);
+                        execute_cmd("-stop", stub_args);
                     else
                         printf("[%s] %s", g_server_name.c_str(), crash_info);
                 }
-                args = {"-start"};
-                execute_cmd(args);
+                execute_cmd("-start", stub_args);
             }
         }
 
@@ -136,16 +133,15 @@ namespace crx
     }
 
     //执行命令，该命令分为带参运行形式以及运行时两种，由m_init变量指明当前执行的是哪种类型的命令
-    bool console_impl::execute_cmd(const std::vector<std::string>& args)
+    bool console_impl::execute_cmd(const std::string& cmd, std::vector<std::string>& args)
     {
         auto& cmds = m_cmds[m_init];
-        if (cmds.end() == cmds.find(args[0]))
+        if (cmds.end() != cmds.find(cmd)) {
+            cmds[cmd].f(args, m_c);
+            return true;
+        } else {
             return false;
-
-        //构造命令对应的参数，这些参数不包含命令本身
-        std::vector<std::string> fargs(args.begin()+1, args.end());
-        cmds[args[0]].f(fargs, m_c);
-        return true;
+        }
     }
 
     /*
@@ -173,26 +169,36 @@ namespace crx
             }
 
             input.resize((size_t)ret);
-            input.pop_back();		//读终端输入时去掉最后一个换行符'\n'
+            input.pop_back();   //读终端输入时去掉最后一个换行符'\n'
+            trim(input);        //移除输入字符串前后的空格符
             if (input.empty()) {
                 std::cout<<g_server_name<<":\\>"<<std::flush;
                 return;
             }
 
             //命令行输入的一系列参数都是以空格分隔
-            bool exit = "q" == input;
             auto str_vec = crx::split(input.data(), input.size(), " ");
+            std::string cmd;
+            std::vector<std::string> args;
+            for (size_t i = 0; i < str_vec.size(); ++i) {
+                auto& arg = str_vec[i];
+                if (0 == i)
+                    cmd = std::string(arg.data, arg.len);
+                else
+                    args.push_back(std::string(arg.data, arg.len));
+            }
+
             if (!str_vec.empty()) {
                 if (-1 == m_wr_fifo) {		//m_wr_fifo等于-1表示当前程序是以普通进程方式运行的
-                    if (execute_cmd(str_vec)) {
-                        if (!exit)
+                    if (execute_cmd(cmd, args)) {
+                        if ("q" != input)
                             std::cout<<g_server_name<<":\\>"<<std::flush;
                     } else {        //若需要执行的命令并未通过add_cmd接口添加时，通知该命令未知
                         std::cout<<unknown_cmd<<g_server_name<<":\\>"<<std::flush;
                     }
                 } else {		//若不等于-1则表示当前程序以shell方式运行
                     if ("h" == input || "q" == input) {     //输入为"h"(帮助)或者"q"(退出)时直接执行相应命令
-                        execute_cmd(str_vec);
+                        execute_cmd(cmd, args);
                         if ("h" == input)
                             std::cout<<g_server_name<<":\\>"<<std::flush;
                     } else {        //否则将命令行参数传给后台daemon进程
@@ -240,15 +246,25 @@ namespace crx
                 if (!strncmp(cmd_buf.data(), heart_beat, strlen(heart_beat)))
                     cmd_buf = cmd_buf.substr(strlen(heart_beat));		//just used to establish connection...
 
+                trim(cmd_buf);
                 if (cmd_buf.empty())
                     return;
 
-                std::vector<std::string> str_vec;
+                std::vector<std::string> args;
                 if (!strncmp(cmd_buf.data(), service_quit_sig, strlen(service_quit_sig))) {
-                    quit_loop(str_vec, m_c);		//收到停止daemon进程的命令，直接退出循环
+                    quit_loop(args, m_c);		//收到停止daemon进程的命令，直接退出循环
                 } else {
-                    str_vec = crx::split(cmd_buf.data(), cmd_buf.size(), " ");		//命令行参数以空格作为分隔符
-                    if (!str_vec.empty() && !execute_cmd(str_vec))
+                    auto str_vec = crx::split(cmd_buf.data(), cmd_buf.size(), " ");		//命令行参数以空格作为分隔符
+                    std::string cmd;
+                    for (size_t i = 0; i < str_vec.size(); ++i) {
+                        auto& arg = str_vec[i];
+                        if (0 == i)
+                            cmd = std::string(arg.data, arg.len);
+                        else
+                            args.push_back(std::string(arg.data, arg.len));
+                    }
+
+                    if (!str_vec.empty() && !execute_cmd(cmd, args))
                         std::cout<<unknown_cmd<<std::flush;
                 }
             }

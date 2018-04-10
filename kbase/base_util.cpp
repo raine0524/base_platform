@@ -169,8 +169,8 @@ namespace crx
 
             auto str_vec = crx::split(res.data(), res.size(), "\n");
             if (str_vec.size() == 2) {		//将修饰后的函数名变换为源文件中对应的函数名
-                sprintf(cmd_string, "c++filt %s", str_vec[0].c_str());
-                res = str_vec[1]+" => "+run_shell_cmd(cmd_string);
+                sprintf(cmd_string, "c++filt %s", str_vec[0].data);
+                res = std::string(str_vec[1].data, str_vec[1].len) +" => "+run_shell_cmd(cmd_string);
             }
             fprintf(core_file, "%s", res.c_str());
         }
@@ -380,24 +380,21 @@ namespace crx
         return s;
     }
 
-    std::vector<std::string> split(const char *src, size_t len, const char *delim)
+    std::vector<mem_ref> split(const char *src, size_t len, const char *delim)
     {
         size_t delim_len = strlen(delim);
-        std::vector<std::string> tokens;
+        std::vector<mem_ref> tokens;
         const char *start = src, *end = src+len, *pos = nullptr;
         while (start < end) {
             pos = strstr(start, delim);
             if (!pos || pos > end-delim_len) {      //未找到子串或已超出查找范围
-                tokens.push_back(std::string(start, end-start));
+                tokens.push_back(mem_ref(start, end-start));
                 break;
             }
 
-            if (start != pos) {
-                tokens.push_back(std::string(start, pos-start));
-                start = pos+delim_len;
-            } else {        //过滤起始位置处存在的分隔符
-                start += delim_len;
-            }
+            if (start != pos)
+                tokens.push_back(mem_ref(start, pos-start));
+            start = pos+delim_len;
         }
         return tokens;
     }

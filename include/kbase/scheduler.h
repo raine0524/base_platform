@@ -44,6 +44,10 @@ namespace crx
         //获取当前调度器中所有可用的协程，可用指协程状态为CO_READY, CO_RUNNING, CO_SUSPEND之一
         std::vector<coroutine*> get_avail_cos();
 
+        //获取执行流转换实例(自动释放)，主要用于将第三方接口的回调数据转移到当前调度线程(通常是主线程)进行处理以避免加锁
+        ecs_trans* get_ecs_trans(std::function<void(std::vector<crx::mem_ref>&, void*)> f, void *args = nullptr);
+
+
         //获取signal实例(自动释放)，回调函数中的3个参数依次为信号量、信号量关联参数以及回调参数
         sigctl* get_sigctl(std::function<void(int, uint64_t, void*)> f, void *args = nullptr);
 
@@ -105,7 +109,7 @@ namespace crx
          * ④响应体
          * ⑤回调参数
          */
-        http_client* get_http_client(std::function<void(int, int, std::unordered_map<std::string, std::string>&, const char*, size_t, void*)> f,
+        http_client* get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, const char*, size_t, void*)> f,
                                      void *args = nullptr);
 
         /*
@@ -118,7 +122,7 @@ namespace crx
          * ⑥回调参数
          */
         http_server* get_http_server(uint16_t port,
-                                     std::function<void(int, const std::string&, const std::string&, std::unordered_map<std::string, std::string>&,
+                                     std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&,
                                                         const char*, size_t, void*)> f,
                                      void *args = nullptr);
 

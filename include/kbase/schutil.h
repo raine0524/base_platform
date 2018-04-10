@@ -3,6 +3,16 @@
 namespace crx
 {
     class scheduler;
+    class CRX_SHARE ecs_trans : public kobj
+    {
+    public:
+        void feed_args(const std::vector<mem_ref>& args);
+
+    protected:
+        ecs_trans() = default;
+        friend scheduler;
+    };
+
     class CRX_SHARE sigctl : public kobj
     {
     public:

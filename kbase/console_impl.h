@@ -18,7 +18,7 @@ namespace crx
 
         bool preprocess(int argc, char *argv[]);
 
-        bool execute_cmd(const std::vector<std::string>& args);
+        bool execute_cmd(const std::string& cmd, std::vector<std::string>& args);
 
         void listen_keyboard_input(int wr_fifo);
 

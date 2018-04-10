@@ -17,6 +17,9 @@ namespace crx
             delete co_impl;
         impl->m_cos.clear();
 
+        if (impl->m_ecs_trans)
+            delete impl->m_ecs_trans;
+
         if (impl->m_sigctl)
             delete impl->m_sigctl;
 
@@ -118,13 +121,14 @@ namespace crx
                                      bool is_main_co, bool is_share /*= false*/, const char *comment /*= nullptr*/)
     {
         coroutine_impl *co_impl = nullptr;
-        if (m_unused_list.empty()) {
+        if (m_unused_cos.empty()) {
             co_impl = new coroutine_impl;
             co_impl->co_id = m_cos.size();
             m_cos.push_back(co_impl);
         } else {        //复用之前已创建的协程
-            size_t co_id = m_unused_list.front();
-            m_unused_list.pop_front();
+            std::pop_heap(m_unused_cos.begin(), m_unused_cos.end(), std::greater<size_t>());
+            size_t co_id = m_unused_cos.back();
+            m_unused_cos.pop_back();
             co_impl = m_cos[co_id];       //复用时其id不变
             if (co_impl->is_share != is_share) {        //复用时堆栈的使用模式改变
                 delete []co_impl->stack;
@@ -186,7 +190,8 @@ namespace crx
         sch_impl->m_running_co = 0;
         sch_impl->m_cos[0]->status = CO_RUNNING;
         co_impl->status = CO_UNKNOWN;
-        sch_impl->m_unused_list.push_back(co_impl->co_id);
+        sch_impl->m_unused_cos.push_back(co_impl->co_id);
+        std::push_heap(sch_impl->m_unused_cos.begin(), sch_impl->m_unused_cos.end(), std::greater<size_t>());
     }
 
     void scheduler_impl::main_coroutine(scheduler *sch)
@@ -219,14 +224,25 @@ namespace crx
                 ++i;
             }
 
-            //当前未使用的协程数量过多，回收一部分资源
+            //当前未使用的协程数量过多(超过总量的3/4)，回收一部分资源(当前总量的1/2)
             size_t total_cos = m_cos.size();
-            if (total_cos > 64 && m_unused_list.size() > (size_t)(total_cos/2.0)) {
-                auto last_co = m_cos.back();
-                if (CO_UNKNOWN == last_co->status) {        //从后往前释放资源，当最后一个协程无效时才释放该资源
-                    delete last_co;
-                    m_cos.pop_back();
+            if (total_cos > 64 && m_unused_cos.size() >= 3*total_cos/4.0) {
+                for (size_t i = 0; i < total_cos/2; ++i) {
+                    auto last_co = m_cos.back();
+                    if (CO_UNKNOWN == last_co->status) {        //从后往前释放资源，当最后一个协程无效时才释放该资源
+                        delete last_co;
+                        m_cos.pop_back();
+                    } else {
+                        break;
+                    }
                 }
+
+                //重新建立未使用co_id的最小堆
+                m_unused_cos.clear();
+                for (auto co : m_cos)
+                    if (CO_UNKNOWN == co->status)
+                        m_unused_cos.push_back(co->co_id);
+                std::make_heap(m_unused_cos.begin(), m_unused_cos.end(), std::greater<size_t>());
             }
         }
 
@@ -255,6 +271,10 @@ namespace crx
         }
     }
 
+    /*
+     * 移除事件对象时，对内存资源的释放进行优化较为困难，本质上是因为事件指针可能指向多个不同的继承对象，在复用该内存区域时
+     * 前后两个实际对象并不一致，此时进行针对性的优化意义不大，直接使用系统的一般化的内存管理方案即可
+     */
     void scheduler_impl::remove_event(eth_event *ev)
     {
         if (ev) {
@@ -318,6 +338,81 @@ namespace crx
 
         //所有数据写完之后继续在该文件描述符上监听可读事件
         handle_event(EPOLL_CTL_MOD, ev->fd, EPOLLIN);
+    }
+
+    int simpack_protocol(char *data, size_t len, int& ctx_len)
+    {
+        if (-1 == ctx_len) {
+            if (len < 5)        //头5个字节用于确定整个序列化串的大小
+                return 0;
+
+            if ((char)0xd2 != *data) {		//验证第一个字节的魔数是否等于0xd2u
+                size_t i = 1;
+                for (; i < len; ++i)
+                    if ((char)0xd2 == data[i])
+                        break;
+
+                if (i < len) {  //在后续流中找到该魔数，截断该魔数之前的无效流
+                    return -(int)i;
+                } else {        //未找到
+                    if (len > 8192)
+                        return -8192;   //缓存数据超过8k，截断已保护缓冲
+                    else
+                        return 0;       //等待更多数据到来
+                }
+            }
+
+            ctx_len = *(int*)(data+1);		//获取序列化串的大小
+        }
+
+        if (len < ctx_len)
+            return 0;
+        else
+            return ctx_len;
+    }
+
+    ecs_trans* scheduler::get_ecs_trans(std::function<void(std::vector<mem_ref>&, void*)> f, void *args /*= nullptr*/)
+    {
+        auto sch_impl = (scheduler_impl*)m_obj;
+        if (!sch_impl->m_ecs_trans) {
+            sch_impl->m_ecs_trans = new ecs_trans;      //创建一个新的ecs_trans
+            sch_impl->m_ecs_trans->m_obj = new ecs_trans_impl;
+
+            auto ecs_impl = (ecs_trans_impl*)sch_impl->m_ecs_trans->m_obj;
+            ecs_impl->m_epoll_fd = epoll_create(1);
+            int pipe_ret = pipe(ecs_impl->m_pipefd);
+            setnonblocking(ecs_impl->m_pipefd[0]);      //读-非阻塞 写-阻塞
+
+            ecs_impl->fd = ecs_impl->m_pipefd[0];
+            ecs_impl->f = ecs_impl->ecs_trans_callback;
+            ecs_impl->args = ecs_impl;
+            ecs_impl->sch_impl = sch_impl;
+
+            ecs_impl->m_sch = this;
+            ecs_impl->m_protocol_hook = ecs_impl->ecs_simpack;
+            ecs_impl->m_protocol_args = ecs_impl;
+            ecs_impl->m_f = ecs_impl->protocol_hook;
+            ecs_impl->m_args = ecs_impl;
+            ecs_impl->m_ecs_f = std::move(f);
+            ecs_impl->m_ecs_args = args;
+            sch_impl->add_event(ecs_impl);
+        }
+        return sch_impl->m_ecs_trans;
+    }
+
+    void ecs_trans_impl::ecs_trans_callback(scheduler *sch, eth_event *args)
+    {
+        auto impl = dynamic_cast<ecs_trans_impl*>(args);
+        int sts = impl->sch_impl->async_read(impl, impl->stream_buffer);
+        handle_stream(impl->fd, impl, impl);
+
+        if (sts <= 0) {
+//            if (sts < 0)
+//                printf("[ecs_trans_callback] 读文件描述符 %d 异常\n", impl->fd);
+//            else
+//                printf("[ecs_trans_callback] 管道对端 %d 正常关闭\n", impl->fd);
+            impl->sch_impl->remove_event(impl);
+        }
     }
 
     sigctl* scheduler::get_sigctl(std::function<void(int, uint64_t, void*)> f, void *args /*= nullptr*/)
@@ -531,8 +626,8 @@ namespace crx
 
             auto tcp_impl = (tcp_client_impl*)sch_impl->m_tcp_client->m_obj;
             tcp_impl->m_sch = this;
-            tcp_impl->m_tcp_f = std::move(f);			//记录回调函数及参数
-            tcp_impl->m_tcp_args = args;
+            tcp_impl->m_f = std::move(f);			//记录回调函数及参数
+            tcp_impl->m_args = args;
         }
         return sch_impl->m_tcp_client;
     }
@@ -554,7 +649,7 @@ namespace crx
         }
 
         int sts = sch_impl->async_read(tcp_conn, tcp_conn->stream_buffer);        //读tcp响应流
-        handle_tcp_stream(ev->fd, tcp_impl, tcp_conn);
+        handle_stream(ev->fd, tcp_impl, tcp_conn);
 
         if (sts <= 0) {     //读文件描述符检测到异常或发现对端已关闭连接
 //            if (sts < 0)
@@ -576,8 +671,8 @@ namespace crx
 
             auto tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
             tcp_impl->m_sch = this;
-            tcp_impl->m_tcp_f = std::move(f);		//保存回调函数及参数
-            tcp_impl->m_tcp_args = args;
+            tcp_impl->m_f = std::move(f);		//保存回调函数及参数
+            tcp_impl->m_args = args;
             tcp_impl->start_listen(sch_impl, port);			//开始监听
         }
         return sch_impl->m_tcp_server;
@@ -631,7 +726,7 @@ namespace crx
         auto tcp_conn = dynamic_cast<tcp_server_conn*>(ev);
 
         int sts = sch_impl->async_read(tcp_conn, tcp_conn->stream_buffer);
-        handle_tcp_stream(ev->fd, tcp_impl, tcp_conn);
+        handle_stream(ev->fd, tcp_impl, tcp_conn);
 
         if (sts <= 0) {		//读文件描述符检测到异常或发现对端已关闭连接
 //            if (sts < 0)
@@ -642,7 +737,7 @@ namespace crx
         }
     }
 
-    http_client* scheduler::get_http_client(std::function<void(int, int, std::unordered_map<std::string, std::string>&, const char*, size_t, void*)> f,
+    http_client* scheduler::get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, const char*, size_t, void*)> f,
                                             void *args /*= nullptr*/)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
@@ -655,8 +750,8 @@ namespace crx
             http_impl->m_app_prt = PRT_HTTP;
             http_impl->m_protocol_hook = http_impl->check_http_stream;
             http_impl->m_protocol_args = http_impl;
-            http_impl->m_tcp_f = http_impl->protocol_hook;
-            http_impl->m_tcp_args = http_impl;
+            http_impl->m_f = http_impl->protocol_hook;
+            http_impl->m_args = http_impl;
             http_impl->m_http_f = std::move(f);		//保存回调函数及参数
             http_impl->m_http_args = args;
 
@@ -715,11 +810,11 @@ namespace crx
             if (strncmp(data, "HTTP", 4)) {     //签名出错，该流不是HTTP流
                 char *sig_pos = strstr(data, "HTTP");       //查找流中是否存在"HTTP"子串
                 if (!sig_pos || sig_pos > data+len-4) {         //未找到子串或找到的子串已超出查找范围
-                    if (len > 65536)
-                        return -65536;      //若缓存的数据已超过64k，则截断前64k个字节，保障缓冲区不会一直被写入无效数据
+                    if (len > 8192)
+                        return -8192;      //若缓存的数据已超过8k，则截断前8k个字节，保障缓冲区不会一直被写入无效数据
                     else
                         return 0;           //缓存数据还不够多，当前状态不够明朗，等待更多数据到来
-                } else {        //找到的子串
+                } else {        //找到子串
                     return -(int)(sig_pos-data);    //先截断签名之前多余的数据
                 }
             }
@@ -727,8 +822,8 @@ namespace crx
             //先判断是否已经获取到完整的响应流
             char *delim_pos = strstr(data, "\r\n\r\n");
             if (!delim_pos || delim_pos > data+len-4) {     //还未取到分隔符或分隔符已超出查找范围
-                if (len > 65536)
-                    return -65536;      //在HTTP签名和分隔符\r\n\r\n之间已有超过64k的数据，直接截断，保护缓冲
+                if (len > 8192)
+                    return -8192;      //在HTTP签名和分隔符\r\n\r\n之间已有超过8k的数据，直接截断，保护缓冲
                 else
                     return 0;           //等待更多数据到来
             }
@@ -743,16 +838,18 @@ namespace crx
                 auto& line = str_vec[i];
                 if (0 == i) {		//首先解析响应行
                     //响应行包含空格分隔的三个字段，例如：HTTP/1.1(协议/版本) 200(状态码) OK(简单描述)
-                    auto line_elem = split(line.data(), line.size(), " ");
+                    auto line_elem = split(line.data, line.len, " ");
                     if (line_elem.size() < 3) {		//响应行出错，无效的响应流
                         header_err = true;
                         break;
                     }
-                    conn->status = std::stoi(line_elem[1]);		//记录中间的状态码
+                    conn->status = std::atoi(line_elem[1].data);		//记录中间的状态码
                 } else {
-                    auto header = split(line.data(), line.size(), ": ");		//头部字段键值对的分隔符为": "
-                    if (header.size() >= 2)		//无效的头部字段直接丢弃，不符合格式的值发生截断
-                        conn->headers[header[0]] = header[1];
+                    auto header = split(line.data, line.len, ": ");		//头部字段键值对的分隔符为": "
+                    if (header.size() >= 2) {       //无效的头部字段直接丢弃，不符合格式的值发生截断
+                        *(char*)(header[1].data+header[1].len) = 0;
+                        conn->headers[std::string(header[0].data, header[0].len)] = header[1].data;
+                    }
                 }
             }
 
@@ -775,12 +872,12 @@ namespace crx
 
         if (len < conn->content_len)      //响应体中不包含足够的数据，等待该连接上更多的数据到来
             return 0;
-        else        //已取到响应体，通知上层执行m_tcp_f回调
+        else        //已取到响应体，通知上层执行m_f回调
             return conn->content_len;
     }
 
     http_server* scheduler::get_http_server(uint16_t port,
-                                            std::function<void(int, const std::string&, const std::string&, std::unordered_map<std::string, std::string>&,
+                                            std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&,
                                                                const char*, size_t, void*)> f,
                                             void *args /*= nullptr*/)
     {
@@ -794,8 +891,8 @@ namespace crx
             http_impl->m_sch = this;
             http_impl->m_protocol_hook = http_impl->check_http_stream;
             http_impl->m_protocol_args = http_impl;
-            http_impl->m_tcp_f = http_impl->protocol_hook;
-            http_impl->m_tcp_args = http_impl;
+            http_impl->m_f = http_impl->protocol_hook;
+            http_impl->m_args = http_impl;
             http_impl->m_http_f = std::move(f);
             http_impl->m_http_args = args;
             http_impl->start_listen(sch_impl, port);		//开始监听
@@ -848,16 +945,16 @@ namespace crx
         if (-1 == conn->content_len) {        //与之前的http请求流已完成分包处理，开始处理新的请求
             char *delim_pos = strstr(data, "\r\n\r\n");
             if (!delim_pos || delim_pos > data+len-4) {     //还未取到分隔符或已超出查找范围
-                if (len > 65536)
-                    return -65536;      //在取到分隔符之前已有超过64k的数据，截断已保护缓冲
+                if (len > 8192)
+                    return -8192;      //在取到分隔符之前已有超过8k的数据，截断已保护缓冲
                 else
                     return 0;           //等待接受更多的数据
             }
 
             char *sig_pos = strstr(data, "HTTP");     //在完整的请求头中查找是否存在"HTTP"签名
             if (!sig_pos || sig_pos > data+len-4) {         //未取到签名或已超出查找范围
-                if (len > 65536)
-                    return -65536;      //在取到该签名之前已有超过64k的数据，截断
+                if (len > 8192)
+                    return -8192;      //在取到该签名之前已有超过8k的数据，截断
                 else
                     return 0;
             }
@@ -872,18 +969,22 @@ namespace crx
                 auto line = str_vec[i];
                 if (0 == i) {		//首先解析请求行
                     //请求行包含空格分隔的三个字段，例如：POST(请求方法) /request(url) HTTP/1.1(协议/版本)
-                    auto line_elem = split(line.data(), line.size(), " ");
+                    auto line_elem = split(line.data, line.len, " ");
                     if (line_elem.size() < 3) {		//请求行出错，无效的请求流
                         header_err = true;
                         break;
                     }
 
-                    conn->method = line_elem[0];          //记录请求方法
-                    conn->url = line_elem[1];             //记录请求的url(以"/"开始的部分)
+                    conn->method = line_elem[0].data;          //记录请求方法
+                    *(char*)(line_elem[0].data+line_elem[0].len) = 0;
+                    conn->url = line_elem[1].data;             //记录请求的url(以"/"开始的部分)
+                    *(char*)(line_elem[1].data+line_elem[1].len) = 0;
                 } else {
-                    auto header = split(line.data(), line.size(), ": ");        //头部字段键值对的分隔符为": "
-                    if (header.size() >= 2)     //无效的头部字段直接丢弃，不符合格式的值发生截断
-                        conn->headers[header[0]] = header[1];
+                    auto header = split(line.data, line.len, ": ");        //头部字段键值对的分隔符为": "
+                    if (header.size() >= 2) {       //无效的头部字段直接丢弃，不符合格式的值发生截断
+                        *(char*)(header[1].data+header[1].len) = 0;
+                        conn->headers[std::string(header[0].data, header[0].len)] = header[1].data;
+                    }
                 }
             }
 
@@ -895,7 +996,7 @@ namespace crx
             int ret = 0;
             auto it = conn->headers.find("Content-Length");
             if (conn->headers.end() == it) {      //有些请求流不存在请求体，此时头部中不包含"Content-Length"字段
-                //just a trick，返回0表示等待更多的数据，如果需要上层执行m_tcp_f回调必须返回大于0的值，因此在完成一次分包之后，
+                //just a trick，返回0表示等待更多的数据，如果需要上层执行m_f回调必须返回大于0的值，因此在完成一次分包之后，
                 //若没有请求体，可以将content_len设置为1，但只截断分隔符"\r\n\r\n"中的前三个字符，而将最后一个字符作为请求体
                 conn->content_len = 1;
                 ret = -(int)(valid_header_len+3);
@@ -909,7 +1010,7 @@ namespace crx
 
         if (len < conn->content_len)      //请求体中不包含足够的数据，等待该连接上更多的数据到来
             return 0;
-        else        //已取到请求体，通知上层执行m_tcp_f回调
+        else        //已取到请求体，通知上层执行m_f回调
             return conn->content_len;
     }
 
