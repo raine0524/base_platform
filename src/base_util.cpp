@@ -372,11 +372,10 @@ namespace crx
 
     std::string& trim(std::string& s)
     {
-        if (s.empty())		//接口安全性检查
-            return s;
-
-        s.erase(0, s.find_first_not_of(" "));		//清除字符串前面的空格及制表符
-        s.erase(s.find_last_not_of(" ")+1);		//清除字符串尾部的空格及制表符
+        if (!s.empty())
+            s.erase(0, s.find_first_not_of(" \t"));   //清除字符串前面的空格及制表符
+        if (!s.empty())
+            s.erase(s.find_last_not_of(" \t")+1);     //清除字符串尾部的空格及制表符
         return s;
     }
 

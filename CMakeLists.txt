@@ -45,3 +45,10 @@ add_executable(sch_ecs_ex examples/sch_ecs_ex.cpp)
 target_link_libraries(sch_ecs_ex kbase)
 
 set_target_properties(sch_ecs_ex PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../examples)
+
+# example-conf_ini
+add_executable(conf_ini examples/conf_ini_ex.cpp)
+
+target_link_libraries(conf_ini kbase)
+
+set_target_properties(conf_ini PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../examples)
