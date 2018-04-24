@@ -70,6 +70,7 @@
 #include <ifaddrs.h>
 #include <sched.h>
 #include <syscall.h>
+#include <syslog.h>
 #include <ucontext.h>
 
 #include <sys/stat.h>
@@ -119,6 +120,8 @@ namespace crx
 {
     static const long int nano_per_sec = 1000*1000*1000;
 
+    extern std::string g_server_name;
+
     enum ADDR_TYPE
     {
         ADDR_MAC = 0,
@@ -142,7 +145,10 @@ namespace crx
         unsigned int date;		//format: YYYYMMDD
         unsigned int time;		//format: HHMMSSmmm，最后三位为毫秒
 
-        datetime() : date(0), time(0) {}
+        struct tm *t;
+        long int time_stamp;    //当前时间戳，精确到毫秒
+
+        datetime() : date(0), time(0), time_stamp(0) {}
     };
 
     struct mem_ref
@@ -167,5 +173,6 @@ namespace crx
 #include "kbase/statis.h"
 #include "kbase/py_wrapper.h"
 #include "kbase/schutil.h"
+#include "kbase/simpack.h"
 #include "kbase/scheduler.h"
 #include "kbase/console.h"

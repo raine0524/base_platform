@@ -14,8 +14,3 @@
 #include "evdth_impl.h"
 #include "pywrap_impl.h"
 #include "sched_impl.h"
-
-namespace crx
-{
-    extern std::string g_server_name;
-}

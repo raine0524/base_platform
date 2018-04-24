@@ -2,6 +2,8 @@
 
 namespace crx
 {
+    log *g_log = nullptr;
+
     scheduler::scheduler()
     {
         auto *impl = new scheduler_impl(this);
@@ -15,7 +17,9 @@ namespace crx
         auto impl = (scheduler_impl*)m_obj;
         for (auto co_impl : impl->m_cos)
             delete co_impl;
-        impl->m_cos.clear();
+
+        for (auto log : impl->m_logs)
+            delete log;
 
         if (impl->m_ecs_trans)
             delete impl->m_ecs_trans;
@@ -38,6 +42,11 @@ namespace crx
 
         if (impl->m_http_server)
             delete impl->m_http_server;
+
+        if (impl->m_simp_server) {
+            delete (simpack_server_impl*)impl->m_simp_server->m_obj;
+            delete impl->m_simp_server;
+        }
 
         if (impl->m_fs_monitor)
             delete impl->m_fs_monitor;
@@ -214,7 +223,7 @@ namespace crx
                 int fd = events[i].data.fd;
                 auto ev = m_ev_array[fd];
                 if (ev)
-                    ev->f(sch, ev->args);
+                    ev->f(sch, ev->arg);
             }
 
             i = 1;
@@ -227,7 +236,7 @@ namespace crx
             //当前未使用的协程数量过多(超过总量的3/4)，回收一部分资源(当前总量的1/2)
             size_t total_cos = m_cos.size();
             if (total_cos > 64 && m_unused_cos.size() >= 3*total_cos/4.0) {
-                for (size_t i = 0; i < total_cos/2; ++i) {
+                for (i = 0; i < total_cos/2; ++i) {
                     auto last_co = m_cos.back();
                     if (CO_UNKNOWN == last_co->status) {        //从后往前释放资源，当最后一个协程无效时才释放该资源
                         delete last_co;
@@ -273,7 +282,7 @@ namespace crx
 
     /*
      * 移除事件对象时，对内存资源的释放进行优化较为困难，本质上是因为事件指针可能指向多个不同的继承对象，在复用该内存区域时
-     * 前后两个实际对象并不一致，此时进行针对性的优化意义不大，直接使用系统的一般化的内存管理方案即可
+     * 前后两个实际对象并不一致，此时进行针对性的优化意义不大，直接使用系统的一般化内存管理方案即可
      */
     void scheduler_impl::remove_event(eth_event *ev)
     {
@@ -316,28 +325,166 @@ namespace crx
 
     void scheduler_impl::async_write(eth_event *ev, const char *data, size_t len)
     {
-        size_t write_len = 0;
-        while (true) {
-            ssize_t sts = write(ev->fd, data+write_len, len-write_len);
-            if (sts > 0) {      //正常写入
-                write_len += sts;
-            } else if (-1 == sts && EAGAIN != errno) {      //写数据出现异常，不再监听该文件描述符上的事件
-                perror("scheduler_impl::async_write");
-                remove_event(ev);
-                return;
-            }
+        if (!ev->cache_data.empty()) {      //存在缓存数据，正在监听可写事件
+            ev->cache_data.push_back(std::string(data, len));
+            return;
+        }
 
-            //仍有部分数据未写完，在该文件描述符上监听可写事件，在可写时将剩余数据写入
-            if (write_len < len) {
-                handle_event(EPOLL_CTL_MOD, ev->fd, EPOLLOUT);
-                m_sch->co_yield(0);     //切回主协程处理其他事件
-            } else {        //数据已全部写完
+        ssize_t sts = write(ev->fd, data, len);
+        if (sts == len)     //全部写完
+            return;
+
+        if (-1 == sts && EAGAIN != errno) {     //出现异常，不再监听关联事件
+            perror("scheduler_impl::async_write");
+            remove_event(ev);
+            return;
+        }
+
+        if (-1 != sts) {
+            data += sts;
+            len -= sts;
+        }
+
+        ev->cache_data.push_back(std::string(data, len));
+        ev->f_bk = std::move(ev->f);
+        ev->f = switch_write;
+        handle_event(EPOLL_CTL_MOD, ev->fd, EPOLLOUT);
+    }
+
+    void scheduler_impl::switch_write(scheduler *sch, eth_event *arg)
+    {
+        bool excep_occur = false;
+        for (auto it = arg->cache_data.begin(); it != arg->cache_data.end(); ) {
+            ssize_t sts = write(arg->fd, it->c_str(), it->size());
+            if (-1 == sts) {
+                if (EAGAIN != errno) {
+                    perror("scheduler_impl::switch_write");
+                    excep_occur = true;
+                }
                 break;
+            } else if (sts < it->size()) {
+                if (sts > 0)
+                    it->erase(0, (size_t)sts);
+                break;
+            } else {
+                it = arg->cache_data.erase(it);
             }
         }
 
-        //所有数据写完之后继续在该文件描述符上监听可读事件
-        handle_event(EPOLL_CTL_MOD, ev->fd, EPOLLIN);
+        if (excep_occur) {      //发生异常，移除该文件描述符上的监听事件
+            arg->cache_data.clear();
+            arg->sch_impl->remove_event(arg);
+        } else if (arg->cache_data.empty()) {   //切换监听读事件
+            arg->f = std::move(arg->f_bk);
+            arg->sch_impl->handle_event(EPOLL_CTL_MOD, arg->fd, EPOLLIN);
+        }
+    }
+
+    log* scheduler::get_log(const char *prefix, const char *root_dir /*= "log_files"*/,
+                            int max_size /*= 2*/, bool print_screen /*= true*/)
+    {
+        g_log = new log;
+        auto impl = new log_impl;
+        g_log->m_obj = impl;
+        impl->m_prefix = prefix;
+        impl->m_root_dir = root_dir;
+        impl->m_max_size = max_size*1024*1024;
+        impl->m_pscreen = print_screen;
+        impl->m_now = get_datetime();
+
+        char log_path[256] = {0}, file_wh[64] = {0};
+        int ret = sprintf(log_path, "%s/%d/%02d/%02d/", root_dir, impl->m_now.t->tm_year+1900,
+                          impl->m_now.t->tm_mon+1, impl->m_now.t->tm_mday);
+        mkdir_multi(log_path);
+
+        sprintf(file_wh, "%s_%02d", prefix, impl->m_now.t->tm_hour);
+        depth_first_traverse_dir(log_path, [&](const std::string& fname, void *arg) {
+            if (std::string::npos != fname.find(file_wh)) {
+                auto pos = fname.rfind('[');
+                int split_idx = atoi(&fname[pos+1]);
+                if (split_idx > impl->m_split_idx)
+                    impl->m_split_idx = split_idx;
+            }
+        }, nullptr, false);
+        sprintf(log_path+ret, "%s[%02d].log", file_wh, impl->m_split_idx);
+
+        if (-1 != impl->fd)
+            close(impl->fd);
+        if (access(log_path, F_OK))     //file not exist
+            impl->fd = open(log_path, O_CREAT | O_WRONLY, 0644);
+        else
+            impl->fd = open(log_path, O_WRONLY);
+        impl->m_curr_size = (int)lseek(impl->fd, 0, SEEK_END);
+
+
+        const char *fifo_name = "/tmp/my_fifo";
+        if (access(fifo_name, F_OK))
+            mkfifo(fifo_name, 0777);
+        impl->m_pipe_fd = open(fifo_name, O_WRONLY);
+
+        long origin_pipe_size = fcntl(impl->m_pipe_fd, F_GETPIPE_SZ);
+        fcntl(impl->m_pipe_fd, F_SETPIPE_SZ, 64*1024*1024);
+        perror("fix buffer error");
+        long after_pipe_size = fcntl(impl->m_pipe_fd, F_GETPIPE_SZ);
+        printf("set pipe size origin=%ld after=%ld\n", origin_pipe_size, after_pipe_size);
+
+        auto sch_impl = (scheduler_impl*)m_obj;
+        sch_impl->m_logs.push_back(g_log);
+    }
+
+    void log::printf(const char *fmt, ...)
+    {
+        timeval tv = {0};
+        gettimeofday(&tv, nullptr);
+
+        auto impl = (log_impl*)m_obj;
+        if (tv.tv_sec != impl->m_last_sec) {
+            impl->m_last_sec = tv.tv_sec;
+            impl->m_now = get_datetime(&tv);
+            sprintf(&impl->m_log_buffer[0], "[%04d/%02d/%02d %02d:%02d:%02d.%06ld] ", impl->m_now.t->tm_year+1900, impl->m_now.t->tm_mon+1,
+                     impl->m_now.t->tm_mday, impl->m_now.t->tm_hour, impl->m_now.t->tm_min, impl->m_now.t->tm_sec, tv.tv_usec);
+        } else {
+            sprintf(&impl->m_log_buffer[21], "%06ld", tv.tv_usec);
+            impl->m_log_buffer[27] = ']';
+        }
+
+        va_list var1, var2;
+        va_start(var1, fmt);
+        va_copy(var2, var1);
+
+        char *data = &impl->m_log_buffer[0];
+        size_t remain = impl->m_log_buffer.size()-29;
+        size_t ret = (size_t)vsnprintf(&impl->m_log_buffer[29], remain, fmt, var1);
+        if (ret > remain) {
+            impl->m_temp.resize(ret+30, 0);
+            data = &impl->m_temp[0];
+            strncpy(&impl->m_temp[0], impl->m_log_buffer.c_str(), 29);
+            ret = (size_t)vsnprintf(&impl->m_temp[29], ret+1, fmt, var2);
+        }
+
+        write(impl->m_pipe_fd, data, ret+29);
+
+        va_end(var2);
+        va_end(var1);
+    }
+
+    void log_impl::log_co(scheduler *sch, void *arg)
+    {
+        auto impl = (log_impl*)arg;
+    }
+
+    int simjson_protocol(char *data, size_t len)
+    {
+        char *delim_pos = strstr(data, "\r\n\r\n");
+        if (!delim_pos && delim_pos > data+len-4) {     //还未找到分隔符或分隔符越界
+            if (len > 8192)
+                return -8192;      //缓存数据超过8k，截断以保护缓冲
+            else
+                return 0;           //等待更多数据到来
+        }
+
+        *delim_pos = 0;
+        return (int)(delim_pos-data+4);
     }
 
     int simpack_protocol(char *data, size_t len, int& ctx_len)
@@ -356,7 +503,7 @@ namespace crx
                     return -(int)i;
                 } else {        //未找到
                     if (len > 8192)
-                        return -8192;   //缓存数据超过8k，截断已保护缓冲
+                        return -8192;   //缓存数据超过8k，截断以保护缓冲
                     else
                         return 0;       //等待更多数据到来
                 }
@@ -371,7 +518,7 @@ namespace crx
             return ctx_len;
     }
 
-    ecs_trans* scheduler::get_ecs_trans(std::function<void(std::vector<mem_ref>&, void*)> f, void *args /*= nullptr*/)
+    ecs_trans* scheduler::get_ecs_trans(std::function<void(std::vector<mem_ref>&, void*)> f, void *arg /*= nullptr*/)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
         if (!sch_impl->m_ecs_trans) {
@@ -385,24 +532,24 @@ namespace crx
 
             ecs_impl->fd = ecs_impl->m_pipefd[0];
             ecs_impl->f = ecs_impl->ecs_trans_callback;
-            ecs_impl->args = ecs_impl;
+            ecs_impl->arg = ecs_impl;
             ecs_impl->sch_impl = sch_impl;
 
             ecs_impl->m_sch = this;
             ecs_impl->m_protocol_hook = ecs_impl->ecs_simpack;
-            ecs_impl->m_protocol_args = ecs_impl;
+            ecs_impl->m_protocol_arg = ecs_impl;
             ecs_impl->m_f = ecs_impl->protocol_hook;
-            ecs_impl->m_args = ecs_impl;
+            ecs_impl->m_arg = ecs_impl;
             ecs_impl->m_ecs_f = std::move(f);
-            ecs_impl->m_ecs_args = args;
+            ecs_impl->m_ecs_arg = arg;
             sch_impl->add_event(ecs_impl);
         }
         return sch_impl->m_ecs_trans;
     }
 
-    void ecs_trans_impl::ecs_trans_callback(scheduler *sch, eth_event *args)
+    void ecs_trans_impl::ecs_trans_callback(scheduler *sch, eth_event *arg)
     {
-        auto impl = dynamic_cast<ecs_trans_impl*>(args);
+        auto impl = dynamic_cast<ecs_trans_impl*>(arg);
         int sts = impl->sch_impl->async_read(impl, impl->stream_buffer);
         handle_stream(impl->fd, impl, impl);
 
@@ -415,7 +562,7 @@ namespace crx
         }
     }
 
-    sigctl* scheduler::get_sigctl(std::function<void(int, uint64_t, void*)> f, void *args /*= nullptr*/)
+    sigctl* scheduler::get_sigctl(std::function<void(int, uint64_t, void*)> f, void *arg /*= nullptr*/)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
         if (!sch_impl->m_sigctl) {
@@ -425,29 +572,29 @@ namespace crx
             auto sig_impl = (sigctl_impl*)sch_impl->m_sigctl->m_obj;
             sig_impl->fd = signalfd(-1, &sig_impl->m_mask, SFD_NONBLOCK);
             sig_impl->f = sig_impl->sigctl_callback;
-            sig_impl->args = sig_impl;
+            sig_impl->arg = sig_impl;
             sig_impl->sch_impl = sch_impl;
 
             sig_impl->m_f = std::move(f);
-            sig_impl->m_args = args;
+            sig_impl->m_arg = arg;
             sch_impl->add_event(sig_impl);
         }
         return sch_impl->m_sigctl;
     }
 
-    void sigctl_impl::sigctl_callback(scheduler *sch, eth_event *args)
+    void sigctl_impl::sigctl_callback(scheduler *sch, eth_event *arg)
     {
-        auto impl = dynamic_cast<sigctl_impl*>(args);
+        auto impl = dynamic_cast<sigctl_impl*>(arg);
         int st_size = sizeof(impl->m_fd_info);
         while (true) {
-            int ret = read(impl->fd, &impl->m_fd_info, st_size);
+            int64_t ret = read(impl->fd, &impl->m_fd_info, (size_t)st_size);
             if (ret == st_size) {
-                impl->m_f(impl->m_fd_info.ssi_signo, impl->m_fd_info.ssi_ptr, impl->m_args);
+                impl->m_f(impl->m_fd_info.ssi_signo, impl->m_fd_info.ssi_ptr, impl->m_arg);
             } else {
                 if (-1 == ret && EAGAIN != errno)
                     perror("sigctl_callback");
                 else if (ret > 0)
-                    fprintf(stderr, "invalid `signalfd_siginfo` size: %d\n", ret);
+                    fprintf(stderr, "invalid `signalfd_siginfo` size: %ld\n", ret);
                 break;      //file closed & wait more data is normal
             }
         }
@@ -469,7 +616,7 @@ namespace crx
         sch_impl->handle_event(EPOLL_CTL_ADD, fd, EPOLLIN);
     }
 
-    timer* scheduler::get_timer(std::function<void(void*)> f, void *args /*= nullptr*/)
+    timer* scheduler::get_timer(std::function<void(void*)> f, void *arg /*= nullptr*/)
     {
         auto tmr = new timer;
         tmr->m_obj = new timer_impl;
@@ -479,10 +626,10 @@ namespace crx
             auto sch_impl = (scheduler_impl*)m_obj;
             tmr_impl->sch_impl = sch_impl;
             tmr_impl->f = tmr_impl->timer_callback;
-            tmr_impl->args = tmr_impl;
+            tmr_impl->arg = tmr_impl;
 
             tmr_impl->m_f = std::move(f);
-            tmr_impl->m_args = args;
+            tmr_impl->m_arg = arg;
             sch_impl->add_event(tmr_impl);      //加入epoll监听事件
         } else {
             perror("scheduler::get_timer");
@@ -497,15 +644,15 @@ namespace crx
      * 触发定时器回调时首先读文件描述符 fd，读操作将定时器状态切换为已读，若不执行读操作，
      * 则由于epoll采用edge-trigger边沿触发模式，定时器事件再次触发时将不再回调该函数
      */
-    void timer_impl::timer_callback(scheduler* sch, eth_event *args)
+    void timer_impl::timer_callback(scheduler* sch, eth_event *arg)
     {
-        auto impl = dynamic_cast<timer_impl*>(args);
+        auto impl = dynamic_cast<timer_impl*>(arg);
         uint64_t cnt;
         read(impl->fd, &cnt, sizeof(cnt));
-        impl->m_f(impl->m_args);
+        impl->m_f(impl->m_arg);
     }
 
-    event* scheduler::get_event(std::function<void(int, void*)> f, void *args /*= nullptr*/)
+    event* scheduler::get_event(std::function<void(int, void*)> f, void *arg /*= nullptr*/)
     {
         auto ev = new event;
         ev->m_obj = new event_impl;
@@ -515,10 +662,10 @@ namespace crx
             auto sch_impl = (scheduler_impl*)m_obj;
             ev_impl->sch_impl = sch_impl;
             ev_impl->f = ev_impl->event_callback;
-            ev_impl->args = ev_impl;
+            ev_impl->arg = ev_impl;
 
             ev_impl->m_f = std::move(f);
-            ev_impl->m_args = args;
+            ev_impl->m_arg = arg;
             sch_impl->add_event(ev_impl);
         } else {
             perror("scheduler::get_event");
@@ -529,19 +676,19 @@ namespace crx
         return ev;
     }
 
-    void event_impl::event_callback(scheduler *sch, eth_event *args)
+    void event_impl::event_callback(scheduler *sch, eth_event *arg)
     {
-        auto impl = dynamic_cast<event_impl*>(args);
+        auto impl = dynamic_cast<event_impl*>(arg);
         eventfd_t val;
         eventfd_read(impl->fd, &val);       //读操作将事件重置
 
         for (auto signal : impl->m_signals)
-            impl->m_f(signal, impl->m_args);			//执行事件回调函数
+            impl->m_f(signal, impl->m_arg);			//执行事件回调函数
     }
 
     udp_ins* scheduler::get_udp_ins(bool is_server, uint16_t port,
                                     std::function<void(const std::string&, uint16_t, const char*, size_t, void*)> f,
-                                    void *args /*= nullptr*/)
+                                    void *arg /*= nullptr*/)
     {
         auto ui = new udp_ins;
         ui->m_obj = new udp_ins_impl;
@@ -558,10 +705,10 @@ namespace crx
             auto sch_impl = (scheduler_impl*)m_obj;
             ui_impl->sch_impl = sch_impl;
             ui_impl->f = ui_impl->udp_ins_callback;
-            ui_impl->args = ui_impl;
+            ui_impl->arg = ui_impl;
 
             ui_impl->m_f = std::move(f);
-            ui_impl->m_args = args;
+            ui_impl->m_arg = arg;
             sch_impl->add_event(ui_impl);
         } else {
             perror("scheduler::get_udp_ins");
@@ -572,9 +719,9 @@ namespace crx
         return ui;
     }
 
-    void udp_ins_impl::udp_ins_callback(scheduler *sch, eth_event *args)
+    void udp_ins_impl::udp_ins_callback(scheduler *sch, eth_event *arg)
     {
-        auto impl = dynamic_cast<udp_ins_impl*>(args);
+        auto impl = dynamic_cast<udp_ins_impl*>(arg);
         bzero(&impl->m_recv_addr, sizeof(impl->m_recv_addr));
         impl->m_recv_len = sizeof(impl->m_recv_addr);
 
@@ -597,27 +744,27 @@ namespace crx
             uint16_t port = ntohs(impl->m_recv_addr.sin_port);
 
             //执行回调，将完整的udp数据包传给应用层
-            impl->m_f(ip_addr, port, impl->m_recv_buffer.data(), (size_t)ret, impl->m_args);
+            impl->m_f(ip_addr, port, impl->m_recv_buffer.data(), (size_t)ret, impl->m_arg);
         }
     }
 
     void scheduler::register_tcp_hook(bool client, std::function<int(int, char*, size_t, void*)> f,
-                                      void *args /*= nullptr*/)
+                                      void *arg /*= nullptr*/)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
         if (client) {
             auto tcp_impl = (tcp_client_impl*)sch_impl->m_tcp_client->m_obj;
             tcp_impl->m_protocol_hook = std::move(f);
-            tcp_impl->m_protocol_args = args;
+            tcp_impl->m_protocol_arg = arg;
         } else {        //server
             auto tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
             tcp_impl->m_protocol_hook = std::move(f);
-            tcp_impl->m_protocol_args = args;
+            tcp_impl->m_protocol_arg = arg;
         }
     }
 
     tcp_client* scheduler::get_tcp_client(std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> f,
-                                          void *args /*= nullptr*/)
+                                          void *arg /*= nullptr*/)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
         if (!sch_impl->m_tcp_client) {
@@ -627,7 +774,7 @@ namespace crx
             auto tcp_impl = (tcp_client_impl*)sch_impl->m_tcp_client->m_obj;
             tcp_impl->m_sch = this;
             tcp_impl->m_f = std::move(f);			//记录回调函数及参数
-            tcp_impl->m_args = args;
+            tcp_impl->m_arg = arg;
         }
         return sch_impl->m_tcp_client;
     }
@@ -644,7 +791,8 @@ namespace crx
 
         if (!tcp_conn->is_connect) {
             tcp_conn->is_connect = true;
-            tcp_impl->m_sch->co_yield(tcp_conn->this_co);
+            tcp_conn->f_bk = std::move(tcp_conn->f);
+            tcp_conn->sch_impl->switch_write(tcp_impl->m_sch, ev);
             return;
         }
 
@@ -662,7 +810,7 @@ namespace crx
 
     tcp_server* scheduler::get_tcp_server(uint16_t port,
                                           std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> f,
-                                          void *args /*= nullptr*/)
+                                          void *arg /*= nullptr*/)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
         if (!sch_impl->m_tcp_server) {
@@ -672,7 +820,7 @@ namespace crx
             auto tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
             tcp_impl->m_sch = this;
             tcp_impl->m_f = std::move(f);		//保存回调函数及参数
-            tcp_impl->m_args = args;
+            tcp_impl->m_arg = arg;
             tcp_impl->start_listen(sch_impl, port);			//开始监听
         }
         return sch_impl->m_tcp_server;
@@ -684,7 +832,7 @@ namespace crx
         fd = m_net_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
         sch_impl = impl;
         f = tcp_server_callback;
-        args = this;
+        arg = this;
         impl->add_event(this);      //加入epoll监听事件
     }
 
@@ -710,7 +858,7 @@ namespace crx
 
             conn->fd = client_fd;
             conn->f = impl->read_tcp_stream;
-            conn->args = conn;
+            conn->arg = conn;
 
             conn->ip_addr = inet_ntoa(impl->m_accept_addr.sin_addr);	//将地址转换为点分十进制格式的ip地址
             conn->port = ntohs(impl->m_accept_addr.sin_port);           //将端口由网络字节序转换为主机字节序
@@ -738,7 +886,7 @@ namespace crx
     }
 
     http_client* scheduler::get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, const char*, size_t, void*)> f,
-                                            void *args /*= nullptr*/)
+                                            void *arg /*= nullptr*/)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
         if (!sch_impl->m_http_client) {
@@ -749,11 +897,11 @@ namespace crx
             http_impl->m_sch = this;
             http_impl->m_app_prt = PRT_HTTP;
             http_impl->m_protocol_hook = http_impl->check_http_stream;
-            http_impl->m_protocol_args = http_impl;
+            http_impl->m_protocol_arg = http_impl;
             http_impl->m_f = http_impl->protocol_hook;
-            http_impl->m_args = http_impl;
+            http_impl->m_arg = http_impl;
             http_impl->m_http_f = std::move(f);		//保存回调函数及参数
-            http_impl->m_http_args = args;
+            http_impl->m_http_arg = arg;
 
             sigctl *ctl = get_sigctl(http_impl->name_resolve_callback, http_impl);
             ctl->add_sigs({SIGRTMIN+14});
@@ -776,7 +924,7 @@ namespace crx
         }
 
         http_impl->m_http_f(fd, conn->status, conn->headers, cb_data, cb_len,
-                            http_impl->m_http_args);
+                            http_impl->m_http_arg);
 
         if (sch_impl->m_ev_array[fd]) {
             conn->content_len = -1;
@@ -879,7 +1027,7 @@ namespace crx
     http_server* scheduler::get_http_server(uint16_t port,
                                             std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&,
                                                                const char*, size_t, void*)> f,
-                                            void *args /*= nullptr*/)
+                                            void *arg /*= nullptr*/)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
         if (!sch_impl->m_http_server) {
@@ -890,11 +1038,11 @@ namespace crx
             http_impl->m_app_prt = PRT_HTTP;
             http_impl->m_sch = this;
             http_impl->m_protocol_hook = http_impl->check_http_stream;
-            http_impl->m_protocol_args = http_impl;
+            http_impl->m_protocol_arg = http_impl;
             http_impl->m_f = http_impl->protocol_hook;
-            http_impl->m_args = http_impl;
+            http_impl->m_arg = http_impl;
             http_impl->m_http_f = std::move(f);
-            http_impl->m_http_args = args;
+            http_impl->m_http_arg = arg;
             http_impl->start_listen(sch_impl, port);		//开始监听
         }
         return sch_impl->m_http_server;
@@ -915,7 +1063,7 @@ namespace crx
         }
 
         http_impl->m_http_f(fd, conn->method, conn->url, conn->headers,
-                            cb_data, cb_len, http_impl->m_http_args);
+                            cb_data, cb_len, http_impl->m_http_arg);
 
         if (sch_impl->m_ev_array[fd]) {
             conn->content_len = -1;
@@ -1014,8 +1162,31 @@ namespace crx
             return conn->content_len;
     }
 
-    fs_monitor* scheduler::get_fs_monitor(std::function<void(const char*, uint32_t, void *args)> f,
-                                          void *args /*= nullptr*/)
+    simpack_server* scheduler::get_simpack_server(void *arg)
+    {
+        auto sch_impl = (scheduler_impl*)m_obj;
+        if (!sch_impl->m_simp_server) {
+            sch_impl->m_simp_server = new simpack_server;
+            sch_impl->m_simp_server->m_obj = new simpack_server_impl;
+
+            auto simp_impl = (simpack_server_impl*)sch_impl->m_simp_server->m_obj;
+            simp_impl->m_arg = arg;
+        }
+        return sch_impl->m_simp_server;
+    }
+
+    void simpack_server_impl::tcp_client_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
+    {
+        auto simp_impl = (simpack_server_impl*)arg;
+    }
+
+    void simpack_server_impl::tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
+    {
+        auto simp_impl = (simpack_server_impl*)arg;
+    }
+
+    fs_monitor* scheduler::get_fs_monitor(std::function<void(const char*, uint32_t, void *arg)> f,
+                                          void *arg /*= nullptr*/)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
         if (!sch_impl->m_fs_monitor) {
@@ -1026,10 +1197,10 @@ namespace crx
             monitor_impl->fd = inotify_init1(IN_NONBLOCK);
             monitor_impl->sch_impl = sch_impl;
             monitor_impl->f = monitor_impl->fs_monitory_callback;
-            monitor_impl->args = monitor_impl;
+            monitor_impl->arg = monitor_impl;
 
             monitor_impl->m_monitor_f = std::move(f);
-            monitor_impl->m_monitor_args = args;
+            monitor_impl->m_monitor_arg = arg;
             sch_impl->add_event(monitor_impl);
         }
         return sch_impl->m_fs_monitor;
@@ -1064,8 +1235,8 @@ namespace crx
             while (true) {
                 //incomplete inotify_event structure
                 if (ptr+sizeof(inotify_event) > buf+sizeof(buf)) {      //read more
-                    offset = buf+sizeof(buf)-ptr;
-                    std::memmove(buf, ptr, offset);
+                    offset = (int)(buf+sizeof(buf)-ptr);
+                    std::memmove(buf, ptr, (size_t)offset);
                     break;
                 }
 
@@ -1073,14 +1244,14 @@ namespace crx
                 //buffer can't hold the whole package
                 if (nfy_ev->len+sizeof(inotify_event) > sizeof(buf)) {      //ignore events on the file
                     printf("[fs_monitory_callback] WARN: event package size greater than the buffer size!\n");
-                    filter = ptr+sizeof(inotify_event)+nfy_ev->len-buf-sizeof(buf);
+                    filter = (int)(ptr+sizeof(inotify_event)+nfy_ev->len-buf-sizeof(buf));
                     offset = 0;
                     break;
                 }
 
                 if (ptr+sizeof(inotify_event)+nfy_ev->len > buf+sizeof(buf)) {  //read more
-                    offset = buf+sizeof(buf)-ptr;
-                    std::memmove(buf, ptr, offset);
+                    offset = (int)(buf+sizeof(buf)-ptr);
+                    std::memmove(buf, ptr, (size_t)offset);
                     break;
                 }
 
@@ -1104,7 +1275,7 @@ namespace crx
                             impl->trigger_event(false, impl->m_path_mev[file_name]->watch_id, file_name, 0, 0);
                         }
                     }
-                    impl->m_monitor_f(file_name.c_str(), nfy_ev->mask, impl->m_monitor_args);
+                    impl->m_monitor_f(file_name.c_str(), nfy_ev->mask, impl->m_monitor_arg);
                 }
 
                 ptr += sizeof(inotify_event)+nfy_ev->len;

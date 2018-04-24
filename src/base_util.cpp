@@ -79,7 +79,7 @@ namespace crx
 
     bool setnonblocking(int fd)
     {
-        if (fd < 0)		//接口安全性检查
+        if (fd < 0)
             return false;
 
         if (-1 == fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK)) {
@@ -91,7 +91,7 @@ namespace crx
 
     bool setcloseonexec(int fd)
     {
-        if (fd < 0)		//接口安全性检查
+        if (fd < 0)
             return false;
 
         if (-1 == fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC)) {
@@ -99,6 +99,15 @@ namespace crx
             return false;
         }
         return true;
+    }
+
+    int64_t measure_timecns(std::function<void()> f)
+    {
+        timeval start = {0}, end = {0};
+        gettimeofday(&start, nullptr);
+        f();
+        gettimeofday(&end, nullptr);
+        return ((int64_t)(end.tv_sec-start.tv_sec))*1000000+(int64_t)(end.tv_usec-start.tv_usec);
     }
 
     bool symlink_exist(const char *file)
@@ -280,18 +289,23 @@ namespace crx
         return path;
     }
 
-    datetime get_current_datetime()
+    datetime get_datetime(timeval *tv /*= nullptr*/)
     {
         datetime dt;
         char time_buffer[64] = {0};
 
-        timeval tv;
-        gettimeofday(&tv, nullptr);
-        tm *timeinfo = localtime(&tv.tv_sec);		//获取当前时点并将其转化为tm结构体
-        strftime(time_buffer, sizeof(time_buffer), "%Y%m%d", timeinfo);
-        dt.date = atoi(time_buffer);
-        strftime(time_buffer, sizeof(time_buffer), "%H%M%S", timeinfo);
-        dt.time = atoi(time_buffer)*1000+tv.tv_usec/1000;		//时间精确到毫秒级
+        timeval now;
+        if (!tv) {
+            gettimeofday(&now, nullptr);
+            tv = &now;
+        }
+
+        dt.t = localtime(&tv->tv_sec);		//获取当前时点并将其转化为tm结构体
+        strftime(time_buffer, sizeof(time_buffer), "%Y%m%d", dt.t);
+        dt.date = (uint32_t)atoi(time_buffer);
+        strftime(time_buffer, sizeof(time_buffer), "%H%M%S", dt.t);
+        dt.time = (uint32_t)atoi(time_buffer)*1000+(uint32_t)(tv->tv_usec/1000);		//时间精确到毫秒级
+        dt.time_stamp = tv->tv_sec*1000+tv->tv_usec/1000;
         return dt;
     }
 
@@ -423,7 +437,7 @@ namespace crx
     }
 
     void depth_first_traverse_dir(const char *root_dir, std::function<void(const std::string&, void*)>f,
-                                  void *args, bool with_path /*= true*/)
+                                  void *arg, bool with_path /*= true*/)
     {
         DIR *dir = opendir(root_dir);
         if (!dir) {
@@ -445,11 +459,11 @@ namespace crx
             }
 
             if (S_ISDIR(st.st_mode)) {		//directory
-                depth_first_traverse_dir(file_name.c_str(), f, args, with_path);
+                depth_first_traverse_dir(file_name.c_str(), f, arg, with_path);
             } else {
                 if (!with_path)
                     file_name = ent->d_name;
-                f(file_name, args);
+                f(file_name, arg);
             }
         }
         closedir(dir);

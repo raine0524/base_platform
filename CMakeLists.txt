@@ -9,7 +9,8 @@ include_directories(include)
 
 link_directories(/usr/lib/python3.5/config-3.5m-x86_64-linux-gnu)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-result")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-result \
+-D__FILENAME__='\"$(notdir $<)\"'")
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -rdynamic \
 -Wl,--unresolved-symbols=ignore-in-shared-libs")

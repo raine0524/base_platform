@@ -3,8 +3,8 @@
 namespace crx
 {
     /*
-     * 将待处理的数据继承evd_thread_job类，并为这一类的数据设置一个类型，随后调用evd_thread_pool的job_dispatch接口，
-     * 之后关注此种类型数据的evd_thread_processor将会收到这一数据，并在process_task中进行处理
+     * 将待处理的数据继承evd_job类，并为这一类数据设置一个类型，随后调用evd_pool的job_dispatch接口，
+     * 之后关注此种类型数据的evd_proc将会收到这一数据，并在process_task中进行处理
      */
     class CRX_SHARE evd_job : public kobj
     {
@@ -28,8 +28,8 @@ namespace crx
         //获取当前处理器关注的类型个数
         size_t type_count();
 
-        //针对每个任务类型执行相应的回调，@f: 回调函数, @args: 回调参数
-        void for_each_type(std::function<void(int, void*)> f, void *args = nullptr);
+        //针对每个任务类型执行相应的回调，@f: 回调函数, @arg: 回调参数
+        void for_each_type(std::function<void(int, void*)> f, void *arg = nullptr);
 
     public:
         //可以注册多种类型

@@ -129,17 +129,14 @@ namespace crx
          * 向指定http server 发送指定的method请求，一次请求的示例如下：
          * method(GET/POST...) / HTTP/1.1 (常用的就是GET以及POST方法)
          * Host: localhost
-         * User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/46.0.2490.71 Safari/537.36
          * 请求中body部分的数据类型由Content-Type字段指明(application/json#json格式，application/x-www-form-urlencoded#query_string格式)
          * 其中GET方法没有body部分，POST方法带有body
          *
          * @conn: 指定的http连接
          * @method: "GET"/"POST"...
-         * @url: 请求的资源定位符，只需要从 / 开始的部分
+         * @post_page: 请求的资源定位符，只需要从 / 开始的部分
          * @extra_headers: 额外的请求头部
-         * @body: 附带的数据，数据类型由Content-Type字段指明
-         * @on_response: http请求的回调响应
-         * @args: 响应的参数
+         * @ext_data/ext_len: 附带的数据，数据类型由Content-Type字段指明
          */
         void request(int conn, const char *method, const char *post_page, std::unordered_map<std::string, std::string> *extra_headers,
                      const char *ext_data, size_t ext_len, EXT_DST ed = DST_NONE);

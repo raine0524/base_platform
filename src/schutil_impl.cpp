@@ -164,7 +164,7 @@ namespace crx
 
         conn->fd = conn->conn_sock.create(PRT_TCP, USR_CLIENT, conn->ip_addr.c_str(), conn->port);
         conn->f = tcp_impl->tcp_client_callback;
-        conn->args = conn;
+        conn->arg = conn;
         conn->sch_impl = sch_impl;
         sch_impl->add_event(conn, EPOLLOUT);        //套接字异步connect时其可写表明与对端server已经连接成功
         return conn->fd;
@@ -188,9 +188,9 @@ namespace crx
 
         auto tcp_conn = dynamic_cast<tcp_client_conn*>(sch_impl->m_ev_array[conn]);
         if (!tcp_conn->is_connect)      //还未建立连接
-            return;
-
-        sch_impl->async_write(tcp_conn, data, len);
+            tcp_conn->cache_data.push_back(std::string(data, len));
+        else
+            sch_impl->async_write(tcp_conn, data, len);
     }
 
     uint16_t tcp_server::get_port()
@@ -228,13 +228,8 @@ namespace crx
             return;
 
         auto http_conn = dynamic_cast<http_client_conn*>(sch_impl->m_ev_array[conn]);
-        if (!http_conn->is_connect)     //还未建立连接
-            http_impl->m_sch->co_yield(0);
-
         std::string http_request = std::string(method)+" "+std::string(post_page)+" HTTP/1.1\r\n";		//构造请求行
         http_request += "Host: "+http_conn->domain_name+"\r\n";		//构造请求头中的Host字段
-        http_request += "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "		//User-Agent字段
-                "(KHTML, like Gecko) Chrome/46.0.2490.71 Safari/537.36\r\n";
 
         if (DST_NONE != ed)
             http_request += "Content-Type: "+g_ext_type[ed]+"; charset=utf-8\r\n";
@@ -249,7 +244,11 @@ namespace crx
         } else {
             http_request += "\r\n";
         }
-        sch_impl->async_write(http_conn, http_request.c_str(), http_request.size());
+
+        if (!http_conn->is_connect)     //还未建立连接
+            http_conn->cache_data.push_back(std::move(http_request));
+        else
+            sch_impl->async_write(http_conn, http_request.c_str(), http_request.size());
     }
 
     void http_client::GET(int conn, const char *post_page, std::unordered_map<std::string, std::string> *extra_headers)

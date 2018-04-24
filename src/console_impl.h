@@ -41,6 +41,7 @@ namespace crx
 
     public:
         console *m_c;
+
         /*
          * @m_is_service：当前服务以daemon进程在后台运行时，该值为true，否则为false
          * @m_init：预处理完成后该值为true，主要用于区分当前的控制台命令是带参运行形式的命令还是运行时命令
@@ -48,6 +49,7 @@ namespace crx
          */
         bool m_is_service, m_init, m_as_shell;
         std::string m_pipe_name[2], m_pipe_dir;
+        size_t m_log_coid;
 
         bool m_pipe_conn;
         int m_rd_fifo, m_wr_fifo;      //used in listen keyboard/pipe event

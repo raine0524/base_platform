@@ -16,6 +16,7 @@ namespace crx
             ,m_is_service(false)
             ,m_init(false)
             ,m_as_shell(false)
+            ,m_log_coid(0)
             ,m_pipe_conn(false)
             ,m_rd_fifo(-1)
             ,m_wr_fifo(-1)
@@ -207,7 +208,7 @@ namespace crx
                 }
             }
         };
-        eth_ev->args = eth_ev;
+        eth_ev->arg = eth_ev;
         sch_impl->add_event(eth_ev);
     }
 
@@ -269,7 +270,7 @@ namespace crx
                 }
             }
         };
-        eth_ev->args = eth_ev;
+        eth_ev->arg = eth_ev;
         sch_impl->add_event(eth_ev);
     }
 
@@ -292,9 +293,9 @@ namespace crx
         eth_event *eth_ev = new eth_event;
         eth_ev->fd = rd_fifo;
         eth_ev->sch_impl = sch_impl;
-        eth_ev->f = [&](scheduler *sch, eth_event *args) {
+        eth_ev->f = [&](scheduler *sch, eth_event *arg) {
             std::string output;
-            int sts = sch_impl->async_read(args, output);
+            int sts = sch_impl->async_read(arg, output);
             if (!output.empty()) {
                 std::cout<<output;      //打印后台daemon进程输出的运行时信息
                 if (!stop_service && !excep)        //当前shell既不是用来停止后台服务，也未出现管道异常，则打印命令行提示符
@@ -304,10 +305,10 @@ namespace crx
             if (sts <= 0) {		//对端关闭或异常
                 excep = true;		//该变量指示出现异常
                 sch_impl->m_go_done = false;
-                sch_impl->remove_event(args);
+                sch_impl->remove_event(arg);
             }
         };
-        eth_ev->args = eth_ev;
+        eth_ev->arg = eth_ev;
         sch_impl->add_event(eth_ev);
 
         if (!stop_service)      //此时以shell方式运行当前进程，则等待控制台输入后执行相应操作

@@ -14,6 +14,9 @@ namespace crx
     //在执行(fork-)exec调用之后关闭该描述符
     bool CRX_SHARE setcloseonexec(int fd);
 
+    //度量函数f的运行时间，单位为us
+    int64_t CRX_SHARE measure_timecns(std::function<void()> f);
+
     //打印当前执行点的调用堆栈
     void CRX_SHARE dump_segment();
 
@@ -32,8 +35,8 @@ namespace crx
     //获取当前进程的工作路径
     std::string CRX_SHARE get_current_working_path();
 
-    //获取当前日期时间
-    datetime CRX_SHARE get_current_datetime();
+    //获取指定时间戳的datetime格式 @tv为空指针时获取当前时间戳的特定格式
+    datetime CRX_SHARE get_datetime(timeval *tv = nullptr);
 
     //计算指定日期为星期几 @date: 20170621 @return: 1表示星期一，依次类推，7表示星期日
     int CRX_SHARE get_week_day(unsigned int date);
@@ -68,7 +71,7 @@ namespace crx
 
     //对根目录进行深度优先遍历，对于所有取得的文件都执行f函数调用
     void  CRX_SHARE depth_first_traverse_dir(const char *root_dir,
-                                             std::function<void(const std::string&, void*)>f, void *args,
+                                             std::function<void(const std::string&, void*)>f, void *arg,
                                              bool with_path = true);
 
     //执行shell命令，并返回shell输出

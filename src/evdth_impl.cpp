@@ -51,12 +51,12 @@ namespace crx
     }
 
     void evd_proc::for_each_type(std::function<void(int, void*)> f,
-                                 void *args /*= nullptr*/)
+                                 void *arg /*= nullptr*/)
     {
         evd_proc_impl *impl = (evd_proc_impl*)m_obj;
         std::lock_guard<std::mutex> lck(impl->mtx);
         for (auto& type : impl->type_set)
-            f(type, args);
+            f(type, arg);
     }
 
     void evd_proc::reg_type(int type)
@@ -127,7 +127,7 @@ namespace crx
         evd_proc_impl *proc_impl = (evd_proc_impl*)proc->m_obj;
         proc_impl->on_duty = true;
         proc_impl->product_idx = product_idx;
-        proc->for_each_type([&](int type, void *args) {
+        proc->for_each_type([&](int type, void *arg) {
             proc_impl->add_ref();
             pool_impl->m_arrange[type].insert(proc_impl);
         });
@@ -148,7 +148,7 @@ namespace crx
         proc_impl->on_duty = false;		//指示不再继续处理队列中可能存在的与该处理器相关的任务
 
         //移除与类型相关的处理器
-        proc->for_each_type([&](int type, void *args) {
+        proc->for_each_type([&](int type, void *arg) {
             proc_impl->reduce_ref();
             pool_impl->m_arrange[type].erase(proc_impl);
         });

@@ -44,17 +44,27 @@ namespace crx
         //获取当前调度器中所有可用的协程，可用指协程状态为CO_READY, CO_RUNNING, CO_SUSPEND之一
         std::vector<coroutine*> get_avail_cos();
 
+        /*
+         * 获取日志实例(自动释放，但多次申请将返回多个不同的实例)
+         * @prefix 日志文件的前缀
+         * @root_dir 设置日志的根目录，将在根目录基础上按照年/月/日逐级构造子目录
+         * @max_size 文件切割大小(单位为MB)
+         * @print_screen 是否在写文件的同时将日志打印在屏幕上
+         */
+        log* get_log(const char *prefix, const char *root_dir = "log_files",
+                     int max_size = 2, bool print_screen = true);
+
         //获取执行流转换实例(自动释放)，主要用于将第三方接口的回调数据转移到当前调度线程(通常是主线程)进行处理以避免加锁
-        ecs_trans* get_ecs_trans(std::function<void(std::vector<crx::mem_ref>&, void*)> f, void *args = nullptr);
+        ecs_trans* get_ecs_trans(std::function<void(std::vector<crx::mem_ref>&, void*)> f, void *arg = nullptr);
 
         //获取signal实例(自动释放)，回调函数中的3个参数依次为信号量、信号量关联参数以及回调参数
-        sigctl* get_sigctl(std::function<void(int, uint64_t, void*)> f, void *args = nullptr);
+        sigctl* get_sigctl(std::function<void(int, uint64_t, void*)> f, void *arg = nullptr);
 
         //获取timer实例(需手动释放)
-        timer* get_timer(std::function<void(void*)> f, void *args = nullptr);
+        timer* get_timer(std::function<void(void*)> f, void *arg = nullptr);
 
         //获取event实例(需手动释放)
-        event* get_event(std::function<void(int, void*)> f, void *args = nullptr);
+        event* get_event(std::function<void(int, void*)> f, void *arg = nullptr);
 
         /*
          * 获取udp实例(需手动释放)
@@ -62,11 +72,11 @@ namespace crx
          * @port：udp是无连接的传输层协议，因此在创建套接字时不需要显示指定ip地址，但udp服务器端在接收请求时
          * 				需要显示指定监听的端口，若port为0，则系统将为该套接字选择一个随机的端口
          * 	@f：回调函数，函数的5个参数分别为对端的ip地址、端口、接收到的udp包和大小，以及回调参数
-         * 	@args：回调参数
+         * 	@arg：回调参数
          */
         udp_ins* get_udp_ins(bool is_server, uint16_t port,
                              std::function<void(const std::string&, uint16_t, const char*, size_t, void*)> f,
-                             void *args = nullptr);
+                             void *arg = nullptr);
 
         /*
          * 注册tcp钩子，这个函数将在收到tcp流之后回调，主要用于定制应用层协议，并将协议与原始的tcp流进行解耦
@@ -75,30 +85,30 @@ namespace crx
          *          --> @param① int    指定的连接，不同的连接有不同的流上下文，因此应用层需要针对每个连接分别维护其上下文
          *          --> @param② char*  当前可用于解析的tcp流的首地址
          *          --> @param③ size_t 可用于解析的tcp流的长度，上层应在解析时判断是否在安全范围内
-         *          --> @param④ args   回掉参数
+         *          --> @param④ arg   回掉参数
          *          --> @return ret 返回 =0 时，通知下层需要有跟多的数据才能完整的解析一次协议请求
          *                          返回 <0 时，通知下层只需要截断以data为首地址，abs(ret)长度的流即可
          *                          返回 >0 时，通知下层可以执行get_tcp_client/server这两个函数中注册的回掉函数，在执行完
          *                                     回调之后将截断data为首地址，ret长度的流
          *                          ** 注意这里有一个重要的trick，在执行get_tcp_client/server函数中的回掉时，tcp数据流中的长度
          *                             即为此处的返回值
-         * @param args 回掉参数
+         * @param arg 回掉参数
          */
-        void register_tcp_hook(bool client, std::function<int(int, char*, size_t, void*)> f, void *args = nullptr);
+        void register_tcp_hook(bool client, std::function<int(int, char*, size_t, void*)> f, void *arg = nullptr);
 
         //获取tcp客户端实例(自动释放)，回调函数的3个参数分别为指定的连接，收到的tcp数据流以及回调参数
         tcp_client* get_tcp_client(std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> f,
-                                   void *args = nullptr);
+                                   void *arg = nullptr);
 
         /*
-         * 获取tcp服务端实例(自动释放)
+         * 获取tcp服务实例(自动释放)
          * @port：指示tcp服务将在哪个端口上进行监听，若port为0，则系统将随机选择一个可用端口
-         * @f：回调函数，函数的3个参数分别为指定的连接，连接的ip地址/端口，收到的tcp数据流以及回调参数
-         * @args：回调参数
+         * @f：回调函数，函数的6个参数分别为指定的连接，连接的ip地址/端口，收到的tcp数据流以及回调参数
+         * @arg：回调参数
          */
         tcp_server* get_tcp_server(uint16_t port,
                                    std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> f,
-                                   void *args = nullptr);
+                                   void *arg = nullptr);
 
         /*
          * 获取http客户端实例(自动释放)，回调函数中的5个参数依次为
@@ -109,10 +119,10 @@ namespace crx
          * ⑤回调参数
          */
         http_client* get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, const char*, size_t, void*)> f,
-                                     void *args = nullptr);
+                                     void *arg = nullptr);
 
         /*
-         * 获取http服务端实例(自动释放)，回调函数中的6个参数依次为
+         * 获取http服务实例(自动释放)，回调函数中的6个参数依次为
          * ①指定的连接
          * ②请求方法(例如"GET", "POST"等等)
          * ③url(以"/"起始的字符串，例如"/index.html")
@@ -122,7 +132,10 @@ namespace crx
          */
         http_server* get_http_server(uint16_t port,
                                      std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&, const char*, size_t, void*)> f,
-                                     void *args = nullptr);
+                                     void *arg = nullptr);
+
+        //获取simpack服务实例(自动释放)，主要用于分布式系统中可控服务节点之间的通信
+        simpack_server* get_simpack_server(void *arg);
 
         /*
          * 获取文件系统监控实例(自动释放)，回调函数中的6个参数依次为
@@ -130,6 +143,6 @@ namespace crx
          * ②监控文件的掩码，用于确定触发事件的类型
          * ③回调参数
          */
-        fs_monitor* get_fs_monitor(std::function<void(const char*, uint32_t, void *args)> f, void *args = nullptr);
+        fs_monitor* get_fs_monitor(std::function<void(const char*, uint32_t, void *arg)> f, void *arg = nullptr);
     };
 }
