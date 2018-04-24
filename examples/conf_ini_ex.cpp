@@ -11,7 +11,6 @@ private:
     crx::ini m_ini;
 };
 
-
 bool conf_ini::init(int argc, char *argv[])
 {
     m_ini.load("ini/test.ini");
