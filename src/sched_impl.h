@@ -56,74 +56,7 @@ namespace crx
         int m_pipe_fd;
     };
 
-    int simjson_protocol(char *data, size_t len);
-
     int simpack_protocol(char *data, size_t len, int& ctx_len);
-
-    class ecs_trans_impl : public eth_event
-    {
-    public:
-        ecs_trans_impl()
-                :port(0)
-                ,m_sch(nullptr)
-                ,m_ctx_len(-1)
-                ,m_protocol_arg(nullptr)
-                ,m_epoll_fd(-1)
-                ,m_arg(nullptr)
-                ,m_ecs_arg(nullptr)
-        {
-            bzero(&m_write_ev, sizeof(m_write_ev));
-            bzero(m_pipefd, sizeof(m_pipefd));
-        }
-
-        virtual ~ecs_trans_impl()
-        {
-            if (-1 != m_epoll_fd)
-                close(m_epoll_fd);
-            if (0 != m_pipefd[1])       //只需要关闭写管道文件描述符
-                close(m_pipefd[1]);
-        }
-
-        static void ecs_trans_callback(scheduler *sch, eth_event *arg);
-
-        static int ecs_simpack(int fd, char *data, size_t len, void *arg)
-        {
-            auto impl = (ecs_trans_impl*)arg;
-            return simpack_protocol(data, len, impl->m_ctx_len);
-        }
-
-        static void protocol_hook(int fd, const std::string& ip_addr, uint16_t port,
-                                  char *data, size_t len, void *arg)
-        {
-            auto impl = (ecs_trans_impl*)arg;
-            auto kvs = impl->m_read_se.dump(data, (int)len);
-            std::vector<mem_ref> cb_data(kvs.size());
-            for (auto& pair : kvs)
-                cb_data[atoi(pair.first)] = pair.second;
-            impl->m_ecs_f(cb_data, impl->m_ecs_arg);
-        }
-
-        std::string ip_addr;            //stub variable
-        uint16_t port;
-        std::string stream_buffer;      //管道流缓冲
-
-        scheduler *m_sch;
-        seria m_read_se, m_write_se;
-        int m_ctx_len;
-        std::function<int(int, char*, size_t, void*)> m_protocol_hook;      //协议钩子
-        void *m_protocol_arg;  //协议回调参数
-
-        int m_epoll_fd;
-        epoll_event m_write_ev;
-        int m_pipefd[2];
-
-        //stub as well
-        std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> m_f;
-        void *m_arg;
-
-        std::function<void(std::vector<mem_ref>&, void*)> m_ecs_f;
-        void *m_ecs_arg;
-    };
 
     class sigctl_impl : public eth_event
     {
@@ -467,7 +400,6 @@ namespace crx
                 ,m_epoll_fd(-1)
                 ,m_obj(nullptr)
                 ,m_log_event(EPOLLIN)
-                ,m_ecs_trans(nullptr)
                 ,m_sigctl(nullptr)
                 ,m_tcp_client(nullptr)
                 ,m_tcp_server(nullptr)
@@ -530,7 +462,6 @@ namespace crx
 
         uint32_t m_log_event;
         std::vector<log*> m_logs;
-        ecs_trans *m_ecs_trans;
         sigctl *m_sigctl;
 
         tcp_client *m_tcp_client;

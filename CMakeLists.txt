@@ -40,13 +40,6 @@ target_link_libraries(simple_crawler kbase)
 
 set_target_properties(simple_crawler PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../examples)
 
-# example-sch_ecs_ex
-add_executable(sch_ecs_ex examples/sch_ecs_ex.cpp)
-
-target_link_libraries(sch_ecs_ex kbase)
-
-set_target_properties(sch_ecs_ex PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../examples)
-
 # example-conf_ini
 add_executable(conf_ini examples/conf_ini_ex.cpp)
 

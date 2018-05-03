@@ -21,9 +21,6 @@ namespace crx
         for (auto log : impl->m_logs)
             delete log;
 
-        if (impl->m_ecs_trans)
-            delete impl->m_ecs_trans;
-
         if (impl->m_sigctl)
             delete impl->m_sigctl;
 
@@ -473,20 +470,6 @@ namespace crx
         auto impl = (log_impl*)arg;
     }
 
-    int simjson_protocol(char *data, size_t len)
-    {
-        char *delim_pos = strstr(data, "\r\n\r\n");
-        if (!delim_pos && delim_pos > data+len-4) {     //还未找到分隔符或分隔符越界
-            if (len > 8192)
-                return -8192;      //缓存数据超过8k，截断以保护缓冲
-            else
-                return 0;           //等待更多数据到来
-        }
-
-        *delim_pos = 0;
-        return (int)(delim_pos-data+4);
-    }
-
     int simpack_protocol(char *data, size_t len, int& ctx_len)
     {
         if (-1 == ctx_len) {
@@ -516,50 +499,6 @@ namespace crx
             return 0;
         else
             return ctx_len;
-    }
-
-    ecs_trans* scheduler::get_ecs_trans(std::function<void(std::vector<mem_ref>&, void*)> f, void *arg /*= nullptr*/)
-    {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        if (!sch_impl->m_ecs_trans) {
-            sch_impl->m_ecs_trans = new ecs_trans;      //创建一个新的ecs_trans
-            sch_impl->m_ecs_trans->m_obj = new ecs_trans_impl;
-
-            auto ecs_impl = (ecs_trans_impl*)sch_impl->m_ecs_trans->m_obj;
-            ecs_impl->m_epoll_fd = epoll_create(1);
-            int pipe_ret = pipe(ecs_impl->m_pipefd);
-            setnonblocking(ecs_impl->m_pipefd[0]);      //读-非阻塞 写-阻塞
-
-            ecs_impl->fd = ecs_impl->m_pipefd[0];
-            ecs_impl->f = ecs_impl->ecs_trans_callback;
-            ecs_impl->arg = ecs_impl;
-            ecs_impl->sch_impl = sch_impl;
-
-            ecs_impl->m_sch = this;
-            ecs_impl->m_protocol_hook = ecs_impl->ecs_simpack;
-            ecs_impl->m_protocol_arg = ecs_impl;
-            ecs_impl->m_f = ecs_impl->protocol_hook;
-            ecs_impl->m_arg = ecs_impl;
-            ecs_impl->m_ecs_f = std::move(f);
-            ecs_impl->m_ecs_arg = arg;
-            sch_impl->add_event(ecs_impl);
-        }
-        return sch_impl->m_ecs_trans;
-    }
-
-    void ecs_trans_impl::ecs_trans_callback(scheduler *sch, eth_event *arg)
-    {
-        auto impl = dynamic_cast<ecs_trans_impl*>(arg);
-        int sts = impl->sch_impl->async_read(impl, impl->stream_buffer);
-        handle_stream(impl->fd, impl, impl);
-
-        if (sts <= 0) {
-//            if (sts < 0)
-//                printf("[ecs_trans_callback] 读文件描述符 %d 异常\n", impl->fd);
-//            else
-//                printf("[ecs_trans_callback] 管道对端 %d 正常关闭\n", impl->fd);
-            impl->sch_impl->remove_event(impl);
-        }
     }
 
     sigctl* scheduler::get_sigctl(std::function<void(int, uint64_t, void*)> f, void *arg /*= nullptr*/)

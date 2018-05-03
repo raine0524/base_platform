@@ -54,9 +54,6 @@ namespace crx
         log* get_log(const char *prefix, const char *root_dir = "log_files",
                      int max_size = 2, bool print_screen = true);
 
-        //获取执行流转换实例(自动释放)，主要用于将第三方接口的回调数据转移到当前调度线程(通常是主线程)进行处理以避免加锁
-        ecs_trans* get_ecs_trans(std::function<void(std::vector<crx::mem_ref>&, void*)> f, void *arg = nullptr);
-
         //获取signal实例(自动释放)，回调函数中的3个参数依次为信号量、信号量关联参数以及回调参数
         sigctl* get_sigctl(std::function<void(int, uint64_t, void*)> f, void *arg = nullptr);
 

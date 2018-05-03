@@ -59,7 +59,6 @@
 //////////////////////////////////////////////////////////////////////////
 //platform(linux) specific library
 #include <zlib.h>
-#include <lzma.h>
 #include <fcntl.h>
 #include <dlfcn.h>
 #include <dirent.h>
