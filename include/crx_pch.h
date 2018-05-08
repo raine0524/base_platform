@@ -95,6 +95,8 @@
 
 //////////////////////////////////////////////////////////////////////////
 //third-party open source library
+#include <openssl/md5.h>
+#include <openssl/aes.h>
 
 //python3
 #include <python3.5/Python.h>
@@ -145,7 +147,7 @@ namespace crx
         unsigned int time;		//format: HHMMSSmmm，最后三位为毫秒
 
         struct tm *t;
-        long int time_stamp;    //当前时间戳，精确到毫秒
+        int64_t time_stamp;    //当前时间戳，精确到毫秒
 
         datetime() : date(0), time(0), time_stamp(0) {}
     };

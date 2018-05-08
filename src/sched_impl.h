@@ -56,6 +56,33 @@ namespace crx
         int m_pipe_fd;
     };
 
+#define GET_BIT(field, n)   (field & 1<<n)
+
+#define SET_BIT(field, n)   (field | 1<<n)
+
+#define CLR_BIT(field, n)   (field & ~(1<<n))
+
+#pragma pack(1)
+    /*
+     * simp协议的头部，此处是对ctl_flag字段更详细的表述：
+     *          -->第0位: 1-表示当前请求由库这一层处理  0-表示路由给上层应用
+     *          -->第1位: 1-加密(暂不支持) 0-非加密
+     *          其余字段暂时保留
+     */
+    struct simp_header
+    {
+        char magic_num[4];      //魔数，4个字节依次为0x5f,0x37,0x59,0xdf
+        uint32_t version;       //版本，填入发布日期，比如1.0.0版本的值设置为20180501
+        uint32_t length;        //body部分长度，整个一帧的大小为sizeof(simp_header)+length
+        uint16_t type;          //类型
+        uint16_t cmd;           //命令
+        uint32_t ses_id;        //会话id
+        uint32_t req_id;        //请求id
+        uint32_t ctl_flag;      //控制字段
+        char token[16];         //请求携带token，表明请求合法(token=md5(current_timestamp+name))
+    };
+#pragma pack()
+
     int simpack_protocol(char *data, size_t len, int& ctx_len);
 
     class sigctl_impl : public eth_event
@@ -315,19 +342,47 @@ namespace crx
                 delete m_server;
         }
 
-        static void tcp_client_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg);
-        static void tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg);
+        static int client_protohook(int conn, char *data, size_t len, void *arg)
+        {
+            auto impl = (simpack_server_impl*)arg;
+            return impl->simp_protohook(conn, data, len);
+        }
 
-        tcp_client *m_client;
-        tcp_server *m_server;
+        static int server_protohook(int conn, char *data, size_t len, void *arg)
+        {
+            auto impl = (simpack_server_impl*)arg;
+            return impl->simp_protohook(conn, data, len);
+        }
+
+        int simp_protohook(int conn, char *data, size_t len)
+        {
+
+        }
+
+        static void tcp_client_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
+        {
+            auto impl = (simpack_server_impl*)arg;
+            impl->simp_callback(true, conn, ip, port, data, len);
+        }
+
+        static void tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
+        {
+            auto impl = (simpack_server_impl*)arg;
+            impl->simp_callback(false, conn, ip, port, data, len);
+        }
+
+        void simp_callback(bool client, int conn, const std::string& ip, uint16_t port, char *data, size_t len);
+
         registry_conf m_conf;
         seria m_seria;
+        tcp_client *m_client;
+        tcp_server *m_server;
 
-        std::function<void(crx::server_info*, void*)> m_on_connect;
-        std::function<void(crx::server_info*, void*)> m_on_disconnect;
-        std::function<void(crx::server_info*, server_cmd*, char*, size_t, void*)> m_on_request;
-        std::function<void(crx::server_info*, server_cmd*, char*, size_t, void*)> m_on_response;
-        std::function<void(crx::server_info*, server_cmd*, char*, size_t, void*)> m_on_notify;
+        std::function<void(const server_info&, void*)> m_on_connect;
+        std::function<void(const server_info&, void*)> m_on_disconnect;
+        std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> m_on_request;
+        std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> m_on_response;
+        std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> m_on_notify;
         void *m_arg;
     };
 
@@ -399,7 +454,7 @@ namespace crx
                 ,m_go_done(false)
                 ,m_epoll_fd(-1)
                 ,m_obj(nullptr)
-                ,m_log_event(EPOLLIN)
+                ,m_remote_log(false)
                 ,m_sigctl(nullptr)
                 ,m_tcp_client(nullptr)
                 ,m_tcp_server(nullptr)
@@ -460,7 +515,7 @@ namespace crx
         std::vector<eth_event*> m_ev_array;
         void *m_obj;        //扩展数据区
 
-        uint32_t m_log_event;
+        bool m_remote_log;
         std::vector<log*> m_logs;
         sigctl *m_sigctl;
 

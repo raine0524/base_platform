@@ -1,6 +1,6 @@
 #pragma once
 
-#include "crx_pch.h"
+#include "stdafx.h"
 
 class registry : public crx::console
 {
@@ -12,5 +12,5 @@ public:
     void destroy() override;
 
 private:
-
+    crx::seria m_seria;
 };

@@ -3,9 +3,9 @@ project(base_platform)
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
-add_compile_options(-std=c++11)
+add_compile_options(-std=c++14)
 
-include_directories(include)
+include_directories(include src)
 
 link_directories(/usr/lib/python3.5/config-3.5m-x86_64-linux-gnu)
 

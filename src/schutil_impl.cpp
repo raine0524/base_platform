@@ -187,7 +187,7 @@ namespace crx
         return impl->m_net_sock.m_port;
     }
 
-    void tcp_server::response(int conn, const char *data, size_t len)
+    void tcp_server::send_data(int conn, const char *data, size_t len)
     {
         auto tcp_impl = (tcp_server_impl*)m_obj;
         //判断连接是否有效

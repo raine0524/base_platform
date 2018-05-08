@@ -5,7 +5,7 @@ namespace crx
     class CRX_SHARE console : public scheduler
     {
     public:
-        console();
+        console(bool remote_log = false);
         virtual ~console();
 
         //控制台初始化，返回true表示初始化成功，false将直接退出main函数

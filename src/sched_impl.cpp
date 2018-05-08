@@ -4,11 +4,12 @@ namespace crx
 {
     log *g_log = nullptr;
 
-    scheduler::scheduler()
+    scheduler::scheduler(bool remote_log /*= false*/)
     {
         auto *impl = new scheduler_impl(this);
         impl->m_cos.reserve(64);        //预留64个协程
         impl->m_ev_array.reserve(128);  //预留128个epoll事件
+        impl->m_remote_log = remote_log;
         m_obj = impl;
     }
 
@@ -743,6 +744,7 @@ namespace crx
 //                printf("[tcp_client_impl::tcp_client_callback] 读文件描述符 %d 异常\n", tc_conn->fd);
 //            else
 //                printf("[tcp_client_impl::tcp_client_callback] 连接 %d 对端正常关闭\n", tc_conn->fd);
+            tcp_impl->m_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->port, nullptr, 0, tcp_impl->m_arg);
             sch_impl->remove_event(tcp_conn);
         }
     }
@@ -820,6 +822,7 @@ namespace crx
 //                printf("[tcp_server_impl::read_tcp_stream] 读文件描述符 %d 出现异常", ev->fd);
 //            else
 //                printf("[tcp_server_impl::read_tcp_stream] 连接 %d 对端正常关闭\n", ev->fd);
+            tcp_impl->m_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->port, nullptr, 0, tcp_impl->m_arg);
             sch_impl->remove_event(tcp_conn);
         }
     }
@@ -1109,19 +1112,20 @@ namespace crx
             sch_impl->m_simp_server->m_obj = new simpack_server_impl;
 
             auto simp_impl = (simpack_server_impl*)sch_impl->m_simp_server->m_obj;
+            simp_impl->m_client = get_tcp_client(simp_impl->tcp_client_callback, simp_impl);
+            sch_impl->m_tcp_client = nullptr;
             simp_impl->m_arg = arg;
         }
         return sch_impl->m_simp_server;
     }
 
-    void simpack_server_impl::tcp_client_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
+    void simpack_server_impl::simp_callback(bool client, int conn, const std::string &ip, uint16_t port, char *data, size_t len)
     {
-        auto simp_impl = (simpack_server_impl*)arg;
-    }
+        if (data && len) {
 
-    void simpack_server_impl::tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
-    {
-        auto simp_impl = (simpack_server_impl*)arg;
+        } else {
+
+        }
     }
 
     fs_monitor* scheduler::get_fs_monitor(std::function<void(const char*, uint32_t, void *arg)> f,

@@ -376,7 +376,8 @@ namespace crx
         std::cout<<std::endl;
     }
 
-    console::console()
+    console::console(bool remote_log /*= false*/)
+            :scheduler(remote_log)
     {
         auto sch_impl = (scheduler_impl*)m_obj;
         sch_impl->m_obj = new console_impl(this);

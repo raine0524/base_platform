@@ -27,46 +27,46 @@ namespace crx
         auto impl = (simpack_server_impl*)m_obj;
     }
 
-    void simpack_server::request(int id, server_cmd& cmd, const char *data, size_t len)
+    void simpack_server::request(int conn, const server_cmd& cmd, const char *data, size_t len)
     {
         auto impl = (simpack_server_impl*)m_obj;
     }
 
-    void simpack_server::response(int id, server_cmd& cmd, const char *data, size_t len)
+    void simpack_server::response(int conn, const server_cmd& cmd, const char *data, size_t len)
     {
         auto impl = (simpack_server_impl*)m_obj;
     }
 
-    void simpack_server::notify(int id, server_cmd& cmd, const char *data, size_t len)
+    void simpack_server::notify(int conn, const server_cmd& cmd, const char *data, size_t len)
     {
         auto impl = (simpack_server_impl*)m_obj;
     }
 
-    void simpack_server::reg_connect(std::function<void(server_info*, void*)> f)
+    void simpack_server::reg_connect(std::function<void(const server_info&, void*)> f)
     {
         auto impl = (simpack_server_impl*)m_obj;
         impl->m_on_connect = std::move(f);
     }
 
-    void simpack_server::reg_disconnect(std::function<void(server_info*, void*)> f)
+    void simpack_server::reg_disconnect(std::function<void(const server_info&, void*)> f)
     {
         auto impl = (simpack_server_impl*)m_obj;
         impl->m_on_disconnect = std::move(f);
     }
 
-    void simpack_server::reg_request(std::function<void(server_info*, server_cmd*, char*, size_t, void*)> f)
+    void simpack_server::reg_request(std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> f)
     {
         auto impl = (simpack_server_impl*)m_obj;
         impl->m_on_request = std::move(f);
     }
 
-    void simpack_server::reg_response(std::function<void(server_info*, server_cmd*, char*, size_t, void*)> f)
+    void simpack_server::reg_response(std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> f)
     {
         auto impl = (simpack_server_impl*)m_obj;
         impl->m_on_response = std::move(f);
     }
 
-    void simpack_server::reg_notify(std::function<void(server_info*, server_cmd*, char*, size_t, void*)> f)
+    void simpack_server::reg_notify(std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> f)
     {
         auto impl = (simpack_server_impl*)m_obj;
         impl->m_on_notify = std::move(f);

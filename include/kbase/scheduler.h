@@ -28,7 +28,7 @@ namespace crx
     class CRX_SHARE scheduler : public kobj
     {
     public:
-        scheduler();
+        scheduler(bool remote_log = false);
         virtual ~scheduler();
 
         //创建一个协程, @share参数表示是否使用共享栈，创建成功返回该协程的id(> 0)

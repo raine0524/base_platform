@@ -97,7 +97,7 @@ namespace crx
         uint16_t get_port();
 
         //发送tcp响应流，@conn表示指定的连接，@data表示响应数据
-        void response(int conn, const char *data, size_t len);
+        void send_data(int conn, const char *data, size_t len);
 
     protected:
         tcp_server() = default;

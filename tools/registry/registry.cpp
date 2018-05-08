@@ -9,3 +9,9 @@ void registry::destroy()
 {
 
 }
+
+int main(int argc, char *argv[])
+{
+    registry reg;
+    return reg.run(argc, argv);
+}
