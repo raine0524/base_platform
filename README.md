@@ -4,9 +4,8 @@
 	
 	Copyright (C) 2017 daniel <danieledwin0524@gmail.com>
 	
-	Everyone is permitted to copy and distribute verbatim or 
-	modified copies of this license document, and changing it 
-	is allowed as long as the name is changed.
+	Everyone is permitted to copy and distribute verbatim or modified copies of this license document, 
+	and changing it is allowed as long as the name is changed.
 	
 		DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
 
