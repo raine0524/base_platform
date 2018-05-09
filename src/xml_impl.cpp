@@ -93,7 +93,8 @@ namespace crx
             switch_parent();
         } else {		//未找到，新增
             tinyxml2::XMLElement *child = impl->m_doc.NewElement(name);
-            child->SetText(value);
+            if (value)
+                child->SetText(value);
             if (impl->m_cn)		//链接到当前节点之下或成为xml文件的根节点
                 impl->m_cn->LinkEndChild(child);
             else
@@ -144,7 +145,10 @@ namespace crx
         xml_impl *impl = (xml_impl*)m_obj;
         if (!impl->m_cn)
             return;
-        impl->m_cn->SetText(value);		//设置当前节点的值
+        if (value)
+            impl->m_cn->SetText(value);		//设置当前节点的值
+        else
+            impl->m_cn->DeleteChildren();
         if (flush)		//实时更新xml文件
             impl->m_doc.SaveFile(impl->m_xml_file.c_str());
     }
@@ -208,7 +212,10 @@ namespace crx
         tinyxml2::XMLElement *child = impl->m_cn->FirstChildElement();
         while (child) {
             std::string name = child->Name();			//节点名称
-            std::string value = child->GetText();		//节点值
+            std::string value;		                    //节点值
+            const char *text = child->GetText();
+            if (text)
+                value = text;
             std::unordered_map<std::string, std::string> attr_map;		//节点的键值对属性
 
             const tinyxml2::XMLAttribute *attr = child->FirstAttribute();

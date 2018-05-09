@@ -227,7 +227,7 @@ namespace crx
         auto impl = (ini_impl*)m_obj;
         auto it = impl->m_sec_map.find(sec_name);
         if (impl->m_sec_map.end() != it && impl->m_sections[it->second].valid)
-            impl->m_sec_idx = it->second;
+            impl->m_sec_idx = (int)it->second;
         else
             impl->m_sec_idx = -1;
     }

@@ -26,6 +26,13 @@ target_link_libraries(kbase z pthread anl)
 
 set_target_properties(kbase PROPERTIES LIBRARY_OUTPUT_DIRECTORY ../lib64)
 
+# tools
+add_executable(registry tools/registry/registry.cpp)
+
+target_link_libraries(registry kbase)
+
+set_target_properties(registry PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../tools/runtime)
+
 # example-py_plot_ex
 add_executable(py_plot_ex examples/py_plot_ex.cpp)
 

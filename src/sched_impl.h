@@ -39,9 +39,7 @@ namespace crx
                 ,m_last_sec(-1)
                 ,m_log_buffer(1024, 0) {}
 
-        virtual ~log_impl() { close(m_pipe_fd); }
-
-        static void log_co(scheduler *sch, void *arg);
+        virtual ~log_impl() {}
 
         std::string m_root_dir;
         std::string m_prefix;
@@ -52,8 +50,6 @@ namespace crx
         datetime m_now;
         int64_t m_last_sec;
         std::string m_log_buffer, m_temp;
-
-        int m_pipe_fd;
     };
 
 #define GET_BIT(field, n)   (field & 1<<n)
@@ -66,12 +62,14 @@ namespace crx
     /*
      * simp协议的头部，此处是对ctl_flag字段更详细的表述：
      *          -->第0位: 1-表示当前请求由库这一层处理  0-表示路由给上层应用
-     *          -->第1位: 1-加密(暂不支持) 0-非加密
+     *          -->第1位: 1-表示推送notify 0-非推送
+     *          -->第2位: 当为非推送时这一位有效 1-request 0-response
+     *          -->第31位: 1-加密(暂不支持) 0-非加密
      *          其余字段暂时保留
      */
     struct simp_header
     {
-        char magic_num[4];      //魔数，4个字节依次为0x5f,0x37,0x59,0xdf
+        uint32_t magic_num;     //魔数，4个字节依次为0x5f3759df
         uint32_t version;       //版本，填入发布日期，比如1.0.0版本的值设置为20180501
         uint32_t length;        //body部分长度，整个一帧的大小为sizeof(simp_header)+length
         uint16_t type;          //类型
@@ -80,6 +78,13 @@ namespace crx
         uint32_t req_id;        //请求id
         uint32_t ctl_flag;      //控制字段
         char token[16];         //请求携带token，表明请求合法(token=md5(current_timestamp+name))
+
+        simp_header()
+        {
+            bzero(this, sizeof(simp_header));
+            magic_num = htonl(0x5f3759df);
+            version = htonl(20180501);
+        }
     };
 #pragma pack()
 
@@ -223,11 +228,12 @@ namespace crx
 
     struct tcp_server_conn : public eth_event
     {
+        APP_PRT app_prt;
         std::string ip_addr;        //连接对端的ip地址
         uint16_t port;              //对端端口
         std::string stream_buffer;  //tcp缓冲流
 
-        tcp_server_conn() : port(0)
+        tcp_server_conn() :app_prt(PRT_NONE), port(0)
         {
             stream_buffer.reserve(8192);        //预留8k字节
         }
@@ -315,6 +321,16 @@ namespace crx
         void *m_http_arg;
     };
 
+    struct info_wrapper
+    {
+        server_info info;
+        int ctx_len;
+        bool save_addr;
+        char token[16];
+
+        info_wrapper() : ctx_len(-1), save_addr(false) {}
+    };
+
     struct registry_conf
     {
         std::string ip;
@@ -327,9 +343,13 @@ namespace crx
     {
     public:
         simpack_server_impl()
-                :m_client(nullptr)
+                :m_seria(true)
+                ,m_client(nullptr)
                 ,m_server(nullptr)
-                ,m_arg(nullptr) {}
+                ,m_arg(nullptr)
+        {
+            m_simp_buf = std::string((const char*)&m_stub_header, sizeof(simp_header));
+        }
 
         virtual ~simpack_server_impl()
         {
@@ -345,35 +365,47 @@ namespace crx
         static int client_protohook(int conn, char *data, size_t len, void *arg)
         {
             auto impl = (simpack_server_impl*)arg;
-            return impl->simp_protohook(conn, data, len);
+            auto& wrapper = impl->m_server_info[conn];
+            if (wrapper)
+                return simpack_protocol(data, len, wrapper->ctx_len);
         }
 
         static int server_protohook(int conn, char *data, size_t len, void *arg)
         {
             auto impl = (simpack_server_impl*)arg;
-            return impl->simp_protohook(conn, data, len);
-        }
+            if (conn >= impl->m_server_info.size())
+                impl->m_server_info.resize((size_t)conn+1, nullptr);
 
-        int simp_protohook(int conn, char *data, size_t len)
-        {
-
+            auto& wrapper = impl->m_server_info[conn];
+            if (!wrapper)
+                wrapper = std::make_shared<info_wrapper>();
+            return simpack_protocol(data, len, wrapper->ctx_len);
         }
 
         static void tcp_client_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
         {
             auto impl = (simpack_server_impl*)arg;
-            impl->simp_callback(true, conn, ip, port, data, len);
+            impl->simp_callback(conn, ip, port, data, len);
         }
 
         static void tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
         {
             auto impl = (simpack_server_impl*)arg;
-            impl->simp_callback(false, conn, ip, port, data, len);
+            impl->simp_callback(conn, ip, port, data, len);
         }
 
-        void simp_callback(bool client, int conn, const std::string& ip, uint16_t port, char *data, size_t len);
+        void simp_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len);
+
+        void capture_sharding(int conn, char *data, size_t len);
+
+        void send_package(int type, int conn, const server_cmd& cmd, const char *data, size_t len);
 
         registry_conf m_conf;
+        server_cmd m_app_cmd;
+        simp_header m_stub_header;
+        std::string m_simp_buf;
+        std::vector<std::shared_ptr<info_wrapper>> m_server_info;
+
         seria m_seria;
         tcp_client *m_client;
         tcp_server *m_server;

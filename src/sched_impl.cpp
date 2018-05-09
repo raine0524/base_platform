@@ -414,18 +414,6 @@ namespace crx
             impl->fd = open(log_path, O_WRONLY);
         impl->m_curr_size = (int)lseek(impl->fd, 0, SEEK_END);
 
-
-        const char *fifo_name = "/tmp/my_fifo";
-        if (access(fifo_name, F_OK))
-            mkfifo(fifo_name, 0777);
-        impl->m_pipe_fd = open(fifo_name, O_WRONLY);
-
-        long origin_pipe_size = fcntl(impl->m_pipe_fd, F_GETPIPE_SZ);
-        fcntl(impl->m_pipe_fd, F_SETPIPE_SZ, 64*1024*1024);
-        perror("fix buffer error");
-        long after_pipe_size = fcntl(impl->m_pipe_fd, F_GETPIPE_SZ);
-        printf("set pipe size origin=%ld after=%ld\n", origin_pipe_size, after_pipe_size);
-
         auto sch_impl = (scheduler_impl*)m_obj;
         sch_impl->m_logs.push_back(g_log);
     }
@@ -460,40 +448,33 @@ namespace crx
             ret = (size_t)vsnprintf(&impl->m_temp[29], ret+1, fmt, var2);
         }
 
-        write(impl->m_pipe_fd, data, ret+29);
-
         va_end(var2);
         va_end(var1);
-    }
-
-    void log_impl::log_co(scheduler *sch, void *arg)
-    {
-        auto impl = (log_impl*)arg;
     }
 
     int simpack_protocol(char *data, size_t len, int& ctx_len)
     {
         if (-1 == ctx_len) {
-            if (len < 5)        //头5个字节用于确定整个序列化串的大小
+            if (len < sizeof(simp_header))      //还未取到simp协议头
                 return 0;
 
-            if ((char)0xd2 != *data) {		//验证第一个字节的魔数是否等于0xd2u
+            uint32_t magic_num = ntohl(*(uint32_t *)data);
+            if (0x5f3759df != magic_num) {
                 size_t i = 1;
-                for (; i < len; ++i)
-                    if ((char)0xd2 == data[i])
+                for (; i < len; ++i) {
+                    magic_num = ntohl(*(uint32_t*)(data+i));
+                    if (0x5f3759df == magic_num)
                         break;
-
-                if (i < len) {  //在后续流中找到该魔数，截断该魔数之前的无效流
-                    return -(int)i;
-                } else {        //未找到
-                    if (len > 8192)
-                        return -8192;   //缓存数据超过8k，截断以保护缓冲
-                    else
-                        return 0;       //等待更多数据到来
                 }
+
+                if (i < len)        //在后续流中找到该魔数，截断之前的无效流
+                    return -(int)i;
+                else        //未找到，截断整个无效流
+                    return -(int)len;
             }
 
-            ctx_len = *(int*)(data+1);		//获取序列化串的大小
+            auto header = (simp_header*)data;
+            ctx_len = ntohl(header->length)+sizeof(simp_header);
         }
 
         if (len < ctx_len)
@@ -801,6 +782,7 @@ namespace crx
             conn->f = impl->read_tcp_stream;
             conn->arg = conn;
 
+            conn->app_prt = impl->m_app_prt;
             conn->ip_addr = inet_ntoa(impl->m_accept_addr.sin_addr);	//将地址转换为点分十进制格式的ip地址
             conn->port = ntohs(impl->m_accept_addr.sin_port);           //将端口由网络字节序转换为主机字节序
             auto sch_impl = (scheduler_impl*)sch->m_obj;
@@ -811,8 +793,12 @@ namespace crx
     void tcp_server_impl::read_tcp_stream(scheduler *sch, eth_event *ev)
     {
         auto sch_impl = (scheduler_impl*)sch->m_obj;
-        auto tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
         auto tcp_conn = dynamic_cast<tcp_server_conn*>(ev);
+        tcp_server_impl *tcp_impl = nullptr;
+        switch (tcp_conn->app_prt) {
+            case PRT_NONE:      tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
+            case PRT_HTTP:      tcp_impl = (http_server_impl*)sch_impl->m_http_server->m_obj;
+        }
 
         int sts = sch_impl->async_read(tcp_conn, tcp_conn->stream_buffer);
         handle_stream(ev->fd, tcp_impl, tcp_conn);
@@ -899,17 +885,14 @@ namespace crx
 
             if (strncmp(data, "HTTP", 4)) {     //签名出错，该流不是HTTP流
                 char *sig_pos = strstr(data, "HTTP");       //查找流中是否存在"HTTP"子串
-                if (!sig_pos || sig_pos > data+len-4) {         //未找到子串或找到的子串已超出查找范围
-                    if (len > 8192)
-                        return -8192;      //若缓存的数据已超过8k，则截断前8k个字节，保障缓冲区不会一直被写入无效数据
-                    else
-                        return 0;           //缓存数据还不够多，当前状态不够明朗，等待更多数据到来
+                if (!sig_pos || sig_pos > data+len-4) {     //未找到子串或找到的子串已超出查找范围，无效的流
+                    return -(int)len;
                 } else {        //找到子串
                     return -(int)(sig_pos-data);    //先截断签名之前多余的数据
                 }
             }
 
-            //先判断是否已经获取到完整的响应流
+            //先判断是否已经获取到完整的响应头
             char *delim_pos = strstr(data, "\r\n\r\n");
             if (!delim_pos || delim_pos > data+len-4) {     //还未取到分隔符或分隔符已超出查找范围
                 if (len > 8192)
@@ -1041,13 +1024,9 @@ namespace crx
                     return 0;           //等待接受更多的数据
             }
 
-            char *sig_pos = strstr(data, "HTTP");     //在完整的请求头中查找是否存在"HTTP"签名
-            if (!sig_pos || sig_pos > data+len-4) {         //未取到签名或已超出查找范围
-                if (len > 8192)
-                    return -8192;      //在取到该签名之前已有超过8k的数据，截断
-                else
-                    return 0;
-            }
+            char *sig_pos = strstr(data, "HTTP");       //在完整的请求头中查找是否存在"HTTP"签名
+            if (!sig_pos || sig_pos > delim_pos)        //未取到签名或已超出查找范围，截断该请求头
+                return -(int)(delim_pos-data+4);
 
             size_t valid_header_len = delim_pos-data;
             auto str_vec = split(data, valid_header_len, "\r\n");
@@ -1113,19 +1092,126 @@ namespace crx
 
             auto simp_impl = (simpack_server_impl*)sch_impl->m_simp_server->m_obj;
             simp_impl->m_client = get_tcp_client(simp_impl->tcp_client_callback, simp_impl);
+            register_tcp_hook(true, simp_impl->client_protohook, simp_impl);
             sch_impl->m_tcp_client = nullptr;
             simp_impl->m_arg = arg;
         }
         return sch_impl->m_simp_server;
     }
 
-    void simpack_server_impl::simp_callback(bool client, int conn, const std::string &ip, uint16_t port, char *data, size_t len)
+    void simpack_server_impl::simp_callback(int conn, const std::string &ip, uint16_t port, char *data, size_t len)
     {
         if (data && len) {
+            if (conn >= m_server_info.size())
+                return;
 
+            auto& wrapper = m_server_info[conn];
+            if (!wrapper->save_addr) {
+                wrapper->info.conn = conn;
+                wrapper->info.ip = std::move(ip);
+                wrapper->info.port = port;
+                wrapper->save_addr = true;
+            }
+
+            auto header = (simp_header*)data;
+            auto header_len = sizeof(simp_header);
+            uint32_t ctl_flag = ntohl(header->ctl_flag);
+            if (GET_BIT(ctl_flag, 0)) {     //捕获控制请求
+                capture_sharding(conn, data, len);
+            } else {    //路由上层请求
+                if (memcmp(header->token, wrapper->token, 16)){
+                    printf("illegal request since token is mismatch\n");
+                    return;
+                }
+
+                m_app_cmd.ses_id = ntohl(header->ses_id);
+                m_app_cmd.req_id = ntohl(header->req_id);
+                m_app_cmd.type = ntohs(header->type);
+                m_app_cmd.cmd = ntohs(header->cmd);
+
+                if (GET_BIT(ctl_flag, 1)) {     //推送
+                    if (m_on_notify)
+                        m_on_notify(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
+                } else {        //非推送
+                    bool is_request = GET_BIT(ctl_flag, 2) != 0;
+                    if (is_request && m_on_request)            //客户端只接受响应
+                        m_on_request(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
+                    else if (!is_request && m_on_response)       //服务端只接受请求
+                        m_on_response(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
+                }
+            }
         } else {
-
+            if (conn < m_server_info.size()) {
+                auto& wrapper = m_server_info[conn];
+                if (m_on_disconnect)
+                    m_on_disconnect(wrapper->info, m_arg);
+                wrapper.reset();
+            }
         }
+    }
+
+    void simpack_server_impl::capture_sharding(int conn, char *data, size_t len)
+    {
+        auto& wrapper = m_server_info[conn];
+        auto kvs = m_seria.dump(data, (int)len);
+    }
+
+    void simpack_server_impl::send_package(int type, int conn, const server_cmd& cmd, const char *data, size_t len)
+    {
+        if (conn >= m_server_info.size() || !m_server_info[conn])
+            return;
+
+        auto svr_impl = (tcp_server_impl*)m_server->m_obj;
+        if (conn >= svr_impl->sch_impl->m_ev_array.size())
+            return;
+
+        auto ev = svr_impl->sch_impl->m_ev_array[conn];
+        if (!ev)
+            return;
+
+        auto& wrapper = m_server_info[conn];
+        simp_header *header = nullptr;
+        size_t total_len = len;
+        if (len >= 4 && htonl(0x5f3759df) == *(uint32_t*)data) {    //上层使用的是基于simp协议的序列化组件seria
+            header = (simp_header*)data;
+            header->length = htonl((uint32_t)(len-sizeof(simp_header)));
+        } else {
+            m_simp_buf.resize(sizeof(simp_header));
+            m_simp_buf.append(data, len);
+            header = (simp_header*)&m_simp_buf[0];
+            header->length = htonl((uint32_t)len);
+            total_len = len+sizeof(simp_header);
+        }
+        header->ses_id = htonl(cmd.ses_id);
+        header->req_id = htonl(cmd.req_id);
+        header->type = htons(cmd.type);
+        header->cmd = htons(cmd.cmd);
+
+        uint32_t ctl_flag = 0;
+        CLR_BIT(ctl_flag, 0);       //由上层应用处理
+        switch (type) {
+            case 1: {       //request
+                CLR_BIT(ctl_flag, 1);
+                SET_BIT(ctl_flag, 2);
+                break;
+            }
+            case 2: {       //response
+                CLR_BIT(ctl_flag, 1);
+                CLR_BIT(ctl_flag, 2);
+                break;
+            }
+            case 3: {       //notify
+                SET_BIT(ctl_flag, 1);
+                break;
+            }
+            default: {
+                return;
+            }
+        }
+        header->ctl_flag = htonl(ctl_flag);
+
+        memcpy(header->token, wrapper->token, 16);      //带上token表示是合法的package
+        svr_impl->sch_impl->async_write(ev, (const char*)header, total_len);
     }
 
     fs_monitor* scheduler::get_fs_monitor(std::function<void(const char*, uint32_t, void *arg)> f,

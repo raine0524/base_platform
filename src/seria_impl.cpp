@@ -7,20 +7,25 @@ namespace crx
     class seria_impl
     {
     public:
-        seria_impl() : m_packer(&m_pack_buf) {}
+        seria_impl(bool use_simp) : m_packer(&m_pack_buf), m_use_simp(use_simp) {}
 
         void deseria(const char *data, int len);		//反序列化操作
 
         msgpack::sbuffer m_pack_buf;
         msgpack::packer<msgpack::sbuffer> m_packer;
 
+        bool m_use_simp;
+        simp_header m_stub_header;
+
         std::string m_origin_buf;
-        std::unordered_map<const char*, mem_ref> m_dump_map;
+        std::unordered_map<std::string, mem_ref> m_dump_map;
     };
 
-    seria::seria()
+    seria::seria(bool use_simp /*= false*/)
     {
-        seria_impl *impl = new seria_impl;
+        auto impl = new seria_impl(use_simp);
+        if (use_simp)
+            impl->m_packer.pack_str_body((const char*)&impl->m_stub_header, sizeof(simp_header));
         /*
          * 在序列化串中预留5个字节的空间，第一个字节为int32类型在msgpack中对应的标志，后面的4个字节
          * 用于指明当前整个序列化串的大小
@@ -36,15 +41,18 @@ namespace crx
 
     void seria::reset()
     {
-        seria_impl *impl = (seria_impl*)m_obj;
+        auto impl = (seria_impl*)m_obj;
         //在执行重置操作时除将缓冲区pack_buf清空之外，同样需要预留5个字节的空间
         impl->m_pack_buf.clear();
+
+        if (impl->m_use_simp)
+            impl->m_packer.pack_str_body((const char*)&impl->m_stub_header, sizeof(simp_header));
         impl->m_packer.pack_fix_int32(0);
     }
 
     void seria::insert(const char *key, const char *data, size_t len)
     {
-        seria_impl *impl = (seria_impl*)m_obj;
+        auto impl = (seria_impl*)m_obj;
         raw_ref rkey(key, strlen(key));
         raw_ref rval(data, len);
         std::pair<raw_ref, raw_ref> pair(rkey, rval);
@@ -54,9 +62,9 @@ namespace crx
         *hk_sz = impl->m_pack_buf.size();		//更新当前字符串的大小
     }
 
-    mem_ref seria::get_string(int comp /*= false*/)
+    mem_ref seria::get_string(bool comp /*= false*/)
     {
-        seria_impl *impl = (seria_impl*)m_obj;
+        auto impl = (seria_impl*)m_obj;
         if (comp) {     //使用ZIP算法对原始序列化串进行压缩
             size_t org_len = impl->m_pack_buf.size();
             size_t dst_len = compressBound(org_len);		//根据原始大小计算压缩之后整个字符串的大小
@@ -74,6 +82,30 @@ namespace crx
 
         // 构造序列化串，返回其内存引用
         return mem_ref(impl->m_pack_buf.data(), impl->m_pack_buf.size());
+    }
+
+    int seria::get_sharding_size(const char *data, size_t len)
+    {
+        if (len < 5)        //头5个字节用于确定整个序列化串的大小
+            return 0;
+
+        if ((char)0xd2 != *data) {		//验证第一个字节的魔数是否等于0xd2u
+            size_t i = 1;
+            for (; i < len; ++i)
+                if ((char)0xd2 == data[i])
+                    break;
+
+            if (i < len)        //在后续流中找到该魔数，截断该魔数之前的无效流
+                return -(int)i;
+            else                //未找到
+                return -(int)len;
+        }
+
+        int ctx_len = *(int*)(data+1);		//获取序列化串的大小
+        if (len < ctx_len)
+            return 0;
+        else
+            return ctx_len;
     }
 
     void seria_impl::deseria(const char *data, int len)
@@ -94,7 +126,7 @@ namespace crx
         }
     }
 
-    std::unordered_map<const char*, mem_ref> seria::dump(const char *data, int len)
+    std::unordered_map<std::string, mem_ref> seria::dump(const char *data, int len)
     {
         auto impl = (seria_impl*)m_obj;
         impl->m_dump_map.clear();
@@ -109,7 +141,7 @@ namespace crx
 
         //解压缩操作，并再次进行反序列化
         auto ref = impl->m_dump_map["__data__"];
-        uncompress((Bytef*)&impl->m_origin_buf.front(), &dst_len, (const Bytef*)ref.data, ref.len);
+        uncompress((Bytef*)&impl->m_origin_buf[0], &dst_len, (const Bytef*)ref.data, ref.len);
         impl->m_dump_map.clear();
         impl->deseria(impl->m_origin_buf.data(), impl->m_origin_buf.size());
         return impl->m_dump_map;

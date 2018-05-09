@@ -14,19 +14,16 @@ namespace crx
     console_impl::console_impl(console *c)
             :m_c(c)
             ,m_is_service(false)
-            ,m_init(false)
             ,m_as_shell(false)
-            ,m_log_coid(0)
             ,m_pipe_conn(false)
             ,m_rd_fifo(-1)
             ,m_wr_fifo(-1)
             ,m_stdout_backup(-1)
     {
-        m_cmds[false]["-start"] = {"在后台启动当前服务", start_daemon};
-        m_cmds[false]["-stop"] = {"停止后台服务", stop_daemon};
-
-        m_cmds[true]["h"] = {"显示帮助", print_help};
-        m_cmds[true]["q"] = {"退出程序", quit_loop};
+        m_cmd_idx["h"] = m_cmd_vec.size();
+        m_cmd_vec.push_back({"h", print_help, "显示帮助"});
+        m_cmd_idx["q"] = m_cmd_vec.size();
+        m_cmd_vec.push_back({"q", quit_loop, "退出程序"});
     }
 
     console_impl::~console_impl()
@@ -94,13 +91,13 @@ namespace crx
                         printf("[%s] %s", g_server_name.c_str(), crash_info);
                     }
                 }
-                execute_cmd("-start", stub_args);
+                start_daemon();
             }
 
             if (!strcmp("-stop", argv[argc-1])) {		//终止服务
                 if (!access(m_pipe_name[0].c_str(), F_OK)) {		//管道文件存在
                     if (check_service_exist())			//进一步确认当前服务正在运行中，执行终止操作
-                        execute_cmd("-stop", stub_args);
+                        connect_service(true);
                     else		//后台服务已崩溃，打印出错信息
                         printf("[%s] %s", g_server_name.c_str(), crash_info);
                 } else {
@@ -112,15 +109,14 @@ namespace crx
             if (!strcmp("-restart", argv[argc-1])) {				//重启服务
                 if (!access(m_pipe_name[0].c_str(), F_OK)) {		//管道文件存在，终止后台服务或打印崩溃信息
                     if (check_service_exist())
-                        execute_cmd("-stop", stub_args);
+                        connect_service(true);
                     else
                         printf("[%s] %s", g_server_name.c_str(), crash_info);
                 }
-                execute_cmd("-start", stub_args);
+                start_daemon();
             }
         }
 
-        m_init = true;
         //当前进程不是daemon进程并且管道存在，此时通过管道连接后台服务并以shell方式运行
         if (!m_is_service && !access(m_pipe_name[0].c_str(), F_OK)) {
             if (check_service_exist()) {		//后台服务正在运行中
@@ -133,16 +129,14 @@ namespace crx
         return false;		//预处理失败表示在当前环境下还需要做进一步处理
     }
 
-    //执行命令，该命令分为带参运行形式以及运行时两种，由m_init变量指明当前执行的是哪种类型的命令
     bool console_impl::execute_cmd(const std::string& cmd, std::vector<std::string>& args)
     {
-        auto& cmds = m_cmds[m_init];
-        if (cmds.end() != cmds.find(cmd)) {
-            cmds[cmd].f(args, m_c);
+        auto idx_it = m_cmd_idx.find(cmd);
+        if (m_cmd_idx.end() != idx_it) {
+            m_cmd_vec[idx_it->second].f(args, m_c);
             return true;
-        } else {
-            return false;
         }
+        return false;
     }
 
     /*
@@ -327,23 +321,14 @@ namespace crx
         close(rd_fifo);
     }
 
-    void console_impl::start_daemon(std::vector<std::string>& args, console *c)
+    void console_impl::start_daemon()
     {
-        auto sch_impl = (scheduler_impl*)c->m_obj;
-        auto con_impl = (console_impl*)sch_impl->m_obj;
-        con_impl->m_is_service = true;
+        m_is_service = true;
         daemon(1, 0);		//创建守护进程，不切换进程当前工作目录
 
         std::string pid_str = std::to_string(getpid());
-        con_impl->m_pipe_name[0] = con_impl->m_pipe_dir+"/0."+pid_str;
-        con_impl->m_pipe_name[1] = con_impl->m_pipe_dir+"/1."+pid_str;
-    }
-
-    void console_impl::stop_daemon(std::vector<std::string>& args, console *c)
-    {
-        auto sch_impl = (scheduler_impl*)c->m_obj;
-        auto con_impl = (console_impl*)sch_impl->m_obj;
-        con_impl->connect_service(true);
+        m_pipe_name[0] = m_pipe_dir+"/0."+pid_str;
+        m_pipe_name[1] = m_pipe_dir+"/1."+pid_str;
     }
 
     void console_impl::quit_loop(std::vector<std::string>& args, console *c)
@@ -366,12 +351,11 @@ namespace crx
     {
         auto sch_impl = (scheduler_impl*)c->m_obj;
         auto con_impl = (console_impl*)sch_impl->m_obj;
-        auto& cmds = con_impl->m_cmds[con_impl->m_init];
         std::cout<<std::right<<std::setw(5)<<"cmd";
         std::cout<<std::setw(10)<<' '<<std::setw(0)<<"comments"<<std::endl;
-        for (auto& cmd : cmds) {
-            std::string str = "  "+cmd.first;
-            std::cout<<std::left<<std::setw(15)<<str<<cmd.second.comment<<std::endl;
+        for (auto& cmd : con_impl->m_cmd_vec) {
+            std::string str = "  "+cmd.cmd;
+            std::cout<<std::left<<std::setw(15)<<str<<cmd.comment<<std::endl;
         }
         std::cout<<std::endl;
     }
@@ -395,9 +379,9 @@ namespace crx
     {
         auto sch_impl = (scheduler_impl*)m_obj;
         auto con_impl = (console_impl*)sch_impl->m_obj;
-        auto& cmd_map = con_impl->m_cmds[true];
-        assert(cmd_map.end() == cmd_map.find(cmd));		//断言当前添加的命令在已添加的命令集中不重复存在
-        cmd_map[cmd] = {comment, f};
+        assert(con_impl->m_cmd_idx.end() == con_impl->m_cmd_idx.find(cmd));		//断言当前添加的命令在已添加的命令集中不重复存在
+        con_impl->m_cmd_idx[cmd] = con_impl->m_cmd_vec.size();
+        con_impl->m_cmd_vec.push_back({cmd, f, comment});
     }
 
     void console_impl::bind_core(int which)

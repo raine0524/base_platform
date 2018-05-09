@@ -4,8 +4,9 @@ namespace crx
 {
     struct console_cmd
     {
-        std::string comment;    //注释
+        std::string cmd;        //命令
         std::function<void(std::vector<std::string>&, console*)> f;     //回调函数
+        std::string comment;    //注释
     };
 
     class console_impl
@@ -24,15 +25,13 @@ namespace crx
 
         void listen_pipe_input();
 
-        static void start_daemon(std::vector<std::string>& args, console *c);
-
-        static void stop_daemon(std::vector<std::string>& args, console *c);
-
         static void quit_loop(std::vector<std::string>& args, console *c);
 
         static void print_help(std::vector<std::string>& args, console *c);
 
     private:
+        void start_daemon();
+
         void connect_service(bool stop_service);
 
         void cons_pipe_name(const char *argv_0);
@@ -47,15 +46,15 @@ namespace crx
          * @m_init：预处理完成后该值为true，主要用于区分当前的控制台命令是带参运行形式的命令还是运行时命令
          * @m_as_shell：若后台服务正在运行过程中再次启动该程序，则新的进程作为daemon进程的shell存在
          */
-        bool m_is_service, m_init, m_as_shell;
+        bool m_is_service, m_as_shell;
         std::string m_pipe_name[2], m_pipe_dir;
-        size_t m_log_coid;
-
         bool m_pipe_conn;
         int m_rd_fifo, m_wr_fifo;      //used in listen keyboard/pipe event
 
         int m_stdout_backup;
-        std::unordered_map<bool, std::unordered_map<std::string, console_cmd>> m_cmds;      //m_cmds根据m_init当前的值区分为两类
         std::random_device m_random;
+
+        std::vector<console_cmd> m_cmd_vec;
+        std::unordered_map<std::string, size_t> m_cmd_idx;      //m_cmds根据m_init当前的值区分为两类
     };
 }

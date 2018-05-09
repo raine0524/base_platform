@@ -9,6 +9,8 @@
 //msgpack
 #include "../include/msgpack.hpp"
 
+#include "err_define.h"
+#include "control_cmd.h"
 #include "net_base.h"
 #include "console_impl.h"
 #include "evdth_impl.h"
