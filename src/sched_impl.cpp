@@ -70,46 +70,42 @@ namespace crx
         if (sch_impl->m_running_co == co_id)        //co_id无效或对自身进行切换，直接返回
             return true;
 
-        auto curr_co = (-1 == sch_impl->m_running_co) ? nullptr : sch_impl->m_cos[sch_impl->m_running_co];
         auto yield_co = sch_impl->m_cos[co_id];
         if (!yield_co || CO_UNKNOWN == yield_co->status)      //指定协程无效或者状态指示不可用，同样不发生切换
             return false;
 
         assert(CO_RUNNING != yield_co->status);
+        auto curr_co = sch_impl->m_cos[sch_impl->m_running_co];
         sch_impl->m_running_co = (int)co_id;
-        if (curr_co) {
-            auto main_co = sch_impl->m_cos[0];
-            if (curr_co->is_share)      //当前协程使用的是共享栈模式，其使用的栈是主协程中申请的空间
-                sch_impl->save_stack(curr_co, main_co->stack+STACK_SIZE);
 
-            curr_co->status = CO_SUSPEND;
-            curr_co->sus_sts = sts;
+        auto main_co = sch_impl->m_cos[0];
+        if (curr_co->is_share)      //当前协程使用的是共享栈模式，其使用的栈是主协程中申请的空间
+            sch_impl->save_stack(curr_co, main_co->stack+STACK_SIZE);
 
-            //当前协程与待切换的协程都使用了共享栈
-            if (curr_co->is_share && yield_co->is_share && CO_SUSPEND == yield_co->status) {
-                sch_impl->m_next_co = (int)co_id;
-                swapcontext(&curr_co->ctx, &main_co->ctx);      //先切换回主协程
-            } else {
-                //待切换的协程使用的是共享栈模式并且当前处于挂起状态，恢复其栈空间至主协程的缓冲区中
-                if (yield_co->is_share && CO_SUSPEND == yield_co->status)
-                    memcpy(main_co->stack+STACK_SIZE-yield_co->size, yield_co->stack, yield_co->size);
+        curr_co->status = CO_SUSPEND;
+        curr_co->sus_sts = sts;
 
-                sch_impl->m_next_co = -1;
-                yield_co->status = CO_RUNNING;
-                swapcontext(&curr_co->ctx, &yield_co->ctx);
-            }
+        //当前协程与待切换的协程都使用了共享栈
+        if (curr_co->is_share && yield_co->is_share && CO_SUSPEND == yield_co->status) {
+            sch_impl->m_next_co = (int)co_id;
+            swapcontext(&curr_co->ctx, &main_co->ctx);      //先切换回主协程
+        } else {
+            //待切换的协程使用的是共享栈模式并且当前处于挂起状态，恢复其栈空间至主协程的缓冲区中
+            if (yield_co->is_share && CO_SUSPEND == yield_co->status)
+                memcpy(main_co->stack+STACK_SIZE-yield_co->size, yield_co->stack, yield_co->size);
 
-            //此时位于主协程中，且主协程用于帮助从一个使用共享栈的协程切换到另一个使用共享栈的协程中
-            while (-1 != sch_impl->m_next_co) {
-                auto next_co = sch_impl->m_cos[sch_impl->m_next_co];
-                sch_impl->m_next_co = -1;
-                memcpy(main_co->stack+STACK_SIZE-next_co->size, next_co->stack, next_co->size);
-                next_co->status = CO_RUNNING;
-                swapcontext(&main_co->ctx, &next_co->ctx);
-            }
-        } else {        //当前执行流首次发生切换，此时从当前线程进入主执行流
+            sch_impl->m_next_co = -1;
             yield_co->status = CO_RUNNING;
-            sch_impl->main_coroutine(this);
+            swapcontext(&curr_co->ctx, &yield_co->ctx);
+        }
+
+        //此时位于主协程中，且主协程用于帮助从一个使用共享栈的协程切换到另一个使用共享栈的协程中
+        while (-1 != sch_impl->m_next_co) {
+            auto next_co = sch_impl->m_cos[sch_impl->m_next_co];
+            sch_impl->m_next_co = -1;
+            memcpy(main_co->stack+STACK_SIZE-next_co->size, next_co->stack, next_co->size);
+            next_co->status = CO_RUNNING;
+            swapcontext(&main_co->ctx, &next_co->ctx);
         }
         return true;
     }
@@ -143,7 +139,7 @@ namespace crx
             }
         }
 
-        co_impl->status = CO_READY;
+        co_impl->status = is_main_co ? CO_RUNNING : CO_READY;
         co_impl->is_share = is_share;
         if (!is_share)      //不使用共享栈时将在协程创建的同时创建协程所用的栈
             co_impl->stack = new char[STACK_SIZE];
@@ -452,30 +448,28 @@ namespace crx
         va_end(var1);
     }
 
-    int simpack_protocol(char *data, size_t len, int& ctx_len)
+    int simpack_protocol(char *data, size_t len)
     {
-        if (-1 == ctx_len) {
-            if (len < sizeof(simp_header))      //还未取到simp协议头
-                return 0;
+        if (len < sizeof(simp_header))      //还未取到simp协议头
+            return 0;
 
-            uint32_t magic_num = ntohl(*(uint32_t *)data);
-            if (0x5f3759df != magic_num) {
-                size_t i = 1;
-                for (; i < len; ++i) {
-                    magic_num = ntohl(*(uint32_t*)(data+i));
-                    if (0x5f3759df == magic_num)
-                        break;
-                }
-
-                if (i < len)        //在后续流中找到该魔数，截断之前的无效流
-                    return -(int)i;
-                else        //未找到，截断整个无效流
-                    return -(int)len;
+        uint32_t magic_num = ntohl(*(uint32_t *)data);
+        if (0x5f3759df != magic_num) {
+            size_t i = 1;
+            for (; i < len; ++i) {
+                magic_num = ntohl(*(uint32_t*)(data+i));
+                if (0x5f3759df == magic_num)
+                    break;
             }
 
-            auto header = (simp_header*)data;
-            ctx_len = ntohl(header->length)+sizeof(simp_header);
+            if (i < len)        //在后续流中找到该魔数，截断之前的无效流
+                return -(int)i;
+            else        //未找到，截断整个无效流
+                return -(int)len;
         }
+
+        auto header = (simp_header*)data;
+        int ctx_len = ntohl(header->length)+sizeof(simp_header);
 
         if (len < ctx_len)
             return 0;
@@ -706,8 +700,19 @@ namespace crx
         auto tcp_conn = dynamic_cast<tcp_client_conn*>(ev);
         tcp_client_impl *tcp_impl = nullptr;
         switch (tcp_conn->app_prt) {
-            case PRT_NONE:      tcp_impl = (tcp_client_impl*)sch_impl->m_tcp_client->m_obj;
-            case PRT_HTTP:      tcp_impl = (http_client_impl*)sch_impl->m_http_client->m_obj;
+            case PRT_NONE: {
+                tcp_impl = (tcp_client_impl*)sch_impl->m_tcp_client->m_obj;
+                break;
+            }
+            case PRT_HTTP: {
+                tcp_impl = (http_client_impl*)sch_impl->m_http_client->m_obj;
+                break;
+            }
+            case PRT_SIMP: {
+                auto simp_impl = (simpack_server_impl*)sch_impl->m_simp_server->m_obj;
+                tcp_impl = (tcp_client_impl*)simp_impl->m_client->m_obj;
+                break;
+            }
         }
 
         if (!tcp_conn->is_connect) {
@@ -776,6 +781,7 @@ namespace crx
             switch (impl->m_app_prt) {
                 case PRT_NONE:      conn = new tcp_server_conn;     break;
                 case PRT_HTTP:		conn = new http_server_conn;    break;
+                case PRT_SIMP:      conn = new tcp_server_conn;     break;
             }
 
             conn->fd = client_fd;
@@ -796,8 +802,19 @@ namespace crx
         auto tcp_conn = dynamic_cast<tcp_server_conn*>(ev);
         tcp_server_impl *tcp_impl = nullptr;
         switch (tcp_conn->app_prt) {
-            case PRT_NONE:      tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
-            case PRT_HTTP:      tcp_impl = (http_server_impl*)sch_impl->m_http_server->m_obj;
+            case PRT_NONE: {
+                tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
+                break;
+            }
+            case PRT_HTTP: {
+                tcp_impl = (http_server_impl*)sch_impl->m_http_server->m_obj;
+                break;
+            }
+            case PRT_SIMP: {
+                auto simp_impl = (simpack_server_impl*)sch_impl->m_simp_server->m_obj;
+                tcp_impl = (tcp_server_impl*)simp_impl->m_server->m_obj;
+                break;
+            }
         }
 
         int sts = sch_impl->async_read(tcp_conn, tcp_conn->stream_buffer);
@@ -1092,6 +1109,8 @@ namespace crx
 
             auto simp_impl = (simpack_server_impl*)sch_impl->m_simp_server->m_obj;
             simp_impl->m_client = get_tcp_client(simp_impl->tcp_client_callback, simp_impl);
+            auto cli_impl = (tcp_client_impl*)simp_impl->m_client->m_obj;
+            cli_impl->m_app_prt = PRT_SIMP;
             register_tcp_hook(true, simp_impl->client_protohook, simp_impl);
             sch_impl->m_tcp_client = nullptr;
             simp_impl->m_arg = arg;
@@ -1102,24 +1121,17 @@ namespace crx
     void simpack_server_impl::simp_callback(int conn, const std::string &ip, uint16_t port, char *data, size_t len)
     {
         if (data && len) {
-            if (conn >= m_server_info.size())
+            auto header_len = sizeof(simp_header);
+            if (len <= header_len)
                 return;
 
-            auto& wrapper = m_server_info[conn];
-            if (!wrapper->save_addr) {
-                wrapper->info.conn = conn;
-                wrapper->info.ip = std::move(ip);
-                wrapper->info.port = port;
-                wrapper->save_addr = true;
-            }
-
             auto header = (simp_header*)data;
-            auto header_len = sizeof(simp_header);
             uint32_t ctl_flag = ntohl(header->ctl_flag);
             if (GET_BIT(ctl_flag, 0)) {     //捕获控制请求
-                capture_sharding(conn, data, len);
+                capture_sharding(conn, ip, port, data, len);
             } else {    //路由上层请求
-                if (memcmp(header->token, wrapper->token, 16)){
+                auto& wrapper = m_server_info[conn];
+                if (memcmp(header->token, wrapper->token, 16)) {
                     printf("illegal request since token is mismatch\n");
                     return;
                 }
@@ -1150,10 +1162,57 @@ namespace crx
         }
     }
 
-    void simpack_server_impl::capture_sharding(int conn, char *data, size_t len)
+    void simpack_server_impl::capture_sharding(int conn, const std::string &ip, uint16_t port, char *data, size_t len)
     {
-        auto& wrapper = m_server_info[conn];
-        auto kvs = m_seria.dump(data, (int)len);
+        auto header = (simp_header*)data;
+        auto kvs = m_seria.dump(data+sizeof(simp_header), len-sizeof(simp_header));
+        if (conn == m_conf.info.conn) {       //与registry建立的连接
+            if (ntohs(header->type)) {     //响应
+                uint16_t cmd = ntohs(header->cmd);
+                switch (cmd) {
+                    case CMD_REG_NAME:      handle_reg_name(conn, header, kvs);     break;
+                    default:                printf("unknown cmd=%d\n", cmd);        break;
+                }
+            } else {        //主推
+
+            }
+        } else {        //其他连接
+            if (conn >= m_server_info.size())
+                m_server_info.resize((size_t)conn+1, nullptr);
+
+            auto& wrapper = m_server_info[conn];
+            if (!wrapper) {
+                wrapper = std::make_shared<info_wrapper>();
+                wrapper->info.conn = conn;
+                wrapper->info.ip = std::move(ip);
+                wrapper->info.port = port;
+            }
+        }
+    }
+
+    void simpack_server_impl::handle_reg_name(int conn, simp_header *header, std::unordered_map<std::string, mem_ref>& kvs)
+    {
+        if (ntohs(header->result)) {    //失败
+            auto info_it = kvs.find("error_info");
+            if (kvs.end() != info_it) {
+                std::string error_info(info_it->second.data, info_it->second.len);
+                printf("pronounce failed: %s\n", error_info.c_str());
+            }
+
+            auto svr_impl = (tcp_server_impl*)m_server->m_obj;
+            if (conn < svr_impl->sch_impl->m_ev_array.size())
+                svr_impl->sch_impl->remove_event(svr_impl->sch_impl->m_ev_array[conn]);
+            return;
+        }
+
+        //成功
+        auto role_it = kvs.find("role");
+        if (kvs.end() != role_it) {
+            std::string role(role_it->second.data, role_it->second.len);
+            printf("pronounce succ: role=%s\n", role.c_str());
+            m_conf.info.role = std::move(role);
+        }
+        memcpy(m_conf.token, header->token, 16);       //保存该token用于与其他服务之间的通信
     }
 
     void simpack_server_impl::send_package(int type, int conn, const server_cmd& cmd, const char *data, size_t len)

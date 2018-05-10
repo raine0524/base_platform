@@ -8,7 +8,7 @@ http://www.boost.org/LICENSE_1_0.txt)
 #ifndef MSGPACK_PREDEF_DETAIL__EXCEPTION_H
 #define MSGPACK_PREDEF_DETAIL__EXCEPTION_H
 
-#if defined(__cplusplus)
+#if defined(__cpluplus)
 #include <exception>
 #endif
 

@@ -54,9 +54,9 @@ namespace crx
 
 #define GET_BIT(field, n)   (field & 1<<n)
 
-#define SET_BIT(field, n)   (field | 1<<n)
+#define SET_BIT(field, n)   (field |= 1<<n)
 
-#define CLR_BIT(field, n)   (field & ~(1<<n))
+#define CLR_BIT(field, n)   (field &= ~(1<<n))
 
 #pragma pack(1)
     /*
@@ -69,15 +69,16 @@ namespace crx
      */
     struct simp_header
     {
-        uint32_t magic_num;     //魔数，4个字节依次为0x5f3759df
-        uint32_t version;       //版本，填入发布日期，比如1.0.0版本的值设置为20180501
-        uint32_t length;        //body部分长度，整个一帧的大小为sizeof(simp_header)+length
-        uint16_t type;          //类型
-        uint16_t cmd;           //命令
-        uint32_t ses_id;        //会话id
-        uint32_t req_id;        //请求id
-        uint32_t ctl_flag;      //控制字段
-        char token[16];         //请求携带token，表明请求合法(token=md5(current_timestamp+name))
+        uint32_t magic_num;         //魔数，4个字节依次为0x5f3759df
+        uint32_t version;           //版本，填入发布日期，比如1.0.0版本的值设置为20180501
+        uint32_t length;            //body部分长度，整个一帧的大小为sizeof(simp_header)+length
+        uint16_t type;              //类型
+        uint16_t cmd;               //命令
+        uint16_t result;            //请求结果
+        uint32_t ses_id;            //会话id
+        uint32_t req_id;            //请求id
+        uint32_t ctl_flag;          //控制字段
+        unsigned char token[16];    //请求携带token，表明请求合法(token=md5(current_timestamp+name))
 
         simp_header()
         {
@@ -88,7 +89,7 @@ namespace crx
     };
 #pragma pack()
 
-    int simpack_protocol(char *data, size_t len, int& ctx_len);
+    int simpack_protocol(char *data, size_t len);
 
     class sigctl_impl : public eth_event
     {
@@ -159,9 +160,10 @@ namespace crx
     {
         PRT_NONE = 0,       //使用原始的传输层协议
         PRT_HTTP,			//HTTP协议
+        PRT_SIMP,           //SIMP协议(私有)
     };
 
-    struct tcp_client_conn : public eth_event       //名字解析使用getaddrinfo_a
+    struct tcp_client_conn : public eth_event
     {
         gaicb *name_reqs[1];
         addrinfo req_spec;
@@ -324,19 +326,14 @@ namespace crx
     struct info_wrapper
     {
         server_info info;
-        int ctx_len;
-        bool save_addr;
-        char token[16];
-
-        info_wrapper() : ctx_len(-1), save_addr(false) {}
+        unsigned char token[16];
     };
 
     struct registry_conf
     {
-        std::string ip;
-        int port;
-        std::string name;
+        server_info info;
         int listen;
+        unsigned char token[16];
     };
 
     class simpack_server_impl
@@ -364,22 +361,12 @@ namespace crx
 
         static int client_protohook(int conn, char *data, size_t len, void *arg)
         {
-            auto impl = (simpack_server_impl*)arg;
-            auto& wrapper = impl->m_server_info[conn];
-            if (wrapper)
-                return simpack_protocol(data, len, wrapper->ctx_len);
+            return simpack_protocol(data, len);
         }
 
         static int server_protohook(int conn, char *data, size_t len, void *arg)
         {
-            auto impl = (simpack_server_impl*)arg;
-            if (conn >= impl->m_server_info.size())
-                impl->m_server_info.resize((size_t)conn+1, nullptr);
-
-            auto& wrapper = impl->m_server_info[conn];
-            if (!wrapper)
-                wrapper = std::make_shared<info_wrapper>();
-            return simpack_protocol(data, len, wrapper->ctx_len);
+            return simpack_protocol(data, len);
         }
 
         static void tcp_client_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
@@ -396,7 +383,9 @@ namespace crx
 
         void simp_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len);
 
-        void capture_sharding(int conn, char *data, size_t len);
+        void capture_sharding(int conn, const std::string &ip, uint16_t port, char *data, size_t len);
+
+        void handle_reg_name(int conn, simp_header *header, std::unordered_map<std::string, mem_ref>& kvs);
 
         void send_package(int type, int conn, const server_cmd& cmd, const char *data, size_t len);
 
@@ -481,7 +470,7 @@ namespace crx
     public:
         scheduler_impl(scheduler *sch)
                 :m_sch(sch)
-                ,m_running_co(-1)
+                ,m_running_co(0)
                 ,m_next_co(-1)
                 ,m_go_done(false)
                 ,m_epoll_fd(-1)

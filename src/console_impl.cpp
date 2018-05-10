@@ -419,6 +419,9 @@ namespace crx
             return EXIT_FAILURE;
         }
 
+        std::function<void(scheduler *sch, void *arg)> stub;
+        sch_impl->co_create(stub, nullptr, this, true, false, "main coroutine");        //创建主协程
+
         //首先执行预处理操作，预处理主要和当前运行环境以及运行时所带参数有关
         if (con_impl->preprocess(argc, argv))
             return EXIT_SUCCESS;
@@ -441,9 +444,7 @@ namespace crx
             con_impl->listen_pipe_input();
         }
 
-        std::function<void(scheduler *sch, void *arg)> stub;
-        sch_impl->co_create(stub, nullptr, this, true, false, "main coroutine");        //创建主协程
-        sch_impl->m_sch->co_yield(0);       //切换至主协程
+        sch_impl->main_coroutine(this);     //进入主协程
 
         if (con_impl->m_is_service) {			//退出时移除所创建的读写fifo
             remove(con_impl->m_pipe_name[0].c_str());

@@ -24,7 +24,7 @@ public:
 public:
     bool init(int argc, char **argv) override;
 
-    void destroy() override;
+    void destroy() override {}
 
     static void add_node(std::vector<std::string>& args, crx::console *c);
 
@@ -41,10 +41,18 @@ public:
 private:
     static void tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg);
 
+    void register_server(int conn, const std::string& ip, uint16_t port, std::unordered_map<std::string, crx::mem_ref> kvs);
+
     bool check_connect_cmd(std::vector<std::string>& args);
+
+    static int simpack_wrapper(int conn, char *data, size_t len, void *arg)
+    {
+        return crx::simpack_protocol(data, len);
+    }
 
 private:
     crx::xml_parser m_xml;
+    std::unordered_map<int, size_t> m_conn_node;            //在线节点的映射表
     std::vector<std::shared_ptr<node_info>> m_nodes;        //所有节点
     std::unordered_map<std::string, size_t> m_node_idx;
     std::list<size_t> m_node_uslots;        //节点数组中未使用的槽

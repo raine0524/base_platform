@@ -32,6 +32,5 @@
 # include <msgpack/preprocessor/stringize.hpp>
 # include <msgpack/preprocessor/tuple.hpp>
 # include <msgpack/preprocessor/variadic.hpp>
-# include <msgpack/preprocessor/wstringize.hpp>
 #
 # endif

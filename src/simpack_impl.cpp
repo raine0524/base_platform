@@ -10,9 +10,9 @@ namespace crx
 
         //使用simpack_server组件的应用必须配置registry节区以及ip,port,name这三个字段
         ini_conf.set_section("registry");
-        simp_impl->m_conf.ip = ini_conf.get_str("ip");
-        simp_impl->m_conf.port = ini_conf.get_int("port");
-        simp_impl->m_conf.name = ini_conf.get_str("name");
+        simp_impl->m_conf.info.ip = ini_conf.get_str("ip");
+        simp_impl->m_conf.info.port = (uint16_t)ini_conf.get_int("port");
+        simp_impl->m_conf.info.name = ini_conf.get_str("name");
         if (ini_conf.has_key("listen"))
             simp_impl->m_conf.listen = ini_conf.get_int("listen");
         else
@@ -21,23 +21,25 @@ namespace crx
         auto cli_impl = (tcp_client_impl*)simp_impl->m_client->m_obj;
         auto sch_impl = (scheduler_impl*)cli_impl->m_sch->m_obj;
         simp_impl->m_server = cli_impl->m_sch->get_tcp_server(simp_impl->m_conf.listen, simp_impl->tcp_server_callback, simp_impl);
+        auto svr_impl = (tcp_server_impl*)simp_impl->m_server->m_obj;
+        svr_impl->m_app_prt = PRT_SIMP;
         cli_impl->m_sch->register_tcp_hook(false, simp_impl->server_protohook, simp_impl);
         simp_impl->m_conf.listen = simp_impl->m_server->get_port();
         sch_impl->m_tcp_server = nullptr;
 
         size_t co_id = cli_impl->m_sch->co_create([&](scheduler *sch, void *arg) {
-            int conn = simp_impl->m_client->connect(simp_impl->m_conf.ip.c_str(), (uint16_t)simp_impl->m_conf.port);
-            simp_impl->m_seria.insert("ip", simp_impl->m_conf.ip.c_str(), simp_impl->m_conf.ip.size());
-            uint16_t net_port = htons((uint16_t)simp_impl->m_conf.port);
+            int conn = simp_impl->m_client->connect(simp_impl->m_conf.info.ip.c_str(), simp_impl->m_conf.info.port);
+            simp_impl->m_conf.info.conn = conn;
+            simp_impl->m_seria.insert("ip", simp_impl->m_conf.info.ip.c_str(), simp_impl->m_conf.info.ip.size());
+            uint16_t net_port = htons((uint16_t)simp_impl->m_conf.listen);
             simp_impl->m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
-            simp_impl->m_seria.insert("name", simp_impl->m_conf.name.c_str(), simp_impl->m_conf.name.size());
+            simp_impl->m_seria.insert("name", simp_impl->m_conf.info.name.c_str(), simp_impl->m_conf.info.name.size());
             auto ref = simp_impl->m_seria.get_string();
 
             //setup header
             auto header = (simp_header*)ref.data;
             header->length = htonl((uint32_t)(ref.len-sizeof(simp_header)));
-            header->cmd = CMD_REG_NAME;
-            SET_BIT(header->ctl_flag, 0);
+            header->cmd = htons(CMD_REG_NAME);
 
             simp_impl->m_client->send_data(conn, ref.data, ref.len);
             simp_impl->m_seria.reset();

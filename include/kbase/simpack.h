@@ -19,6 +19,7 @@ namespace crx
         uint32_t req_id;    //请求id
         uint16_t type;
         uint16_t cmd;
+        uint16_t result;    //请求结果 0-成功 非0-失败，这一字段通常用于response接口中
     };
 
     class scheduler;
@@ -37,15 +38,15 @@ namespace crx
 
     public:
         //注册事件回调
-        void reg_connect(std::function<void(const server_info&, void*)> f);
+        void reg_connect(std::function<void(const crx::server_info&, void*)> f);
 
-        void reg_disconnect(std::function<void(const server_info&, void*)> f);
+        void reg_disconnect(std::function<void(const crx::server_info&, void*)> f);
 
-        void reg_request(std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> f);
+        void reg_request(std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t, void*)> f);
 
-        void reg_response(std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> f);
+        void reg_response(std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t, void*)> f);
 
-        void reg_notify(std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> f);
+        void reg_notify(std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t, void*)> f);
 
     protected:
         simpack_server() = default;

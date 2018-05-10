@@ -9,7 +9,7 @@ namespace crx
     public:
         seria_impl(bool use_simp) : m_packer(&m_pack_buf), m_use_simp(use_simp) {}
 
-        void deseria(const char *data, int len);		//反序列化操作
+        void deseria(const char *data, size_t len);		//反序列化操作
 
         msgpack::sbuffer m_pack_buf;
         msgpack::packer<msgpack::sbuffer> m_packer;
@@ -30,7 +30,8 @@ namespace crx
          * 在序列化串中预留5个字节的空间，第一个字节为int32类型在msgpack中对应的标志，后面的4个字节
          * 用于指明当前整个序列化串的大小
          */
-        impl->m_packer.pack_fix_int32(0);
+        int32_t pack_size = use_simp ? sizeof(simp_header)+5 : 5;
+        impl->m_packer.pack_fix_int32(pack_size);
         m_obj = impl;
     }
 
@@ -47,7 +48,8 @@ namespace crx
 
         if (impl->m_use_simp)
             impl->m_packer.pack_str_body((const char*)&impl->m_stub_header, sizeof(simp_header));
-        impl->m_packer.pack_fix_int32(0);
+        int32_t pack_size = impl->m_use_simp ? sizeof(simp_header)+5 : 5;
+        impl->m_packer.pack_fix_int32(pack_size);
     }
 
     void seria::insert(const char *key, const char *data, size_t len)
@@ -58,8 +60,12 @@ namespace crx
         std::pair<raw_ref, raw_ref> pair(rkey, rval);
         impl->m_packer.pack(pair);		//将键值对加入序列化串中
 
-        int32_t *hk_sz = (int32_t*)(impl->m_pack_buf.data()+1);
-        *hk_sz = impl->m_pack_buf.size();		//更新当前字符串的大小
+        int32_t *hk_sz = nullptr;
+        if (impl->m_use_simp)
+            hk_sz = (int32_t*)(impl->m_pack_buf.data()+sizeof(simp_header)+1);
+        else
+            hk_sz = (int32_t*)(impl->m_pack_buf.data()+1);
+        *hk_sz = (int32_t)impl->m_pack_buf.size();		//更新当前字符串的大小
     }
 
     mem_ref seria::get_string(bool comp /*= false*/)
@@ -108,13 +114,15 @@ namespace crx
             return ctx_len;
     }
 
-    void seria_impl::deseria(const char *data, int len)
+    void seria_impl::deseria(const char *data, size_t len)
     {
         size_t off = 0;
         bool fetch_size = false;
         while (off != len) {
             msgpack::unpacked up;
-            msgpack::unpack(up, data, len, off);
+            msgpack::unpack(up, data, len, off,
+                            [](msgpack::type::object_type type, std::size_t size, void* user_data) { return true; });
+
             if (!fetch_size) {		//该string的第一个块存放的是整个字符串的长度，将其过滤
                 fetch_size = true;
                 continue;
@@ -122,11 +130,11 @@ namespace crx
 
             //从序列化串中构造相应的键值对
             std::pair<raw_ref, raw_ref> pair = up.get().convert();
-            m_dump_map[pair.first.ptr] = mem_ref(pair.second.ptr, pair.second.size);
+            m_dump_map[std::string(pair.first.ptr, pair.first.size)] = mem_ref(pair.second.ptr, pair.second.size);
         }
     }
 
-    std::unordered_map<std::string, mem_ref> seria::dump(const char *data, int len)
+    std::unordered_map<std::string, mem_ref> seria::dump(const char *data, size_t len)
     {
         auto impl = (seria_impl*)m_obj;
         impl->m_dump_map.clear();

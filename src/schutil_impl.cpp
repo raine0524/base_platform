@@ -113,9 +113,10 @@ namespace crx
         switch (tcp_impl->m_app_prt) {
             case PRT_NONE:      conn = new tcp_client_conn;     break;      //使用原始的tcp协议
             case PRT_HTTP:		conn = new http_client_conn;    break;      //使用http协议
+            case PRT_SIMP:      conn = new tcp_client_conn;     break;      //使用SIMP协议
         }
 
-        conn->this_co = sch_impl->m_running_co;
+        conn->this_co = (size_t)sch_impl->m_running_co;
         conn->app_prt = tcp_impl->m_app_prt;
         conn->domain_name = server;		//记录当前连接的主机地址
         conn->port = port;

@@ -3,6 +3,94 @@
 void registry::tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
 {
     auto reg = (registry*)arg;
+    if (data && len) {
+        auto header_len = sizeof(crx::simp_header);
+        if (len <= header_len) {
+            printf("invalid request pkg_len=%lu, header_len=%lu\n", len, header_len);
+            return;
+        }
+
+        auto header = (crx::simp_header*)data;          //协议头
+        auto body = data+header_len;
+        auto body_len = len-header_len;
+        auto kvs = reg->m_seria.dump(body, body_len);
+        if (kvs.empty()) {
+            printf("empty request body\n");
+            return;
+        }
+
+        switch (ntohs(header->cmd)) {
+            case CMD_REG_NAME:  reg->register_server(conn, ip, port, kvs);   break;
+            default: printf("unknown cmd=%d\n", header->cmd); break;
+        }
+    } else {
+        auto conn_it = reg->m_conn_node.find(conn);
+        if (reg->m_conn_node.end() == conn_it)
+            return;
+
+        auto& node = reg->m_nodes[conn_it->second];
+        if (node) {
+            node->info.conn = -1;       //offline
+            printf("node %s[%s] offline\n", node->info.name.c_str(), node->info.role.c_str());
+        }
+    }
+}
+
+void registry::register_server(int conn, const std::string& ip, uint16_t port,
+                               std::unordered_map<std::string, crx::mem_ref> kvs)
+{
+    auto ip_it = kvs.find("ip");
+    if (kvs.end() == ip_it) {
+        printf("pronounce without ip\n");
+        return;
+    }
+    std::string node_ip(ip_it->second.data, ip_it->second.len);
+
+    auto port_it = kvs.find("port");
+    if (kvs.end() == port_it) {
+        printf("pronounce without port\n");
+        return;
+    }
+    uint16_t listen = ntohs(*(uint16_t*)port_it->second.data);
+
+    auto name_it = kvs.find("name");
+    if (kvs.end() == name_it) {
+        printf("pronounce without name");
+        return;
+    }
+    std::string node_name(name_it->second.data, name_it->second.len);
+    printf("ip=%s, listen=%u, name=%s\n", node_ip.c_str(), listen, node_name.c_str());
+
+    auto node_it = m_node_idx.find(node_name);
+    uint16_t result = 0;
+    if (m_node_idx.end() == node_it) {      //node illegal
+        result = 1;
+        const char *error_info = "unknown name";
+        m_seria.insert("error_info", error_info, strlen(error_info));
+        printf("node %s illegal\n", node_name.c_str());
+    } else {
+        //node legal
+        auto& node = m_nodes[node_it->second];
+        node->info.conn = conn;
+        node->info.ip = std::move(node_ip);
+        node->info.port = listen;
+        m_conn_node[conn] = node_it->second;        //建立连接与节点信息的对应关系
+        m_seria.insert("role", node->info.role.c_str(), node->info.role.size());
+        printf("%s pronounce succ\n", node_name.c_str());
+    }
+
+    auto ref = m_seria.get_string();
+    auto header = (crx::simp_header*)ref.data;
+    header->length = htonl((uint32_t )(ref.len-sizeof(crx::simp_header)));
+    header->type = htons(1);        //表明这是一次响应
+    header->cmd = htons(CMD_REG_NAME);
+    header->result = htons(result);
+    header->ctl_flag = htonl(SET_BIT(header->ctl_flag, 0));
+
+    crx::datetime dt = crx::get_datetime();
+    std::string time_with_name = std::to_string(dt.date)+std::to_string(dt.time)+"-"+node_name;
+    MD5((const unsigned char*)time_with_name.c_str(), time_with_name.size(), header->token);
+    m_tcp_server->send_data(conn, ref.data, ref.len);
 }
 
 bool registry::init(int argc, char **argv)
@@ -12,6 +100,7 @@ bool registry::init(int argc, char **argv)
     ini.set_section("registry");
     int listen = ini.get_int("listen");
     m_tcp_server = get_tcp_server((uint16_t)listen, tcp_server_callback, this);
+    register_tcp_hook(false, simpack_wrapper, this);
 
     const char *xml_conf = "ini/node_conf.xml";
     if (access(xml_conf, F_OK)) {        //不存在则创建
@@ -20,7 +109,7 @@ bool registry::init(int argc, char **argv)
         fclose(fp);
     }
 
-    m_xml.load("ini/node_conf.xml", "config");
+    m_xml.load(xml_conf, "config");
     if (m_xml.find_child("node")) {
         m_xml.switch_child("node");
         m_xml.for_each_child([&](std::string& name, std::string& value, std::unordered_map<std::string, std::string>& attrs, void *arg) {
@@ -79,11 +168,6 @@ bool registry::init(int argc, char **argv)
         m_xml.switch_parent();
     }
     return true;
-}
-
-void registry::destroy()
-{
-
 }
 
 void registry::add_node(std::vector<std::string>& args, crx::console *c)
