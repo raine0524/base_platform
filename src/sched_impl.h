@@ -174,7 +174,6 @@ namespace crx
         APP_PRT app_prt;
         std::string domain_name;        //连接对端使用的主机地址
         std::string ip_addr;            //转换之后的ip地址
-        uint16_t port;					//对端端口
 
         bool is_connect;
         net_socket conn_sock;
@@ -183,7 +182,6 @@ namespace crx
         tcp_client_conn()
                 :this_co(0)
                 ,app_prt(PRT_NONE)
-                ,port(0)
                 ,is_connect(false)
         {
             stream_buffer.reserve(4096);
@@ -233,10 +231,10 @@ namespace crx
     {
         APP_PRT app_prt;
         std::string ip_addr;        //连接对端的ip地址
-        uint16_t port;              //对端端口
+        net_socket conn_sock;       //保存对端端口
         std::string stream_buffer;  //tcp缓冲流
 
-        tcp_server_conn() :app_prt(PRT_NONE), port(0)
+        tcp_server_conn() :app_prt(PRT_NONE)
         {
             stream_buffer.reserve(8192);        //预留8k字节
         }
@@ -578,7 +576,7 @@ namespace crx
                 int abs_ret = std::abs(ret);
                 assert(abs_ret <= remain_len);
                 if (ret > 0)
-                    impl->m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->port,
+                    impl->m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port,
                               start, ret, impl->m_arg);
 
                 start += abs_ret;
@@ -594,7 +592,7 @@ namespace crx
                 }
             }
         } else {
-            impl->m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->port, &conn_ins->stream_buffer[0],
+            impl->m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port, &conn_ins->stream_buffer[0],
                       conn_ins->stream_buffer.size(), impl->m_arg);
         }
     }

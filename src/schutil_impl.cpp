@@ -119,7 +119,6 @@ namespace crx
         conn->this_co = (size_t)sch_impl->m_running_co;
         conn->app_prt = tcp_impl->m_app_prt;
         conn->domain_name = server;		//记录当前连接的主机地址
-        conn->port = port;
 
         in_addr_t ret = inet_addr(server);		//判断服务器的地址是否为点分十进制的ip地址
         if (INADDR_NONE == ret) {       //需要对域名进行解析
@@ -151,7 +150,8 @@ namespace crx
             conn->ip_addr = server;
         }
 
-        conn->fd = conn->conn_sock.create(PRT_TCP, USR_CLIENT, conn->ip_addr.c_str(), conn->port);
+        conn->fd = conn->conn_sock.create(PRT_TCP, USR_CLIENT, conn->ip_addr.c_str(), port);
+        conn->conn_sock.set_keep_alive(1, 60, 5, 3);
         conn->f = tcp_impl->tcp_client_callback;
         conn->arg = conn;
         conn->sch_impl = sch_impl;

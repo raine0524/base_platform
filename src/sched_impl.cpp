@@ -215,7 +215,6 @@ namespace crx
             size_t i = 0;
             for (; i < cnt; ++i) {      //处理已触发的事件
                 int fd = events[i].data.fd;
-                std::cout<<"监听事件 "<<fd<<" 触发"<<std::endl;
                 auto ev = m_ev_array[fd];
                 if (ev)
                     ev->f(sch, ev->arg);
@@ -734,7 +733,7 @@ namespace crx
 //                printf("[tcp_client_impl::tcp_client_callback] 读文件描述符 %d 异常\n", tc_conn->fd);
 //            else
 //                printf("[tcp_client_impl::tcp_client_callback] 连接 %d 对端正常关闭\n", tc_conn->fd);
-            tcp_impl->m_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->port, nullptr, 0, tcp_impl->m_arg);
+            tcp_impl->m_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->conn_sock.m_port, nullptr, 0, tcp_impl->m_arg);
             sch_impl->remove_event(tcp_conn);
         }
     }
@@ -793,11 +792,21 @@ namespace crx
             conn->arg = conn;
 
             conn->app_prt = impl->m_app_prt;
-            conn->ip_addr = inet_ntoa(impl->m_accept_addr.sin_addr);	//将地址转换为点分十进制格式的ip地址
-            conn->port = ntohs(impl->m_accept_addr.sin_port);           //将端口由网络字节序转换为主机字节序
+            conn->ip_addr = inet_ntoa(impl->m_accept_addr.sin_addr);        //将地址转换为点分十进制格式的ip地址
+            conn->conn_sock.m_port = ntohs(impl->m_accept_addr.sin_port);   //将端口由网络字节序转换为主机字节序
+            conn->conn_sock.m_ptype = PRT_TCP;
+            conn->conn_sock.m_sock_fd = client_fd;
+
+            /*
+             * 1分钟之后若信道上没有数据传输则发送tcp心跳包，总共发3次，每次间隔为5秒，因此若有套接字处于异常状态(TIME_WAIT/CLOSE_WAIT)
+             * 则将在75秒之后关闭该套接字，以释放系统资源提供复用能力，但是tcp本身的keepalive仍然会存在问题，即当socket处于异常状态时
+             * 应用层同样有数据需要重传时，tcp的keepalive将会无效
+             * 具体参见链接描述: https://blog.csdn.net/ctthuangcheng/article/details/8596818
+             */
+            conn->conn_sock.set_keep_alive(1, 60, 5, 3);
+
             auto sch_impl = (scheduler_impl*)sch->m_obj;
             sch_impl->add_event(conn);        //将该连接加入监听事件
-            printf("连接 %d 正常接入，加入监听事件\n", client_fd);
         }
     }
 
@@ -826,12 +835,12 @@ namespace crx
         handle_stream(ev->fd, tcp_impl, tcp_conn);
 
         if (sts <= 0) {		//读文件描述符检测到异常或发现对端已关闭连接
-            if (sts < 0)
-                printf("[tcp_server_impl::read_tcp_stream] 读文件描述符 %d 出现异常", ev->fd);
-            else
-                printf("[tcp_server_impl::read_tcp_stream] 连接 %d 对端正常关闭\n", ev->fd);
+//            if (sts < 0)
+//                printf("[tcp_server_impl::read_tcp_stream] 读文件描述符 %d 出现异常", ev->fd);
+//            else
+//                printf("[tcp_server_impl::read_tcp_stream] 连接 %d 对端正常关闭\n", ev->fd);
             fflush(stdout);
-            tcp_impl->m_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->port, nullptr, 0, tcp_impl->m_arg);
+            tcp_impl->m_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->conn_sock.m_port, nullptr, 0, tcp_impl->m_arg);
             sch_impl->remove_event(tcp_conn);
         }
     }
