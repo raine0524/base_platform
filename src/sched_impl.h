@@ -351,7 +351,16 @@ namespace crx
             m_simp_buf = std::string((const char*)&stub_header, sizeof(simp_header));
         }
 
-        virtual ~simpack_server_impl() {}
+        virtual ~simpack_server_impl()
+        {
+            if (m_client) {
+                delete (tcp_client_impl*)m_client->m_obj;
+                delete m_client;
+            }
+
+            if (m_server)
+                delete m_server;
+        }
 
         static int client_protohook(int conn, char *data, size_t len, void *arg)
         {

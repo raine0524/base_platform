@@ -215,6 +215,7 @@ namespace crx
             size_t i = 0;
             for (; i < cnt; ++i) {      //处理已触发的事件
                 int fd = events[i].data.fd;
+                std::cout<<"监听事件 "<<fd<<" 触发"<<std::endl;
                 auto ev = m_ev_array[fd];
                 if (ev)
                     ev->f(sch, ev->arg);
@@ -796,6 +797,7 @@ namespace crx
             conn->port = ntohs(impl->m_accept_addr.sin_port);           //将端口由网络字节序转换为主机字节序
             auto sch_impl = (scheduler_impl*)sch->m_obj;
             sch_impl->add_event(conn);        //将该连接加入监听事件
+            printf("连接 %d 正常接入，加入监听事件\n", client_fd);
         }
     }
 
@@ -824,10 +826,11 @@ namespace crx
         handle_stream(ev->fd, tcp_impl, tcp_conn);
 
         if (sts <= 0) {		//读文件描述符检测到异常或发现对端已关闭连接
-//            if (sts < 0)
-//                printf("[tcp_server_impl::read_tcp_stream] 读文件描述符 %d 出现异常", ev->fd);
-//            else
-//                printf("[tcp_server_impl::read_tcp_stream] 连接 %d 对端正常关闭\n", ev->fd);
+            if (sts < 0)
+                printf("[tcp_server_impl::read_tcp_stream] 读文件描述符 %d 出现异常", ev->fd);
+            else
+                printf("[tcp_server_impl::read_tcp_stream] 连接 %d 对端正常关闭\n", ev->fd);
+            fflush(stdout);
             tcp_impl->m_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->port, nullptr, 0, tcp_impl->m_arg);
             sch_impl->remove_event(tcp_conn);
         }
@@ -1159,7 +1162,15 @@ namespace crx
         auto header = (simp_header*)data;
         auto kvs = m_seria.dump(data+sizeof(simp_header), len-sizeof(simp_header));
         if (registry) {       //与registry建立的连接
-            m_conf.info.conn = conn;
+            if (m_conf.info.conn != conn) {
+                if (-1 != m_conf.info.conn) {
+                    printf("repeat connection with registry old=%d new=%d\n", m_conf.info.conn, conn);
+                    server_cmd tmp_cmd = m_app_cmd;
+                    say_goodbye(true, m_conf.info.conn);        //say_goodbye will change original server_cmd
+                    m_app_cmd = tmp_cmd;
+                }
+                m_conf.info.conn = conn;
+            }
             switch (m_app_cmd.cmd) {
                 case CMD_REG_NAME:      handle_reg_name(conn, header->token, kvs);      break;
                 default:                printf("unknown cmd=%d\n", m_app_cmd.cmd);      break;
@@ -1198,9 +1209,9 @@ namespace crx
                 printf("pronounce failed: %s\n", error_info.c_str());
             }
 
-            auto svr_impl = (tcp_server_impl*)m_server->m_obj;
-            if (conn < svr_impl->sch_impl->m_ev_array.size())
-                svr_impl->sch_impl->remove_event(svr_impl->sch_impl->m_ev_array[conn]);
+            auto sch_impl = (scheduler_impl*)m_sch->m_obj;
+            if (conn < sch_impl->m_ev_array.size())
+                sch_impl->remove_event(sch_impl->m_ev_array[conn]);
             return;
         }
 

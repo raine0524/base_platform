@@ -116,7 +116,7 @@ void registry::server_offline(int conn, std::unordered_map<std::string, crx::mem
     auto& node = m_nodes[node_it->second];
     if (node) {
         node->info.conn = -1;       //offline
-        printf("node %s[%s] offline\n", node->info.name.c_str(), node->info.role.c_str());
+        printf("node %s[%s] offline %d\n", node->info.name.c_str(), node->info.role.c_str(), conn);
     }
     m_conn_node.erase(conn);
 }

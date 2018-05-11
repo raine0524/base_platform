@@ -36,6 +36,8 @@ bool simple_simps::init(int argc, char **argv)
     m_server->reg_response(on_response);
     m_server->reg_notify(on_notify);
     m_server->start("ini/server.ini");
+    m_server->start("ini/server.ini");
+    m_server->start("ini/server.ini");
     return true;
 }
 

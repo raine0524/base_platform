@@ -13,23 +13,28 @@ namespace crx
         simp_impl->m_conf.info.ip = ini_conf.get_str("ip");
         simp_impl->m_conf.info.port = (uint16_t)ini_conf.get_int("port");
         simp_impl->m_conf.info.name = ini_conf.get_str("name");
-        simp_impl->m_conf.listen = ini_conf.get_int("listen");
+        if (!simp_impl->m_server)
+            simp_impl->m_conf.listen = ini_conf.get_int("listen");
 
         //创建tcp_client用于主动连接
         auto sch_impl = (scheduler_impl*)simp_impl->m_sch->m_obj;
-        simp_impl->m_client = simp_impl->m_sch->get_tcp_client(simp_impl->tcp_client_callback, simp_impl);
-        auto cli_impl = (tcp_client_impl*)simp_impl->m_client->m_obj;
-        cli_impl->m_app_prt = PRT_SIMP;
-        simp_impl->m_sch->register_tcp_hook(true, simp_impl->client_protohook, simp_impl);
-        sch_impl->m_tcp_client = nullptr;
+        if (!simp_impl->m_client) {
+            simp_impl->m_client = simp_impl->m_sch->get_tcp_client(simp_impl->tcp_client_callback, simp_impl);
+            auto cli_impl = (tcp_client_impl*)simp_impl->m_client->m_obj;
+            cli_impl->m_app_prt = PRT_SIMP;
+            simp_impl->m_sch->register_tcp_hook(true, simp_impl->client_protohook, simp_impl);
+            sch_impl->m_tcp_client = nullptr;
+        }
 
         //创建tcp_server用于被动连接
-        simp_impl->m_server = simp_impl->m_sch->get_tcp_server(simp_impl->m_conf.listen, simp_impl->tcp_server_callback, simp_impl);
-        auto svr_impl = (tcp_server_impl*)simp_impl->m_server->m_obj;
-        svr_impl->m_app_prt = PRT_SIMP;
-        cli_impl->m_sch->register_tcp_hook(false, simp_impl->server_protohook, simp_impl);
-        sch_impl->m_tcp_server = nullptr;
-        simp_impl->m_conf.listen = simp_impl->m_server->get_port();
+        if (!simp_impl->m_server) {
+            simp_impl->m_server = simp_impl->m_sch->get_tcp_server(simp_impl->m_conf.listen, simp_impl->tcp_server_callback, simp_impl);
+            auto svr_impl = (tcp_server_impl*)simp_impl->m_server->m_obj;
+            svr_impl->m_app_prt = PRT_SIMP;
+            simp_impl->m_sch->register_tcp_hook(false, simp_impl->server_protohook, simp_impl);
+            sch_impl->m_tcp_server = nullptr;
+            simp_impl->m_conf.listen = simp_impl->m_server->get_port();
+        }
 
         //只有配置了名字才连接registry，否则作为单点应用
         if (!simp_impl->m_conf.info.name.empty()) {
@@ -49,7 +54,7 @@ namespace crx
                 simp_impl->m_client->send_data(conn, ref.data, ref.len);
                 simp_impl->m_seria.reset();
             }, nullptr, true);
-            cli_impl->m_sch->co_yield(co_id);
+            simp_impl->m_sch->co_yield(co_id);
         }
         return true;
     }
@@ -69,17 +74,6 @@ namespace crx
         if (-1 != impl->m_conf.info.conn) {
             impl->say_goodbye(true, impl->m_conf.info.conn);
             impl->m_conf.info.conn = -1;
-        }
-
-        if (impl->m_client) {
-            delete (tcp_client_impl*)impl->m_client->m_obj;
-            delete impl->m_client;
-            impl->m_client = nullptr;
-        }
-
-        if (impl->m_server) {
-            delete impl->m_server;
-            impl->m_server = nullptr;
         }
     }
 
