@@ -64,6 +64,7 @@ namespace crx
      *          -->第0位: 1-表示当前请求由库这一层处理  0-表示路由给上层应用
      *          -->第1位: 1-表示推送notify 0-非推送
      *          -->第2位: 当为非推送时这一位有效 1-request 0-response
+     *          -->第3位: 1-表示registry发送的数据 0-其他服务发送
      *          -->第31位: 1-加密(暂不支持) 0-非加密
      *          其余字段暂时保留
      */
@@ -341,23 +342,16 @@ namespace crx
     public:
         simpack_server_impl()
                 :m_seria(true)
+                ,m_sch(nullptr)
                 ,m_client(nullptr)
                 ,m_server(nullptr)
                 ,m_arg(nullptr)
         {
-            m_simp_buf = std::string((const char*)&m_stub_header, sizeof(simp_header));
+            simp_header stub_header;
+            m_simp_buf = std::string((const char*)&stub_header, sizeof(simp_header));
         }
 
-        virtual ~simpack_server_impl()
-        {
-            if (m_client) {
-                delete (tcp_client_impl*)m_client->m_obj;
-                delete m_client;
-            }
-
-            if (m_server)
-                delete m_server;
-        }
+        virtual ~simpack_server_impl() {}
 
         static int client_protohook(int conn, char *data, size_t len, void *arg)
         {
@@ -383,19 +377,24 @@ namespace crx
 
         void simp_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len);
 
-        void capture_sharding(int conn, const std::string &ip, uint16_t port, char *data, size_t len);
+        void capture_sharding(bool registry, int conn, const std::string &ip, uint16_t port, char *data, size_t len);
 
-        void handle_reg_name(int conn, simp_header *header, std::unordered_map<std::string, mem_ref>& kvs);
+        void handle_reg_name(int conn, unsigned char *token, std::unordered_map<std::string, mem_ref>& kvs);
 
-        void send_package(int type, int conn, const server_cmd& cmd, const char *data, size_t len);
+        void say_goodbye(bool registry, int conn);
+
+        void handle_goodbye(int conn, std::unordered_map<std::string, mem_ref>& kvs);
+
+        void send_package(int type, int conn, const server_cmd& cmd, unsigned char *token, const char *data, size_t len);
 
         registry_conf m_conf;
-        server_cmd m_app_cmd;
-        simp_header m_stub_header;
-        std::string m_simp_buf;
         std::vector<std::shared_ptr<info_wrapper>> m_server_info;
 
         seria m_seria;
+        server_cmd m_app_cmd;
+        std::string m_simp_buf;
+
+        scheduler *m_sch;
         tcp_client *m_client;
         tcp_server *m_server;
 

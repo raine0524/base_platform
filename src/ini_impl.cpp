@@ -336,22 +336,24 @@ namespace crx
             return nullptr;
     }
 
-    const char* ini::get_str(const char *key_name)
-    {
-        return ((ini_impl*)m_obj)->get_key(key_name);
-    }
-
-    int ini::get_int(const char *key_name)
+    std::string ini::get_str(const char *key_name, const char *def /*= ""*/)
     {
         auto impl = (ini_impl*)m_obj;
         const char *value = impl->get_key(key_name);
-        return (value ? atoi(value) : -1);
+        return (value ? value : std::string(def));
     }
 
-    double ini::get_double(const char *key_name)
+    int ini::get_int(const char *key_name, int def /*= 0*/)
     {
         auto impl = (ini_impl*)m_obj;
         const char *value = impl->get_key(key_name);
-        return (value ? atof(value) : -1.0);
+        return (value ? atoi(value) : def);
+    }
+
+    double ini::get_double(const char *key_name, double def /*= 0.0f*/)
+    {
+        auto impl = (ini_impl*)m_obj;
+        const char *value = impl->get_key(key_name);
+        return (value ? atof(value) : def);
     }
 }

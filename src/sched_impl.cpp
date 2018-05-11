@@ -282,7 +282,10 @@ namespace crx
     {
         if (ev) {
             handle_event(EPOLL_CTL_DEL, ev->fd, EPOLLIN);
-            m_ev_array[ev->fd] = nullptr;
+            if (ev->fd == m_ev_array.size()-1)
+                m_ev_array.resize((size_t)ev->fd);
+            else
+                m_ev_array[ev->fd] = nullptr;
             delete ev;
         }
     }
@@ -1108,11 +1111,7 @@ namespace crx
             sch_impl->m_simp_server->m_obj = new simpack_server_impl;
 
             auto simp_impl = (simpack_server_impl*)sch_impl->m_simp_server->m_obj;
-            simp_impl->m_client = get_tcp_client(simp_impl->tcp_client_callback, simp_impl);
-            auto cli_impl = (tcp_client_impl*)simp_impl->m_client->m_obj;
-            cli_impl->m_app_prt = PRT_SIMP;
-            register_tcp_hook(true, simp_impl->client_protohook, simp_impl);
-            sch_impl->m_tcp_client = nullptr;
+            simp_impl->m_sch = this;
             simp_impl->m_arg = arg;
         }
         return sch_impl->m_simp_server;
@@ -1120,61 +1119,50 @@ namespace crx
 
     void simpack_server_impl::simp_callback(int conn, const std::string &ip, uint16_t port, char *data, size_t len)
     {
-        if (data && len) {
-            auto header_len = sizeof(simp_header);
-            if (len <= header_len)
+        auto header_len = sizeof(simp_header);
+        if (len <= header_len)
+            return;
+
+        auto header = (simp_header*)data;
+        m_app_cmd.ses_id = ntohl(header->ses_id);
+        m_app_cmd.req_id = ntohl(header->req_id);
+        m_app_cmd.type = ntohs(header->type);
+        m_app_cmd.cmd = ntohs(header->cmd);
+        m_app_cmd.result = ntohs(header->result);
+
+        uint32_t ctl_flag = ntohl(header->ctl_flag);
+        bool is_registry = GET_BIT(ctl_flag, 3) != 0;
+        if (GET_BIT(ctl_flag, 0)) {     //捕获控制请求
+            capture_sharding(is_registry, conn, ip, port, data, len);
+        } else {    //路由上层请求
+            auto& wrapper = m_server_info[conn];
+            if (memcmp(header->token, wrapper->token, 16)) {
+                printf("illegal request since token is mismatch\n");
                 return;
-
-            auto header = (simp_header*)data;
-            uint32_t ctl_flag = ntohl(header->ctl_flag);
-            if (GET_BIT(ctl_flag, 0)) {     //捕获控制请求
-                capture_sharding(conn, ip, port, data, len);
-            } else {    //路由上层请求
-                auto& wrapper = m_server_info[conn];
-                if (memcmp(header->token, wrapper->token, 16)) {
-                    printf("illegal request since token is mismatch\n");
-                    return;
-                }
-
-                m_app_cmd.ses_id = ntohl(header->ses_id);
-                m_app_cmd.req_id = ntohl(header->req_id);
-                m_app_cmd.type = ntohs(header->type);
-                m_app_cmd.cmd = ntohs(header->cmd);
-
-                if (GET_BIT(ctl_flag, 1)) {     //推送
-                    if (m_on_notify)
-                        m_on_notify(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
-                } else {        //非推送
-                    bool is_request = GET_BIT(ctl_flag, 2) != 0;
-                    if (is_request && m_on_request)            //客户端只接受响应
-                        m_on_request(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
-                    else if (!is_request && m_on_response)       //服务端只接受请求
-                        m_on_response(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
-                }
             }
-        } else {
-            if (conn < m_server_info.size()) {
-                auto& wrapper = m_server_info[conn];
-                if (m_on_disconnect)
-                    m_on_disconnect(wrapper->info, m_arg);
-                wrapper.reset();
+
+            if (GET_BIT(ctl_flag, 1)) {     //推送
+                if (m_on_notify)
+                    m_on_notify(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
+            } else {        //非推送
+                bool is_request = GET_BIT(ctl_flag, 2) != 0;
+                if (is_request && m_on_request)            //客户端只接受响应
+                    m_on_request(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
+                else if (!is_request && m_on_response)       //服务端只接受请求
+                    m_on_response(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
             }
         }
     }
 
-    void simpack_server_impl::capture_sharding(int conn, const std::string &ip, uint16_t port, char *data, size_t len)
+    void simpack_server_impl::capture_sharding(bool registry, int conn, const std::string &ip, uint16_t port, char *data, size_t len)
     {
         auto header = (simp_header*)data;
         auto kvs = m_seria.dump(data+sizeof(simp_header), len-sizeof(simp_header));
-        if (conn == m_conf.info.conn) {       //与registry建立的连接
-            if (ntohs(header->type)) {     //响应
-                uint16_t cmd = ntohs(header->cmd);
-                switch (cmd) {
-                    case CMD_REG_NAME:      handle_reg_name(conn, header, kvs);     break;
-                    default:                printf("unknown cmd=%d\n", cmd);        break;
-                }
-            } else {        //主推
-
+        if (registry) {       //与registry建立的连接
+            m_conf.info.conn = conn;
+            switch (m_app_cmd.cmd) {
+                case CMD_REG_NAME:      handle_reg_name(conn, header->token, kvs);      break;
+                default:                printf("unknown cmd=%d\n", m_app_cmd.cmd);      break;
             }
         } else {        //其他连接
             if (conn >= m_server_info.size())
@@ -1187,12 +1175,23 @@ namespace crx
                 wrapper->info.ip = std::move(ip);
                 wrapper->info.port = port;
             }
+
+            //除了首个建立信道的命令之外，后续所有的请求都需要验证token
+            if (CMD_HELLO != m_app_cmd.cmd && memcmp(header->token, wrapper->token, 16)) {
+                printf("illegal request since token is mismatch\n");
+                return;
+            }
+
+            switch (m_app_cmd.cmd) {
+                case CMD_GOODBYE:       handle_goodbye(conn, kvs);                      break;
+                default:                printf("unknown cmd=%d\n", m_app_cmd.cmd);      break;
+            }
         }
     }
 
-    void simpack_server_impl::handle_reg_name(int conn, simp_header *header, std::unordered_map<std::string, mem_ref>& kvs)
+    void simpack_server_impl::handle_reg_name(int conn, unsigned char *token, std::unordered_map<std::string, mem_ref>& kvs)
     {
-        if (ntohs(header->result)) {    //失败
+        if (m_app_cmd.result) {    //失败
             auto info_it = kvs.find("error_info");
             if (kvs.end() != info_it) {
                 std::string error_info(info_it->second.data, info_it->second.len);
@@ -1212,23 +1211,49 @@ namespace crx
             printf("pronounce succ: role=%s\n", role.c_str());
             m_conf.info.role = std::move(role);
         }
-        memcpy(m_conf.token, header->token, 16);       //保存该token用于与其他服务之间的通信
+        memcpy(m_conf.token, token, 16);       //保存该token用于与其他服务之间的通信
     }
 
-    void simpack_server_impl::send_package(int type, int conn, const server_cmd& cmd, const char *data, size_t len)
+    void simpack_server_impl::say_goodbye(bool registry, int conn)
     {
-        if (conn >= m_server_info.size() || !m_server_info[conn])
+        auto& info = registry ? m_conf.info : m_server_info[conn]->info;
+        auto token = registry ? &m_conf.token[0] : &m_server_info[conn]->token[0];
+        m_seria.insert("name", info.name.c_str(), info.name.size());
+        auto ref = m_seria.get_string();
+        bzero(&m_app_cmd, sizeof(m_app_cmd));
+        m_app_cmd.cmd = CMD_GOODBYE;
+        send_package(3, conn, m_app_cmd, token, ref.data, ref.len);
+        m_seria.reset();
+
+        //通知服务下线之后断开对应连接
+        auto sch_impl = (scheduler_impl*)m_sch->m_obj;
+        if (conn < sch_impl->m_ev_array.size())
+            sch_impl->remove_event(sch_impl->m_ev_array[conn]);
+    }
+
+    void simpack_server_impl::handle_goodbye(int conn, std::unordered_map<std::string, mem_ref>& kvs)
+    {
+        auto& wrapper = m_server_info[conn];
+        if (m_on_disconnect)
+            m_on_disconnect(wrapper->info, m_arg);
+
+        if (conn == m_server_info.size()-1)
+            m_server_info.resize((size_t)conn);
+        else
+            wrapper.reset();
+    }
+
+    void simpack_server_impl::send_package(int type, int conn, const server_cmd& cmd, unsigned char *token,
+                                           const char *data, size_t len)
+    {
+        auto sch_impl = (scheduler_impl*)m_sch->m_obj;
+        if (conn >= sch_impl->m_ev_array.size())
             return;
 
-        auto svr_impl = (tcp_server_impl*)m_server->m_obj;
-        if (conn >= svr_impl->sch_impl->m_ev_array.size())
-            return;
-
-        auto ev = svr_impl->sch_impl->m_ev_array[conn];
+        auto ev = sch_impl->m_ev_array[conn];
         if (!ev)
             return;
 
-        auto& wrapper = m_server_info[conn];
         simp_header *header = nullptr;
         size_t total_len = len;
         if (len >= 4 && htonl(0x5f3759df) == *(uint32_t*)data) {    //上层使用的是基于simp协议的序列化组件seria
@@ -1269,8 +1294,8 @@ namespace crx
         }
         header->ctl_flag = htonl(ctl_flag);
 
-        memcpy(header->token, wrapper->token, 16);      //带上token表示是合法的package
-        svr_impl->sch_impl->async_write(ev, (const char*)header, total_len);
+        memcpy(header->token, token, 16);      //带上token表示是合法的package
+        sch_impl->async_write(ev, (const char*)header, total_len);
     }
 
     fs_monitor* scheduler::get_fs_monitor(std::function<void(const char*, uint32_t, void *arg)> f,

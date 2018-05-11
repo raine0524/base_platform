@@ -1,7 +1,5 @@
 #pragma once
 
-#include "crx_pch.h"
-
 namespace crx
 {
     struct server_info
@@ -11,6 +9,8 @@ namespace crx
         std::string role;
         std::string ip;
         uint16_t port;
+
+        server_info() : conn(-1), port(0) {}
     };
 
     struct server_cmd
@@ -20,6 +20,8 @@ namespace crx
         uint16_t type;
         uint16_t cmd;
         uint16_t result;    //请求结果 0-成功 非0-失败，这一字段通常用于response接口中
+
+        server_cmd() { bzero(this, sizeof(server_cmd)); }
     };
 
     class scheduler;

@@ -41,7 +41,9 @@ public:
 private:
     static void tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg);
 
-    void register_server(int conn, const std::string& ip, uint16_t port, std::unordered_map<std::string, crx::mem_ref> kvs);
+    void register_server(int conn, const std::string& ip, uint16_t port, std::unordered_map<std::string, crx::mem_ref>& kvs);
+
+    void server_offline(int conn, std::unordered_map<std::string, crx::mem_ref>& kvs);
 
     bool check_connect_cmd(std::vector<std::string>& args);
 

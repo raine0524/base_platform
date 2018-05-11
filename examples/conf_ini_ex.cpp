@@ -18,16 +18,16 @@ bool conf_ini::init(int argc, char *argv[])
     printf("\n");
 
     m_ini.set_section("SEC_A");
-    const char *name_A = m_ini.get_str("name");
-    const char *sex_A = m_ini.get_str("sex");
+    std::string name_A = m_ini.get_str("name");
+    std::string sex_A = m_ini.get_str("sex");
     int age_A = m_ini.get_int("age");
-    printf("SEC_A conf: name = %s, sex = %s, age = %d\n", name_A, sex_A, age_A);
+    printf("SEC_A conf: name = %s, sex = %s, age = %d\n", name_A.c_str(), sex_A.c_str(), age_A);
 
     m_ini.set_section("SEC_B");
-    const char *name_B = m_ini.get_str("name");
-    const char *sex_B = m_ini.get_str("sex");
+    std::string name_B = m_ini.get_str("name");
+    std::string sex_B = m_ini.get_str("sex");
     int age_B = m_ini.get_int("age");
-    printf("SEC_B conf: name = %s, sex = %s, age = %d\n", name_B, sex_B, age_B);
+    printf("SEC_B conf: name = %s, sex = %s, age = %d\n", name_B.c_str(), sex_B.c_str(), age_B);
     return true;
 }
 

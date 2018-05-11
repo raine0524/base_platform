@@ -20,24 +20,27 @@ void registry::tcp_server_callback(int conn, const std::string& ip, uint16_t por
         }
 
         switch (ntohs(header->cmd)) {
-            case CMD_REG_NAME:  reg->register_server(conn, ip, port, kvs);   break;
-            default: printf("unknown cmd=%d\n", header->cmd); break;
+            case CMD_REG_NAME:  reg->register_server(conn, ip, port, kvs);      break;
+            case CMD_GOODBYE:   reg->server_offline(conn, kvs);                 break;
+            default:            printf("unknown cmd=%d\n", header->cmd);        break;
         }
     } else {
         auto conn_it = reg->m_conn_node.find(conn);
-        if (reg->m_conn_node.end() == conn_it)
+        if (reg->m_conn_node.end() == conn_it)      //正常下线会发送下线通知，此时已将node与conn之间的关联关系删除
             return;
 
         auto& node = reg->m_nodes[conn_it->second];
         if (node) {
             node->info.conn = -1;       //offline
-            printf("node %s[%s] offline\n", node->info.name.c_str(), node->info.role.c_str());
+            printf("[ERROR]node %s[%s] offline\n", node->info.name.c_str(), node->info.role.c_str());
         }
+        reg->m_conn_node.erase(conn_it);
     }
+
 }
 
 void registry::register_server(int conn, const std::string& ip, uint16_t port,
-                               std::unordered_map<std::string, crx::mem_ref> kvs)
+                               std::unordered_map<std::string, crx::mem_ref>& kvs)
 {
     auto ip_it = kvs.find("ip");
     if (kvs.end() == ip_it) {
@@ -85,12 +88,37 @@ void registry::register_server(int conn, const std::string& ip, uint16_t port,
     header->type = htons(1);        //表明这是一次响应
     header->cmd = htons(CMD_REG_NAME);
     header->result = htons(result);
-    header->ctl_flag = htonl(SET_BIT(header->ctl_flag, 0));
+    SET_BIT(header->ctl_flag, 0);       //由库层处理
+    SET_BIT(header->ctl_flag, 3);       //由registry发送
+    header->ctl_flag = htonl(header->ctl_flag);
 
     crx::datetime dt = crx::get_datetime();
     std::string time_with_name = std::to_string(dt.date)+std::to_string(dt.time)+"-"+node_name;
     MD5((const unsigned char*)time_with_name.c_str(), time_with_name.size(), header->token);
     m_tcp_server->send_data(conn, ref.data, ref.len);
+}
+
+void registry::server_offline(int conn, std::unordered_map<std::string, crx::mem_ref>& kvs)
+{
+    auto name_it = kvs.find("name");
+    if (kvs.end() == name_it) {
+        printf("server offline without name\n");
+        return;
+    }
+    std::string node_name(name_it->second.data, name_it->second.len);
+
+    auto node_it = m_node_idx.find(node_name);
+    if (m_node_idx.end() == node_it) {
+        printf("server offline with known name\n");
+        return;
+    }
+
+    auto& node = m_nodes[node_it->second];
+    if (node) {
+        node->info.conn = -1;       //offline
+        printf("node %s[%s] offline\n", node->info.name.c_str(), node->info.role.c_str());
+    }
+    m_conn_node.erase(conn);
 }
 
 bool registry::init(int argc, char **argv)

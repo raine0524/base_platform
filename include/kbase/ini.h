@@ -39,10 +39,10 @@ namespace crx
         void delete_key(const char *key_name);
 
         //获取当前区段中指定key的value，并将其转换成相应的类型，若未设置区段或不存在指定key则返回默认值
-        const char* get_str(const char *key_name);  //默认返回空指针
+        std::string get_str(const char *key_name, const char *def = "");
 
-        int get_int(const char *key_name);          //默认返回-1
+        int get_int(const char *key_name, int def = 0);
 
-        double get_double(const char *key_name);    //默认返回-1.0
+        double get_double(const char *key_name, double def = 0.0f);
     };
 }
