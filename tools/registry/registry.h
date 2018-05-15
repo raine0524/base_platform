@@ -6,6 +6,7 @@ struct node_info
 {
     crx::server_info info;      //节点信息
     std::unordered_set<size_t> clients, servers;    //主被动连接节点
+    unsigned char token[16];
 };
 
 struct conn_info
@@ -43,14 +44,15 @@ private:
 
     void register_server(int conn, const std::string& ip, uint16_t port, std::unordered_map<std::string, crx::mem_ref>& kvs);
 
+    void notify_server_online(int conn, std::unordered_map<std::string, crx::mem_ref>& kvs);
+
+    void notify_connect_msg(bool online, std::unordered_map<std::string, crx::mem_ref>& kvs);
+
     void server_offline(int conn, std::unordered_map<std::string, crx::mem_ref>& kvs);
 
-    bool check_connect_cmd(std::vector<std::string>& args);
+    void setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_t cmd, uint16_t *result);
 
-    static int simpack_wrapper(int conn, char *data, size_t len, void *arg)
-    {
-        return crx::simpack_protocol(data, len);
-    }
+    bool check_connect_cmd(std::vector<std::string>& args);
 
 private:
     crx::xml_parser m_xml;
@@ -60,7 +62,7 @@ private:
     std::list<size_t> m_node_uslots;        //节点数组中未使用的槽
 
     std::vector<std::shared_ptr<conn_info>> m_conns;        //所有连接
-    std::unordered_map<std::string, size_t > m_conn_idx;
+    std::unordered_map<std::string, size_t> m_conn_idx;
     std::list<size_t> m_conn_uslots;        //连接数组中未使用的槽
 
     crx::seria m_seria;

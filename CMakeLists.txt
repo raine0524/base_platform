@@ -22,14 +22,14 @@ FILE(GLOB_RECURSE SOURCE_FILES src/*.cpp)
 
 add_library(kbase SHARED ${SOURCE_FILES})
 
-target_link_libraries(kbase z pthread anl)
+target_link_libraries(kbase z pthread anl crypto)
 
 set_target_properties(kbase PROPERTIES LIBRARY_OUTPUT_DIRECTORY ../lib64)
 
 # tools-registry
 add_executable(registry tools/registry/registry.cpp)
 
-target_link_libraries(registry kbase crypto)
+target_link_libraries(registry kbase)
 
 set_target_properties(registry PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../tools/runtime/registry/)
 

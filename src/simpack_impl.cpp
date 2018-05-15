@@ -81,21 +81,21 @@ namespace crx
     {
         auto impl = (simpack_server_impl*)m_obj;
         if (conn < impl->m_server_info.size())
-            impl->send_package(1, conn, cmd, impl->m_server_info[conn]->token, data, len);
+            impl->send_package(1, conn, cmd, false, impl->m_server_info[conn]->token, data, len);
     }
 
     void simpack_server::response(int conn, const server_cmd& cmd, const char *data, size_t len)
     {
         auto impl = (simpack_server_impl*)m_obj;
         if (conn < impl->m_server_info.size())
-            impl->send_package(2, conn, cmd, impl->m_server_info[conn]->token, data, len);
+            impl->send_package(2, conn, cmd, false, impl->m_server_info[conn]->token, data, len);
     }
 
     void simpack_server::notify(int conn, const server_cmd& cmd, const char *data, size_t len)
     {
         auto impl = (simpack_server_impl*)m_obj;
         if (conn < impl->m_server_info.size())
-            impl->send_package(3, conn, cmd, impl->m_server_info[conn]->token, data, len);
+            impl->send_package(3, conn, cmd, false, impl->m_server_info[conn]->token, data, len);
     }
 
     void simpack_server::reg_connect(std::function<void(const server_info&, void*)> f)

@@ -312,7 +312,7 @@ namespace crx
 
         std::function<void(scheduler *sch, void *arg)> stub;
         sch_impl->co_create(stub, nullptr, m_c, true, false, "main coroutine");        //创建主协程
-        m_c->co_yield(0);       //切换至主协程
+        sch_impl->main_coroutine(m_c);      //进入主协程
 
         if (excep)
             printf("后台服务已关闭，退出当前shell！\n");

@@ -14,11 +14,13 @@ namespace crx
         eth_event *arg;         //回调参数
         scheduler_impl *sch_impl;
         std::list<std::string> cache_data;      //缓存队列，等待可写事件
+        bool sock_error;       //指示是否写出错
 
         eth_event()
                 :fd(-1)
                 ,arg(nullptr)
-                ,sch_impl(nullptr) {}
+                ,sch_impl(nullptr)
+                ,sock_error(false) {}
 
         virtual ~eth_event() {
             if (-1 != fd && STDIN_FILENO != fd) {
@@ -332,6 +334,8 @@ namespace crx
     {
         server_info info;
         int listen;
+
+        std::unordered_set<std::string> clients;
         unsigned char token[16];
     };
 
@@ -388,11 +392,19 @@ namespace crx
 
         void handle_reg_name(int conn, unsigned char *token, std::unordered_map<std::string, mem_ref>& kvs);
 
+        void handle_svr_online(unsigned char *token, std::unordered_map<std::string, mem_ref>& kvs);
+
+        void handle_hello_request(int conn, const std::string &ip, uint16_t port, unsigned char *token,
+                                  std::unordered_map<std::string, mem_ref>& kvs);
+
+        void handle_hello_response(int conn, uint16_t result, unsigned char *token, std::unordered_map<std::string, mem_ref>& kvs);
+
         void say_goodbye(bool registry, int conn);
 
         void handle_goodbye(int conn, std::unordered_map<std::string, mem_ref>& kvs);
 
-        void send_package(int type, int conn, const server_cmd& cmd, unsigned char *token, const char *data, size_t len);
+        void send_package(int type, int conn, const server_cmd& cmd, bool lib_proc,
+                          unsigned char *token, const char *data, size_t len);
 
         registry_conf m_conf;
         std::vector<std::shared_ptr<info_wrapper>> m_server_info;

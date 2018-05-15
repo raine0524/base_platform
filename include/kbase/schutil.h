@@ -96,6 +96,9 @@ namespace crx
         //获取监听的端口
         uint16_t get_port();
 
+        //服务端主动断开与客户端建立的连接
+        void release(int conn);
+
         //发送tcp响应流，@conn表示指定的连接，@data表示响应数据
         void send_data(int conn, const char *data, size_t len);
 

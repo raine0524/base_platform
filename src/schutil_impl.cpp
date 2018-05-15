@@ -188,6 +188,13 @@ namespace crx
         return impl->m_net_sock.m_port;
     }
 
+    void tcp_server::release(int conn)
+    {
+        auto tcp_impl = (tcp_server_impl*)m_obj;
+        if (conn < tcp_impl->sch_impl->m_ev_array.size())
+            tcp_impl->sch_impl->remove_event(tcp_impl->sch_impl->m_ev_array[conn]);
+    }
+
     void tcp_server::send_data(int conn, const char *data, size_t len)
     {
         auto tcp_impl = (tcp_server_impl*)m_obj;

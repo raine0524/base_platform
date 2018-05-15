@@ -19,10 +19,28 @@ void registry::tcp_server_callback(int conn, const std::string& ip, uint16_t por
             return;
         }
 
-        switch (ntohs(header->cmd)) {
-            case CMD_REG_NAME:  reg->register_server(conn, ip, port, kvs);      break;
-            case CMD_GOODBYE:   reg->server_offline(conn, kvs);                 break;
-            default:            printf("unknown cmd=%d\n", header->cmd);        break;
+        uint16_t cmd = ntohs(header->cmd);
+        if (CMD_REG_NAME != cmd) {
+            auto conn_it = reg->m_conn_node.find(conn);
+            if (reg->m_conn_node.end() == conn_it) {
+                printf("invalid connection: %d\n", conn);
+                return;
+            }
+
+            auto& node = reg->m_nodes[conn_it->second];
+            if (memcmp(node->token, header->token, 16)) {
+                printf("illegal request name=%s cmd=%u\n", node->info.name.c_str(), cmd);
+                return;
+            }
+        }
+
+        switch (cmd) {
+            case CMD_REG_NAME:      reg->register_server(conn, ip, port, kvs);      break;
+            case CMD_SVR_ONLINE:    reg->notify_server_online(conn, kvs);           break;
+            case CMD_CONN_CON:      reg->notify_connect_msg(true, kvs);             break;
+            case CMD_CONN_DES:      reg->notify_connect_msg(false, kvs);            break;
+            case CMD_GOODBYE:       reg->server_offline(conn, kvs);                 break;
+            default:                printf("unknown cmd=%d\n", header->cmd);        break;
         }
     } else {
         auto conn_it = reg->m_conn_node.find(conn);
@@ -37,6 +55,17 @@ void registry::tcp_server_callback(int conn, const std::string& ip, uint16_t por
         reg->m_conn_node.erase(conn_it);
     }
 
+}
+
+void registry::setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_t cmd, uint16_t *result)
+{
+    header->length = htonl((uint32_t)(ref.len-sizeof(crx::simp_header)));
+    header->cmd = htons(cmd);
+    if (result)
+        header->result = htons(*result);
+    SET_BIT(header->ctl_flag, 0);       //由库层处理
+    SET_BIT(header->ctl_flag, 3);       //由registry发送
+    header->ctl_flag = htonl(header->ctl_flag);
 }
 
 void registry::register_server(int conn, const std::string& ip, uint16_t port,
@@ -66,36 +95,133 @@ void registry::register_server(int conn, const std::string& ip, uint16_t port,
 
     auto node_it = m_node_idx.find(node_name);
     uint16_t result = 0;
+    bool node_legal = false;
     if (m_node_idx.end() == node_it) {      //node illegal
         result = 1;
-        const char *error_info = "unknown name";
-        m_seria.insert("error_info", error_info, strlen(error_info));
+        std::string error_info = "unknown name";
+        error_info.push_back(0);
+        m_seria.insert("error_info", error_info.c_str(), error_info.size());
         printf("node %s illegal\n", node_name.c_str());
     } else {
         //node legal
         auto& node = m_nodes[node_it->second];
-        node->info.conn = conn;
-        node->info.ip = std::move(node_ip);
-        node->info.port = listen;
-        m_conn_node[conn] = node_it->second;        //建立连接与节点信息的对应关系
-        m_seria.insert("role", node->info.role.c_str(), node->info.role.size());
-        printf("%s pronounce succ\n", node_name.c_str());
+        if (-1 == node->info.conn) {
+            node_legal = true;
+            node->info.conn = conn;
+            node->info.ip = std::move(node_ip);
+            node->info.port = listen;
+            m_conn_node[conn] = node_it->second;        //建立连接与节点信息的对应关系
+            m_seria.insert("role", node->info.role.c_str(), node->info.role.size());
+
+            std::string clients;
+            for (auto& client : node->clients)
+                clients.append(std::string(m_nodes[client]->info.name)+",");
+
+            if (',' == clients.back())
+                clients.pop_back();
+
+            if (!clients.empty())
+                m_seria.insert("clients", clients.c_str(), clients.size());
+            printf("%s pronounce succ\n", node_name.c_str());
+        } else {        //node register ever
+            result = 2;
+            std::string error_info = node_name;
+            error_info.append(" repeat register").push_back(0);
+            m_seria.insert("error_info", error_info.c_str(), error_info.size());
+            printf("node %s repeat resiter\n", node_name.c_str());
+        }
     }
 
     auto ref = m_seria.get_string();
     auto header = (crx::simp_header*)ref.data;
-    header->length = htonl((uint32_t )(ref.len-sizeof(crx::simp_header)));
-    header->type = htons(1);        //表明这是一次响应
-    header->cmd = htons(CMD_REG_NAME);
-    header->result = htons(result);
-    SET_BIT(header->ctl_flag, 0);       //由库层处理
-    SET_BIT(header->ctl_flag, 3);       //由registry发送
-    header->ctl_flag = htonl(header->ctl_flag);
+    setup_header(ref, header, CMD_REG_NAME, &result);
 
-    crx::datetime dt = crx::get_datetime();
-    std::string time_with_name = std::to_string(dt.date)+std::to_string(dt.time)+"-"+node_name;
-    MD5((const unsigned char*)time_with_name.c_str(), time_with_name.size(), header->token);
+    if (node_legal) {
+        crx::datetime dt = crx::get_datetime();
+        std::string time_with_name = std::to_string(dt.date)+std::to_string(dt.time)+"-"+node_name;
+        MD5((const unsigned char*)time_with_name.c_str(), time_with_name.size(), header->token);
+        memcpy(m_nodes[node_it->second]->token, header->token, 16);
+    }
     m_tcp_server->send_data(conn, ref.data, ref.len);
+    m_seria.reset();
+}
+
+void registry::notify_server_online(int conn, std::unordered_map<std::string, crx::mem_ref>& kvs)
+{
+    auto name_it = kvs.find("name");
+    if (kvs.end() == name_it) {
+        printf("notify online without name\n");
+        return;
+    }
+    std::string node_name(name_it->second.data, name_it->second.len);
+
+    auto node_it = m_node_idx.find(node_name);
+    if (m_node_idx.end() == node_it) {
+        printf("server online: unknown name %s\n", node_name.c_str());
+        return;
+    }
+
+    auto& node = m_nodes[node_it->second];
+    uint16_t net_port = htons(node->info.port);
+    m_seria.insert("name", node->info.name.c_str(), node->info.name.size());
+    m_seria.insert("ip", node->info.ip.c_str(), node->info.ip.size());
+    m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
+
+    auto ref = m_seria.get_string();
+    auto header = (crx::simp_header*)ref.data;
+    setup_header(ref, header, CMD_SVR_ONLINE, nullptr);
+    memcpy(header->token, node->token, 16);
+
+    for (auto& client : node->clients) {        //通知所有已在线的主动连接方发起连接
+        auto& cli_node = m_nodes[client];
+        if (cli_node && -1 != cli_node->info.conn)
+            m_tcp_server->send_data(cli_node->info.conn, ref.data, ref.len);
+    }
+    m_seria.reset();
+
+    for (auto& server : node->servers) {        //通知该服务连接所有已在线的被动方
+        auto& svr_node = m_nodes[server];
+        if (!svr_node || -1 == svr_node->info.conn)
+            continue;
+
+        uint16_t net_port = htons(svr_node->info.port);
+        m_seria.insert("name", svr_node->info.name.c_str(), svr_node->info.name.size());
+        m_seria.insert("ip", svr_node->info.ip.c_str(), svr_node->info.ip.size());
+        m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
+
+        auto ref = m_seria.get_string();
+        auto header = (crx::simp_header*)ref.data;
+        setup_header(ref, header, CMD_SVR_ONLINE, nullptr);
+        memcpy(header->token, svr_node->token, 16);
+        m_tcp_server->send_data(conn, ref.data, ref.len);
+        m_seria.reset();
+    }
+}
+
+void registry::notify_connect_msg(bool online, std::unordered_map<std::string, crx::mem_ref>& kvs)
+{
+    auto cli_it = kvs.find("client");
+    if (kvs.end() == cli_it) {
+        printf("(dis)connect message without client\n");
+        return;
+    }
+    std::string cli_name(cli_it->second.data, cli_it->second.len);
+
+    auto svr_it = kvs.find("server");
+    if (kvs.end() == svr_it) {
+        printf("(dis)connect message without server\n");
+        return;
+    }
+    std::string svr_name(svr_it->second.data, svr_it->second.len);
+    std::string conn_mangle = cli_name+"-"+svr_name;
+
+    auto conn_it = m_conn_idx.find(conn_mangle);
+    if (m_conn_idx.end() == conn_it) {
+        printf("unknown connect mangle: %s\n", conn_mangle.c_str());
+        return;
+    }
+    auto& conn = m_conns[conn_it->second];
+    conn->online = online;
 }
 
 void registry::server_offline(int conn, std::unordered_map<std::string, crx::mem_ref>& kvs)
@@ -117,18 +243,35 @@ void registry::server_offline(int conn, std::unordered_map<std::string, crx::mem
     if (node) {
         node->info.conn = -1;       //offline
         printf("node %s[%s] offline %d\n", node->info.name.c_str(), node->info.role.c_str(), conn);
+
+        //与该节点相关的所有连接都应处于断开状态
+        for (auto& client : node->clients) {
+            std::string conn_mangle = m_nodes[client]->info.name+"-"+node_name;
+            auto conn_it = m_conn_idx.find(conn_mangle);
+            if (m_conn_idx.end() != conn_it)
+                m_conns[conn_it->second]->online = false;
+        }
+
+        for (auto& server : node->servers) {
+            std::string conn_mangle = node_name+"-"+m_nodes[server]->info.name;
+            auto conn_it = m_conn_idx.find(conn_mangle);
+            if (m_conn_idx.end() != conn_it)
+                m_conns[conn_it->second]->online = false;
+        }
     }
     m_conn_node.erase(conn);
 }
 
-bool registry::init(int argc, char **argv)
+bool registry::init(int argc, char *argv[])
 {
     crx::ini ini;
     ini.load("ini/server.ini");
     ini.set_section("registry");
     int listen = ini.get_int("listen");
     m_tcp_server = get_tcp_server((uint16_t)listen, tcp_server_callback, this);
-    register_tcp_hook(false, simpack_wrapper, this);
+    register_tcp_hook(false, [](int conn, char *data, size_t len, void *arg) {
+        return crx::simpack_protocol(data, len);
+    }, this);
 
     const char *xml_conf = "ini/node_conf.xml";
     if (access(xml_conf, F_OK)) {        //不存在则创建
@@ -248,8 +391,7 @@ void registry::add_node(std::vector<std::string>& args, crx::console *c)
     reg->m_xml.set_child(name_it->second.c_str(), nullptr, false);
     reg->m_xml.switch_child(name_it->second.c_str());
     reg->m_xml.set_attribute("role", role_it->second.c_str());
-    reg->m_xml.switch_parent();
-    reg->m_xml.switch_parent();
+    reg->m_xml.switch_parent().switch_parent();
 }
 
 void registry::del_node(std::vector<std::string>& args, crx::console *c)
@@ -366,8 +508,7 @@ void registry::cst_conn(std::vector<std::string>& args, crx::console *c)
     reg->m_xml.switch_child(conn_mangle1.c_str());
     reg->m_xml.set_attribute("cli", args[0].c_str(), false);
     reg->m_xml.set_attribute("svr", args[1].c_str());
-    reg->m_xml.switch_parent();
-    reg->m_xml.switch_parent();
+    reg->m_xml.switch_parent().switch_parent();
     std::cout<<"[cst_conn] 连接 "<<args[0]<<"(主动) <-----> "<<args[1]<<"(被动) 创建成功！"<<std::endl;
 }
 
