@@ -129,12 +129,23 @@ namespace crx
         ADDR_IP,
     };
 
+    class CRX_SHARE impl
+    {
+    public:
+        impl() = default;
+        virtual ~impl() = default;
+
+    private:
+        impl(const impl&) = delete;
+        impl& operator=(const impl&) = delete;
+    };
+
     class CRX_SHARE kobj
     {
     public:
-        kobj() : m_obj(nullptr) {}
-        virtual ~kobj() {}
-        void *m_obj;
+        kobj() = default;
+        virtual ~kobj() = default;
+        std::shared_ptr<impl> m_impl;
 
     private:
         kobj(const kobj&) = delete;
@@ -170,7 +181,6 @@ namespace crx
 #include "kbase/tinyxml2.h"
 #include "kbase/serialize.h"
 #include "kbase/xml.h"
-#include "kbase/evd_thread.h"
 #include "kbase/statis.h"
 #include "kbase/py_wrapper.h"
 #include "kbase/schutil.h"

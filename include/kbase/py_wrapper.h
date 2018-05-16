@@ -7,15 +7,6 @@ namespace crx
      * 信号处理机制，这使得一些信号的表现形式比较奇怪，与系统的默认行为不符
      */
 
-    class CRX_SHARE py_object : public kobj
-    {
-    public:
-        py_object();
-        virtual ~py_object();
-
-        virtual void release();
-    };
-
     enum LINE_STYLE     //线的类型
     {
         STYLE_SOLID,         //实线
@@ -82,11 +73,11 @@ namespace crx
                 ,col(COL_DEFAULT) {}
     };
 
-    class CRX_SHARE py_plot : public py_object
+    class CRX_SHARE py_plot : public kobj
     {
     public:
-        py_plot();
-        virtual ~py_plot();
+        py_plot() = default;
+        virtual ~py_plot() = default;
 
         void set_title(const char *title, size_t font_size = 16);		//plot标题
 
@@ -153,6 +144,6 @@ namespace crx
         void release_retobj(PyObject *ret);
 
         //获取py_plot绘图对象(使用完毕之后调用release手动释放资源)
-        py_plot* get_mat_plot();
+        std::shared_ptr<py_plot> get_mat_plot();
     };
 }

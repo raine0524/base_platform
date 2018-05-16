@@ -9,7 +9,7 @@ public:
 public:
     bool init(int argc, char **argv) override;
 
-    void destroy() override;
+    void destroy() override {}
 
 private:
     static void on_connect(const crx::server_info& info, void *arg);
@@ -23,5 +23,5 @@ private:
     static void on_notify(const crx::server_info& info, const crx::server_cmd& cmd, char *data, size_t len, void *arg);
 
 private:
-    crx::simpack_server *m_server;
+    std::shared_ptr<crx::simpack_server> m_server;
 };

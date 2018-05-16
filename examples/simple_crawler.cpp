@@ -10,7 +10,7 @@ public:
     void get_web_page(std::vector<std::string>& urls);
 
 private:
-    crx::http_client *m_http_client;
+    std::shared_ptr<crx::http_client> m_http_client;
 };
 
 void simple_crawler::get_web_page(std::vector<std::string>& urls)

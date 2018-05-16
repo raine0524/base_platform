@@ -9,7 +9,7 @@ namespace crx
         std::string comment;    //注释
     };
 
-    class console_impl
+    class console_impl : public impl
     {
     public:
         console_impl(console *c);
@@ -48,8 +48,10 @@ namespace crx
          */
         bool m_is_service, m_as_shell;
         std::string m_pipe_name[2], m_pipe_dir;
+
         bool m_pipe_conn;
         int m_rd_fifo, m_wr_fifo;      //used in listen keyboard/pipe event
+        std::shared_ptr<eth_event> m_console_ev;
 
         int m_stdout_backup;
         std::random_device m_random;

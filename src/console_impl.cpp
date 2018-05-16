@@ -28,18 +28,14 @@ namespace crx
 
     console_impl::~console_impl()
     {
-        if (-1 != m_rd_fifo) {
+        if (-1 != m_rd_fifo)
             close(m_rd_fifo);
-            m_rd_fifo = -1;
-        }
-        if (-1 != m_wr_fifo) {
+
+        if (-1 != m_wr_fifo)
             close(m_wr_fifo);
-            m_wr_fifo = -1;
-        }
-        if (-1 != m_stdout_backup) {
+
+        if (-1 != m_stdout_backup)
             close(m_stdout_backup);
-            m_stdout_backup = -1;
-        }
     }
 
     //检查当前服务是否存在，若/proc/{%pid%}文件不存在，则说明后台进程已崩溃
@@ -77,7 +73,7 @@ namespace crx
     bool console_impl::preprocess(int argc, char *argv[])
     {
         signal(SIGPIPE, SIG_IGN);       //向已经断开连接的管道和套接字写数据时只返回错误,不主动退出进程
-        auto sch_impl = (scheduler_impl*)m_c->m_obj;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
         cons_pipe_name(argv[0]);
 
         std::vector<std::string> stub_args;
@@ -146,16 +142,16 @@ namespace crx
      */
     void console_impl::listen_keyboard_input(int wr_fifo)
     {
-        auto sch_impl = (scheduler_impl*)m_c->m_obj;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
         std::cout<<g_server_name<<":\\>"<<std::flush;
 
         m_wr_fifo = wr_fifo;
         setnonblocking(STDIN_FILENO);       //将标准输入设为非阻塞
 
-        auto eth_ev = new eth_event;
-        eth_ev->fd = STDIN_FILENO;
-        eth_ev->sch_impl = sch_impl;
-        eth_ev->f = [&](scheduler *sch, eth_event *ev) {
+        m_console_ev = std::make_shared<eth_event>();
+        m_console_ev->fd = STDIN_FILENO;
+        m_console_ev->sch_impl = sch_impl;
+        m_console_ev->f = [&](scheduler *sch, std::shared_ptr<eth_event>& ev) {
             std::string input(256, 0);
             ssize_t ret = read(STDIN_FILENO, &input[0], input.size()-1);
             if (-1 == ret || 0 == ret) {
@@ -202,8 +198,9 @@ namespace crx
                 }
             }
         };
-        eth_ev->arg = eth_ev;
-        sch_impl->add_event(eth_ev);
+
+        m_console_ev->arg = m_console_ev;
+        sch_impl->add_event(m_console_ev);
     }
 
     //当前程序以daemon进程在后台运行时，该进程通过管道接收命令行的输入参数
@@ -214,12 +211,12 @@ namespace crx
         m_rd_fifo = open(m_pipe_name[0].c_str(), O_RDONLY | O_NONBLOCK);
         crx::setnonblocking(m_rd_fifo);		//因此调用setnonblocking将该文件描述符设置为非阻塞的
 
-        auto sch_impl = (scheduler_impl*)m_c->m_obj;
-        eth_event *eth_ev = new eth_event;
-        eth_ev->fd = m_rd_fifo;
-        eth_ev->sch_impl = sch_impl;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
+        m_console_ev = std::make_shared<eth_event>();
+        m_console_ev->fd = m_rd_fifo;
+        m_console_ev->sch_impl = sch_impl;
 
-        eth_ev->f = [&](scheduler *sch, eth_event *ev) {
+        m_console_ev->f = [&](scheduler *sch, std::shared_ptr<eth_event>& ev) {
             //当读管道可读时，说明有其他进程的读写管道已经创建，并且写管道已经与本进程的读管道完成连接，
             //此时在本进程中创建写管道并与其他进程的读管道完成连接
             if (!m_pipe_conn) {
@@ -229,7 +226,7 @@ namespace crx
                 m_pipe_conn = true;
             }
 
-            auto this_sch_impl = (scheduler_impl*)sch->m_obj;
+            auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(sch->m_impl);
             std::string cmd_buf;
             int sts = this_sch_impl->async_read(ev, cmd_buf);
             if (sts <= 0) {			//读管道输入异常，将标准输出恢复成原先的值，并关闭已经打开的写管道
@@ -264,8 +261,9 @@ namespace crx
                 }
             }
         };
-        eth_ev->arg = eth_ev;
-        sch_impl->add_event(eth_ev);
+
+        m_console_ev->arg = m_console_ev;
+        sch_impl->add_event(m_console_ev);
     }
 
     /*
@@ -282,12 +280,12 @@ namespace crx
             write(wr_fifo, heart_beat, strlen(heart_beat));			//发送心跳包建立实际的连接过程
 
         bool excep = false;
-        auto sch_impl = (scheduler_impl*)m_c->m_obj;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
 
-        eth_event *eth_ev = new eth_event;
+        auto eth_ev = std::make_shared<eth_event>();
         eth_ev->fd = rd_fifo;
         eth_ev->sch_impl = sch_impl;
-        eth_ev->f = [&](scheduler *sch, eth_event *arg) {
+        eth_ev->f = [&](scheduler *sch, std::shared_ptr<eth_event>& arg) {
             std::string output;
             int sts = sch_impl->async_read(arg, output);
             if (!output.empty()) {
@@ -299,7 +297,7 @@ namespace crx
             if (sts <= 0) {		//对端关闭或异常
                 excep = true;		//该变量指示出现异常
                 sch_impl->m_go_done = false;
-                sch_impl->remove_event(arg);
+                sch_impl->remove_event(arg->fd);
             }
         };
         eth_ev->arg = eth_ev;
@@ -333,8 +331,8 @@ namespace crx
 
     void console_impl::quit_loop(std::vector<std::string>& args, console *c)
     {
-        auto sch_impl = (scheduler_impl*)c->m_obj;
-        auto con_impl = (console_impl*)sch_impl->m_obj;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(c->m_impl);
+        auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_ext_data);
         for (auto co_impl : sch_impl->m_cos)
             co_impl->status = CO_UNKNOWN;
 
@@ -349,8 +347,8 @@ namespace crx
     //打印帮助信息
     void console_impl::print_help(std::vector<std::string>& args, console *c)
     {
-        auto sch_impl = (scheduler_impl*)c->m_obj;
-        auto con_impl = (console_impl*)sch_impl->m_obj;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(c->m_impl);
+        auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_ext_data);
         std::cout<<std::right<<std::setw(5)<<"cmd";
         std::cout<<std::setw(10)<<' '<<std::setw(0)<<"comments"<<std::endl;
         for (auto& cmd : con_impl->m_cmd_vec) {
@@ -360,25 +358,18 @@ namespace crx
         std::cout<<std::endl;
     }
 
-    console::console(bool remote_log /*= false*/)
-            :scheduler(remote_log)
+    console::console()
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        sch_impl->m_obj = new console_impl(this);
-    }
-
-    console::~console()
-    {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        delete (console_impl*)sch_impl->m_obj;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        sch_impl->m_ext_data = std::make_shared<console_impl>(this);
     }
 
     //添加控制台命令
     void console::add_cmd(const char *cmd, std::function<void(std::vector<std::string>&, console*)> f,
                           const char *comment)
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        auto con_impl = (console_impl*)sch_impl->m_obj;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_ext_data);
         assert(con_impl->m_cmd_idx.end() == con_impl->m_cmd_idx.find(cmd));		//断言当前添加的命令在已添加的命令集中不重复存在
         con_impl->m_cmd_idx[cmd] = con_impl->m_cmd_vec.size();
         con_impl->m_cmd_vec.push_back({cmd, f, comment});
@@ -398,10 +389,10 @@ namespace crx
         }
     }
 
-    int console::run(int argc, char *argv[], int bind_flag /*= -1*/)
+    int console::run(int argc, char *argv[], const char *conf /*= "ini/server.ini"*/, int bind_flag /*= -1*/)
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        auto con_impl = (console_impl*)sch_impl->m_obj;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_ext_data);
 
         int cpu_num = get_nprocs();
         if (-1 != bind_flag) {
@@ -410,6 +401,16 @@ namespace crx
             } else {
                 assert(0 <= bind_flag && bind_flag < cpu_num);      //bind_flag的取值范围为0~cpu_num-1
                 con_impl->bind_core(bind_flag);
+            }
+        }
+
+        if (!access(conf, F_OK)) {
+            sch_impl->m_ini_file = conf;
+            ini ini_parser;
+            ini_parser.load(conf);
+            if (ini_parser.has_section("log")) {
+                ini_parser.set_section("log");
+                sch_impl->m_remote_log = ini_parser.get_int("remote") != 0;
             }
         }
 

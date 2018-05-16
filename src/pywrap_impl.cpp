@@ -2,7 +2,8 @@
 
 namespace crx
 {
-    static std::atomic<int> s_wrap_instances(0);
+    static int py_env_ins = 0;
+
     const char *mat_module_name = "matplotlib.pyplot";
     const char *numpy_module_name = "numpy";
     const char *plot3d_module_name = "mpl_toolkits.mplot3d";
@@ -10,7 +11,7 @@ namespace crx
     py_env::py_env()
     {
         //函数库的初始化和销毁在环境中只需执行一次
-        if (!s_wrap_instances) {
+        if (!py_env_ins) {
             //Initialize the Python interpreter.
             Py_Initialize();
             PyRun_SimpleString("import sys");
@@ -20,17 +21,14 @@ namespace crx
             PyRun_SimpleString("sys.path.append('.')");
             PyRun_SimpleString("warnings.filterwarnings('ignore')");
         }
-        s_wrap_instances++;
-        m_obj = new py_env_impl;
+
+        py_env_ins++;
+        m_impl = std::make_shared<py_env_impl>();
     }
 
     py_env::~py_env()
     {
-        auto impl = (py_env_impl*)m_obj;
-        for (auto& obj : impl->m_objects)		//释放获取的一系列py_object对象
-            delete obj;
-        impl->m_objects.clear();
-
+        auto impl = std::dynamic_pointer_cast<py_env_impl>(m_impl);
         for (auto& ret : impl->m_results_set)	//释放run_py_func函数的返回值
             Py_XDECREF(ret);
         impl->m_results_set.clear();
@@ -39,10 +37,9 @@ namespace crx
         for (auto& pair : impl->m_persis_modules)
             Py_XDECREF(pair.second);
         impl->m_persis_modules.clear();
-        delete impl;
 
-        s_wrap_instances--;
-        if (!s_wrap_instances)
+        py_env_ins--;
+        if (!py_env_ins)
             Py_Finalize();
     }
 
@@ -59,14 +56,14 @@ namespace crx
 
     bool py_env::load_module(const char *module)
     {
-        auto impl = (py_env_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<py_env_impl>(m_impl);
         if (impl->m_persis_modules.end() != impl->m_persis_modules.find(module)) {		//判断当前模块是否已在持久化模块集合中
             printf("[load_modules] 模块 %s 之前已被加载，不再加载！\n", module);
             return true;
         }
 
-        PyObject *module_name = PyUnicode_DecodeFSDefault(module);		//获取模块名
-        PyObject *py_module = PyImport_Import(module_name);		//导入指定模块
+        PyObject *module_name = PyUnicode_DecodeFSDefault(module);      //获取模块名
+        PyObject *py_module = PyImport_Import(module_name);             //导入指定模块
         bool import_succ = true;
         if (py_module) {
             impl->m_persis_modules[module] = py_module;		//加入持久化模块集合中
@@ -80,7 +77,7 @@ namespace crx
 
     void py_env::unload_module(const char *module)
     {
-        auto impl = (py_env_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<py_env_impl>(m_impl);
         if (impl->m_persis_modules.end() == impl->m_persis_modules.find(module)) {			//同上
             printf("[unload_modules] 模块 %s 之前还未加载，不再卸载！\n", module);
             return;
@@ -94,16 +91,13 @@ namespace crx
 
     bool py_env::find_module(const char *module)
     {
-        auto impl = (py_env_impl*)m_obj;		//查找指定模块是否在持久化模块集合中
-        if (impl->m_persis_modules.end() != impl->m_persis_modules.find(module))
-            return true;
-        else
-            return false;
+        auto impl = std::dynamic_pointer_cast<py_env_impl>(m_impl);     //查找指定模块是否在持久化模块集合中
+        return impl->m_persis_modules.end() != impl->m_persis_modules.find(module);
     }
 
     PyObject* py_env::run_py_func(const char *module, const char *func, int argc, ...)
     {
-        auto impl = (py_env_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<py_env_impl>(m_impl);
         if (impl->m_persis_modules.end() == impl->m_persis_modules.find(module) &&
             !load_module(module))
             return nullptr;
@@ -145,10 +139,11 @@ namespace crx
             } else {
                 auto& val = pair.first;
                 auto& pos = pair.second;		//关键字参数首先放在字典py_dict中
-                PyDict_SetItemString(py_dict, val.substr(0, pos).c_str(),
-                                     PyUnicode_FromString(val.substr(pos+1).c_str()));
+                PyDict_SetItemString(py_dict, val.substr(0, (size_t)pos).c_str(),
+                                     PyUnicode_FromString(val.substr((size_t)pos+1).c_str()));
             }
         }
+
         if (exist_dict) {		//随后再将字典py_dict存入元组py_args中
             PyTuple_SetItem(py_args, tuple_cnt, py_dict);
             Py_XDECREF(py_dict);
@@ -164,16 +159,14 @@ namespace crx
 
     void py_env::release_retobj(PyObject *ret)
     {
-        auto impl = (py_env_impl*)m_obj;
-        if (impl->m_results_set.end() == impl->m_results_set.find(ret))
-            return;
-
-        //释放函数返回值并将其从结果集中移除
-        Py_XDECREF(ret);
-        impl->m_results_set.erase(ret);
+        auto impl = std::dynamic_pointer_cast<py_env_impl>(m_impl);
+        if (impl->m_results_set.end() != impl->m_results_set.find(ret)) {
+            Py_XDECREF(ret);
+            impl->m_results_set.erase(ret);     //释放函数返回值并将其从结果集中移除
+        }
     }
 
-    py_plot* py_env::get_mat_plot()
+    std::shared_ptr<py_plot> py_env::get_mat_plot()
     {
         //首先加载"matplotlib.pyplot"和"numpy"这两个模块
         bool matplot_b = load_module(mat_module_name);
@@ -182,14 +175,12 @@ namespace crx
         if (!matplot_b || !numpy_b || !plot3d_b)
             return nullptr;
 
-        py_plot *plot = new py_plot;			//创建一个新的py_plot对象
-        auto obj_impl = (py_object_impl*)plot->m_obj;
-        obj_impl->env = this;
-
-        auto env_impl = (py_env_impl*)m_obj;
-        env_impl->m_objects.insert(plot);
+        auto plot = std::make_shared<py_plot>();        //创建一个新的py_plot对象
+        auto plot_impl = std::make_shared<py_plot_impl>();
+        plot->m_impl = plot_impl;
 
         //从"matplotlib.pyplot"模块中获取绘图所需的一系列函数对象
+        auto env_impl = std::dynamic_pointer_cast<py_env_impl>(m_impl);
         PyObject *mat_module = env_impl->m_persis_modules[mat_module_name];
         std::vector<std::string> func_vec = {"title", "text", "legend", "axis", "gca", "figure",
                                              "plot", "clf", "pause", "close", "savefig"};
@@ -199,53 +190,18 @@ namespace crx
                 printf("[get_mat_plot] 模块 matplotlib.pyplot 中不存在 %s 对象，或该对象是不可调用的！\n", func_name.c_str());
                 continue;
             }
-            obj_impl->m_persis_funcs[func_name] = py_func;
+            plot_impl->m_persis_funcs[func_name] = py_func;
         }
         return plot;
-    }
-
-    py_object::py_object()
-    {
-        m_obj = new py_object_impl;
-    }
-
-    py_object::~py_object()
-    {
-        auto obj_impl = (py_object_impl*)m_obj;
-        for (auto& func : obj_impl->m_persis_funcs)			//释放已取得的函数对象
-            Py_XDECREF(func.second);
-        obj_impl->m_persis_funcs.clear();
-        delete obj_impl;
-    }
-
-    void py_object::release()
-    {
-        auto obj_impl = (py_object_impl*)m_obj;
-        auto env_impl = (py_env_impl*)obj_impl->env->m_obj;
-        env_impl->m_objects.erase(this);			//销毁py_object对象并释放已申请的内存资源
-        delete this;
-    }
-
-    py_plot::py_plot()
-    {
-        auto obj_impl = (py_object_impl*)m_obj;
-        obj_impl->obj = new py_plot_impl(obj_impl);
-    }
-
-    py_plot::~py_plot()
-    {
-        auto obj_impl = (py_object_impl*)m_obj;
-        delete (py_plot_impl*)obj_impl->obj;
     }
 
     void py_plot::set_title(const char *title, size_t font_size /*= 16*/)
     {
         const char *this_key = "title";
-        auto obj_impl = (py_object_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
 
-        PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"title"函数对象
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        auto& title_malloc = plot_impl->m_func_objs[this_key];
+        PyObject *py_func = impl->m_persis_funcs[this_key];		//获取"title"函数对象
+        auto& title_malloc = impl->m_func_objs[this_key];
 
         Py_XDECREF(title_malloc.py_args);
         title_malloc.py_args = PyTuple_New(1);
@@ -266,11 +222,10 @@ namespace crx
     void py_plot::set_text(double x_coor, double y_coor, const char *text, size_t font_size /*= 16*/)
     {
         const char *this_key = "text";
-        auto obj_impl = (py_object_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
 
-        PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"text"函数对象
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        auto& text_malloc = plot_impl->m_func_objs[this_key];
+        PyObject *py_func = impl->m_persis_funcs[this_key];		//获取"text"函数对象
+        auto& text_malloc = impl->m_func_objs[this_key];
 
         Py_XDECREF(text_malloc.py_args);
         text_malloc.py_args = PyTuple_New(3);
@@ -294,11 +249,10 @@ namespace crx
     void py_plot::set_legend(const std::vector<std::string>& legend_arr)
     {
         const char *this_key = "legend";
-        auto obj_impl = (py_object_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
 
-        PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"legend"函数对象
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        auto& legend_malloc = plot_impl->m_func_objs[this_key];
+        PyObject *py_func = impl->m_persis_funcs[this_key];		//获取"legend"函数对象
+        auto& legend_malloc = impl->m_func_objs[this_key];
 
         Py_XDECREF(legend_malloc.py_args);
         legend_malloc.py_args = PyTuple_New(1);
@@ -319,15 +273,14 @@ namespace crx
     void py_plot::set_xlim(const std::vector<double>& xlim_arr)
     {
         const char *this_key = "set_xlim";
-        auto obj_impl = (py_object_impl*)m_obj;
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
 
-        if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(plot_impl->m_curr_fig))
+        auto gca_it = impl->m_fig_gca.find(impl->m_curr_fig);
+        if (impl->m_fig_gca.end() == gca_it)
             return;
 
-        auto& fig_gca = plot_impl->m_fig_gca[plot_impl->m_curr_fig];
-        PyObject *py_func = fig_gca.axis_attrs[this_key];
-        auto& xlim_malloc = plot_impl->m_func_objs[this_key];
+        PyObject *py_func = gca_it->second.axis_attrs[this_key];
+        auto& xlim_malloc = impl->m_func_objs[this_key];
 
         Py_XDECREF(xlim_malloc.py_args);
         xlim_malloc.py_args = PyTuple_New(1);
@@ -348,15 +301,14 @@ namespace crx
     void py_plot::set_ylim(const std::vector<double>& ylim_arr)
     {
         const char *this_key = "set_ylim";
-        auto obj_impl = (py_object_impl*)m_obj;
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
 
-        if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(plot_impl->m_curr_fig))
+        auto gca_it = impl->m_fig_gca.find(impl->m_curr_fig);
+        if (impl->m_fig_gca.end() == gca_it)
             return;
 
-        auto& fig_gca = plot_impl->m_fig_gca[plot_impl->m_curr_fig];
-        PyObject *py_func = fig_gca.axis_attrs[this_key];
-        auto& ylim_malloc = plot_impl->m_func_objs[this_key];
+        PyObject *py_func = gca_it->second.axis_attrs[this_key];
+        auto& ylim_malloc = impl->m_func_objs[this_key];
 
         Py_XDECREF(ylim_malloc.py_args);
         ylim_malloc.py_args = PyTuple_New(1);
@@ -377,25 +329,22 @@ namespace crx
     void py_plot::set_xlabel(const char *label)
     {
         const char *this_key = "set_xlabel";
-        auto obj_impl = (py_object_impl*)m_obj;
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        plot_impl->set_label(this_key, label);
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
+        impl->set_label(this_key, label);
     }
 
     void py_plot::set_ylabel(const char *label)
     {
         const char *this_key = "set_ylabel";
-        auto obj_impl = (py_object_impl*)m_obj;
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        plot_impl->set_label(this_key, label);
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
+        impl->set_label(this_key, label);
     }
 
     void py_plot::set_zlabel(const char *label)
     {
         const char *this_key = "set_zlabel";
-        auto obj_impl = (py_object_impl*)m_obj;
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        plot_impl->set_label(this_key, label);
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
+        impl->set_label(this_key, label);
     }
 
     void py_plot_impl::set_label(const std::string& key, const char *label)
@@ -424,11 +373,10 @@ namespace crx
     void py_plot::set_axis(const std::vector<double>& axis_arr)
     {
         const char *this_key = "axis";
-        auto obj_impl = (py_object_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
 
-        PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"axis"函数对象
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        auto& axis_malloc = plot_impl->m_func_objs[this_key];
+        PyObject *py_func = impl->m_persis_funcs[this_key];		//获取"axis"函数对象
+        auto& axis_malloc = impl->m_func_objs[this_key];
 
         Py_XDECREF(axis_malloc.py_args);
         axis_malloc.py_args = PyTuple_New(1);
@@ -448,30 +396,28 @@ namespace crx
 
     void py_plot::create_figure(int fig_num, DIM_TYPE type)
     {
-        auto obj_impl = (py_object_impl*)m_obj;
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        if (plot_impl->m_fig_gca.end() != plot_impl->m_fig_gca.find(fig_num))       //绘图窗口已存在
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
+        if (impl->m_fig_gca.end() != impl->m_fig_gca.find(fig_num))       //绘图窗口已存在
             return;
 
-        plot_impl->call_figure(fig_num);
-        plot_impl->m_fig_gca[fig_num].type = type;
-        plot_impl->call_gca();
+        impl->call_figure(fig_num);
+        impl->m_fig_gca[fig_num].type = type;
+        impl->call_gca();
     }
 
     void py_plot::switch_figure(int which)
     {
-        auto obj_impl = (py_object_impl*)m_obj;
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(which))     //绘图窗口不存在
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
+        if (impl->m_fig_gca.end() == impl->m_fig_gca.find(which))     //绘图窗口不存在
             return;
         else
-            plot_impl->call_figure(which);
+            impl->call_figure(which);
     }
 
     void py_plot_impl::call_figure(int fig_num)
     {
         const char *this_key = "figure";
-        PyObject *py_func = m_obj_impl->m_persis_funcs[this_key];     //获取"figure"函数对象
+        PyObject *py_func = m_persis_funcs[this_key];     //获取"figure"函数对象
         auto& fig_malloc = m_func_objs[this_key];
 
         //args
@@ -495,7 +441,7 @@ namespace crx
             Py_XDECREF(pair.second);
 
         const char *this_key = "gca";
-        PyObject *py_func = m_obj_impl->m_persis_funcs[this_key];   //获取"gca"函数对象
+        auto py_func = m_persis_funcs[this_key];   //获取"gca"函数对象
 
         //从"matplotlib.pyplot"模块中获取当前坐标实例
         if (DIM_2 == fig_gca.type) {
@@ -512,7 +458,7 @@ namespace crx
         if (DIM_3 == fig_gca.type)
             func_vec.push_back("set_zlabel");
         for (auto& func_name : func_vec) {
-            PyObject *py_func = PyObject_GetAttrString(fig_gca.gca_obj, func_name.c_str());
+            py_func = PyObject_GetAttrString(fig_gca.gca_obj, func_name.c_str());
             if (!py_func || !PyCallable_Check(py_func)) {
                 printf("[call_gca] 获取对象 pyplot.gca 属性 %s 失败，或该对象不可调用！\n", func_name.c_str());
                 continue;
@@ -524,18 +470,18 @@ namespace crx
     void py_plot::plot(const std::vector<plot_function>& funcs, double linewidth /*= 1.0*/)
     {
         const char *this_key = "plot";
-        auto obj_impl = (py_object_impl*)m_obj;
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(plot_impl->m_curr_fig))
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
+
+        auto gca_it = impl->m_fig_gca.find(impl->m_curr_fig);
+        if (impl->m_fig_gca.end() == gca_it)
             return;
 
-        auto& fig_gca = plot_impl->m_fig_gca[plot_impl->m_curr_fig];
-        PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"plot"函数对象
-        auto& plot_malloc = plot_impl->m_func_objs[this_key];
+        PyObject *py_func = impl->m_persis_funcs[this_key];		//获取"plot"函数对象
+        auto& plot_malloc = impl->m_func_objs[this_key];
 
         //args
         Py_XDECREF(plot_malloc.py_args);
-        if (DIM_2 == fig_gca.type)      //2维
+        if (DIM_2 == gca_it->second.type)      //2维
             plot_malloc.py_args = PyTuple_New(funcs.size()*3);
         else        //3维
             plot_malloc.py_args = PyTuple_New(funcs.size()*4);
@@ -543,14 +489,14 @@ namespace crx
         for (auto& list : plot_malloc.py_lists)
             Py_XDECREF(list);
         plot_malloc.py_lists.clear();
-        if (DIM_2 == fig_gca.type)      //2维
+        if (DIM_2 == gca_it->second.type)      //2维
             plot_malloc.py_lists.resize(funcs.size()*2);
         else        //3维
             plot_malloc.py_lists.resize(funcs.size()*3);
 
         for (int i = 0; i < funcs.size(); ++i) {
             const plot_function *pf = &funcs[i];
-            if (DIM_2 == fig_gca.type) {        //2维
+            if (DIM_2 == gca_it->second.type) {        //2维
                 plot_malloc.py_lists[i*2+0] = PyList_New(pf->point_vec.size());
                 plot_malloc.py_lists[i*2+1] = PyList_New(pf->point_vec.size());
                 //将二维函数对象中的点集按序分别装入两个不同的列表中，这两个列表分别对应函数对象的X及Y分量
@@ -578,15 +524,15 @@ namespace crx
             }
 
             //构造绘图函数的样式字符串
-            std::string style = plot_impl->m_line_styles[pf->ls];
+            std::string style = impl->m_line_styles[pf->ls];
             if (MARKER_NONE != pf->pm)
-                style.append(plot_impl->m_point_markers[pf->pm-1]);
+                style.append(impl->m_point_markers[pf->pm-1]);
             if (COL_DEFAULT != pf->col)
-                style.append(plot_impl->m_colors[pf->col-1]);
+                style.append(impl->m_colors[pf->col-1]);
 
             //将该样式字符串放在元组中的X、Y(Z)向量之后
             if (!style.empty()) {
-                if (DIM_2 == fig_gca.type)
+                if (DIM_2 == gca_it->second.type)
                     PyTuple_SetItem(plot_malloc.py_args, i*3+2, PyUnicode_FromString(style.c_str()));
                 else
                     PyTuple_SetItem(plot_malloc.py_args, i*4+3, PyUnicode_FromString(style.c_str()));
@@ -608,27 +554,26 @@ namespace crx
     void py_plot::clf()
     {
         const char *this_key = "clf";
-        auto obj_impl = (py_object_impl*)m_obj;
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        if (plot_impl->m_fig_gca.end() == plot_impl->m_fig_gca.find(plot_impl->m_curr_fig))
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
+
+        if (impl->m_fig_gca.end() == impl->m_fig_gca.find(impl->m_curr_fig))
             return;
 
-        PyObject *py_func = obj_impl->m_persis_funcs[this_key];     //获取"clf"函数对象
-        auto& clf_malloc = plot_impl->m_func_objs[this_key];
+        PyObject *py_func = impl->m_persis_funcs[this_key];     //获取"clf"函数对象
+        auto& clf_malloc = impl->m_func_objs[this_key];
 
         Py_XDECREF(clf_malloc.ret_val);
         clf_malloc.ret_val = PyObject_CallObject(py_func, nullptr);
-        plot_impl->call_gca();
+        impl->call_gca();
     }
 
     void py_plot::pause(int millisec /*= 100*/)
     {
         const char *this_key = "pause";
-        auto obj_impl = (py_object_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
 
-        PyObject *py_func = obj_impl->m_persis_funcs[this_key];     //获取"pause"函数对象
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        auto& pause_malloc = plot_impl->m_func_objs[this_key];
+        PyObject *py_func = impl->m_persis_funcs[this_key];     //获取"pause"函数对象
+        auto& pause_malloc = impl->m_func_objs[this_key];
 
         Py_XDECREF(pause_malloc.py_args);
         pause_malloc.py_args = PyTuple_New(1);
@@ -640,12 +585,11 @@ namespace crx
 
     void py_plot::close(int which)
     {
-        auto obj_impl = (py_object_impl*)m_obj;
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-
         const char *this_key = "close";
-        auto& close_malloc = plot_impl->m_func_objs[this_key];
-        PyObject *py_func = obj_impl->m_persis_funcs[this_key];     //获取"close"函数对象
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
+
+        auto& close_malloc = impl->m_func_objs[this_key];
+        PyObject *py_func = impl->m_persis_funcs[this_key];     //获取"close"函数对象
 
         Py_XDECREF(close_malloc.py_args);
         close_malloc.py_args = PyTuple_New(1);
@@ -658,28 +602,27 @@ namespace crx
         close_malloc.ret_val = PyObject_CallObject(py_func, close_malloc.py_args);
 
         if (-1 == which) {
-            plot_impl->m_fig_gca.clear();
-            plot_impl->m_curr_fig = -1;
+            impl->m_fig_gca.clear();
+            impl->m_curr_fig = -1;
         } else {
-            auto it = plot_impl->m_fig_gca.find(which);
-            if (plot_impl->m_fig_gca.end() != it)
-                plot_impl->m_fig_gca.erase(it);
+            auto it = impl->m_fig_gca.find(which);
+            if (impl->m_fig_gca.end() != it)
+                impl->m_fig_gca.erase(it);
         }
     }
 
     void py_plot::save_figure(const char *png_prefix, int dpi /*= 75*/)
     {
         const char *this_key = "savefig";
-        auto obj_impl = (py_object_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<py_plot_impl>(m_impl);
 
         std::string str_prefix = png_prefix;
         size_t pos = str_prefix.rfind("/");
         if (std::string::npos != pos)		//判断是否存在路径分隔符，存在则首先构造多级目录
             mkdir_multi(str_prefix.substr(0, pos).c_str());
 
-        PyObject *py_func = obj_impl->m_persis_funcs[this_key];		//获取"savefig"函数对象
-        auto plot_impl = (py_plot_impl*)obj_impl->obj;
-        auto& savefig_malloc = plot_impl->m_func_objs[this_key];
+        PyObject *py_func = impl->m_persis_funcs[this_key];		//获取"savefig"函数对象
+        auto& savefig_malloc = impl->m_func_objs[this_key];
 
         Py_XDECREF(savefig_malloc.py_args);
         savefig_malloc.py_args = PyTuple_New(1);

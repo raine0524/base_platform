@@ -2,7 +2,7 @@
 
 namespace crx
 {
-    class xml_impl
+    class xml_impl : public impl
     {
     public:
         xml_impl() : m_cn(nullptr) {}
@@ -39,19 +39,17 @@ namespace crx
 
     xml_parser::xml_parser()
     {
-        m_obj = new xml_impl;
+        m_impl = std::make_shared<xml_impl>();
     }
 
     xml_parser::~xml_parser()
     {
-        xml_impl *impl = (xml_impl*)m_obj;
-        impl->m_doc.SaveFile(impl->m_xml_file.c_str());		//保存最新的xml内存缓冲
-        delete impl;
+        flush();
     }
 
     bool xml_parser::load(const char *xml_file, const char *root /*= nullptr*/)
     {
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (tinyxml2::XML_NO_ERROR != impl->m_doc.LoadFile(xml_file))		//加载文件
             return false;
 
@@ -63,7 +61,7 @@ namespace crx
 
     xml_parser& xml_parser::switch_parent()
     {
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (impl->m_cn)		//切换到父节点
             impl->m_cn = impl->m_cn->Parent()->ToElement();
         return *this;
@@ -71,14 +69,14 @@ namespace crx
 
     xml_parser& xml_parser::switch_child(const char *node_name)
     {
-        xml_impl *impl = (xml_impl*)m_obj;		//切换到指定的孩子节点
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);    //切换到指定的孩子节点
         impl->access_child(node_name, true);
         return *this;
     }
 
     bool xml_parser::find_child(const char *node_name)
     {
-        xml_impl *impl = (xml_impl*)m_obj;		//查找指定的孩子节点
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);    //查找指定的孩子节点
         return impl->access_child(node_name, false);
     }
 
@@ -87,7 +85,7 @@ namespace crx
         if (!name)
             return;
 
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (impl->access_child(name, true)) {			//找到指定子节点，且发生切换操作
             set_value(value);		//设置节点的值
             switch_parent();
@@ -110,7 +108,7 @@ namespace crx
         if (!name)
             return;
 
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         tinyxml2::XMLElement *child = nullptr;
         while (true) {		//查找xml doc或当前节点下所有指定的孩子节点，并删除这些节点
             if (impl->m_cn) {
@@ -134,7 +132,7 @@ namespace crx
 
     const char* xml_parser::value()
     {
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (!impl->m_cn)
             return nullptr;
         return impl->m_cn->GetText();		//获取当前节点的值
@@ -142,7 +140,7 @@ namespace crx
 
     void xml_parser::set_value(const char *value, bool flush /*= true*/)
     {
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (!impl->m_cn)
             return;
         if (value)
@@ -155,7 +153,7 @@ namespace crx
 
     const char* xml_parser::attribute(const char *attr_name)
     {
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (!impl->m_cn)
             return nullptr;
         return impl->m_cn->Attribute(attr_name);		//获取当前节点指定属性的值
@@ -163,7 +161,7 @@ namespace crx
 
     void xml_parser::set_attribute(const char *name, const char *value, bool flush /*= true*/)
     {
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (!impl->m_cn)
             return;
         impl->m_cn->SetAttribute(name, value);		//设置当前节点指定属性的值
@@ -173,7 +171,7 @@ namespace crx
 
     void xml_parser::delete_attribute(const char *name, bool flush /*= true*/)
     {
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (!impl->m_cn)
             return;
         impl->m_cn->DeleteAttribute(name);		//删除当前节点的指定属性
@@ -183,13 +181,13 @@ namespace crx
 
     void xml_parser::flush()
     {
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         impl->m_doc.SaveFile(impl->m_xml_file.c_str());		//刷新当前缓存
     }
 
     void xml_parser::for_each_attr(std::function<void(std::string&, std::string&, void*)> f, void *arg /*= nullptr*/)
     {
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (!impl->m_cn)
             return;
 
@@ -205,7 +203,7 @@ namespace crx
     void xml_parser::for_each_child(std::function<void(std::string&, std::string&, std::unordered_map<std::string, std::string>&, void*)> f,
                                     void *arg /*= nullptr*/)
     {
-        xml_impl *impl = (xml_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (!impl->m_cn)
             return;
 

@@ -24,34 +24,13 @@ namespace crx
         server_cmd() { bzero(this, sizeof(server_cmd)); }
     };
 
-    class scheduler;
-    class CRX_SHARE simpack_server : public kobj
+    class CRX_SHARE simpack_server : public sch_util
     {
     public:
-        bool start(const char *ini_file);
-
-        void stop();
-
         void request(int conn, const server_cmd& cmd, const char *data, size_t len);
 
         void response(int conn, const server_cmd& cmd, const char *data, size_t len);
 
         void notify(int conn, const server_cmd& cmd, const char *data, size_t len);
-
-    public:
-        //注册事件回调
-        void reg_connect(std::function<void(const crx::server_info&, void*)> f);
-
-        void reg_disconnect(std::function<void(const crx::server_info&, void*)> f);
-
-        void reg_request(std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t, void*)> f);
-
-        void reg_response(std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t, void*)> f);
-
-        void reg_notify(std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t, void*)> f);
-
-    protected:
-        simpack_server() = default;
-        friend scheduler;
     };
 }

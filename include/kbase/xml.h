@@ -6,7 +6,6 @@ namespace crx
 	{
 	public:
 		xml_parser();
-
 		virtual ~xml_parser();
 
 		/*

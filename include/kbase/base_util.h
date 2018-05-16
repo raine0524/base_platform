@@ -15,19 +15,16 @@ namespace crx
     bool CRX_SHARE setcloseonexec(int fd);
 
     //度量函数f的运行时间，单位为us
-    int64_t CRX_SHARE measure_timecns(std::function<void()> f);
+    int64_t CRX_SHARE measure_time(std::function<void()> f);
 
     //打印当前执行点的调用堆栈
     void CRX_SHARE dump_segment();
-
-    //检查符号链接文件是否存在
-    bool CRX_SHARE symlink_exist(const char *file);
 
     //一次创建多级目录，所有目录的都采用相同的mode
     void CRX_SHARE mkdir_multi(const char *path, mode_t mode = 0755);
 
     //字符集转换
-    std::string CRX_SHARE charset_convert(const char *from_charset, const char *to_charset, const char *src_data, int src_len);
+    std::string CRX_SHARE charset_convert(const char *from_charset, const char *to_charset, const char *src_data, size_t src_len);
 
     //获取本机地址(mac/ip等)
     std::string CRX_SHARE get_local_addr(ADDR_TYPE type, const char *net_card = "eth0");
@@ -42,7 +39,7 @@ namespace crx
     int CRX_SHARE get_week_day(unsigned int date);
 
     //计算指定日期N天前后的日期 @spec_day: 指定日期(20170718) @N: N天前后(N>0表示N天后，反之为N天前) @return: 返回N天前后的日期
-    unsigned int CRX_SHARE get_Nth_day(unsigned int spec_day, int N);
+    int CRX_SHARE get_Nth_day(unsigned int spec_day, int N);
 
     //获取指定文件的大小
     int CRX_SHARE get_file_size(const char *file);
@@ -65,7 +62,7 @@ namespace crx
     /*
      * 将域名形式的主机地址server转换为点分十进制格式的ip地址，成功则返回true，反之返回false。若server已经是ip地址，
      * 则该函数执行server = ip_addr并返回true(使用glibc库中的gethostbyname进行域名解析，该函数将阻塞当前执行流
-     * 且是不可重入的，因此当前例程主要是用来进行测试用的。在tcp_client类中的connect接口采用异步的方式进行域名解析)
+     * 且是不可重入的.在tcp_client类中的connect接口采用异步的方式进行域名解析)
      */
     bool CRX_SHARE convert_ipaddr(const char *server, std::string& ip_addr);
 

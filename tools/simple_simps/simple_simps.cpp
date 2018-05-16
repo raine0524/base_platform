@@ -29,19 +29,8 @@ void simple_simps::on_notify(const crx::server_info &info, const crx::server_cmd
 
 bool simple_simps::init(int argc, char **argv)
 {
-    m_server = get_simpack_server(this);
-    m_server->reg_connect(on_connect);
-    m_server->reg_disconnect(on_disconnect);
-    m_server->reg_request(on_request);
-    m_server->reg_response(on_response);
-    m_server->reg_notify(on_notify);
-    m_server->start("ini/server.ini");
+    m_server = get_simpack_server(on_connect, on_disconnect, on_request, on_response, on_notify, this);
     return true;
-}
-
-void simple_simps::destroy()
-{
-    m_server->stop();
 }
 
 int main(int argc, char *argv[])

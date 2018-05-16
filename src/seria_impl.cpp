@@ -4,7 +4,7 @@ namespace crx
 {
     using msgpack::type::raw_ref;
 
-    class seria_impl
+    class seria_impl : public impl
     {
     public:
         seria_impl(bool use_simp) : m_packer(&m_pack_buf), m_use_simp(use_simp) {}
@@ -23,7 +23,7 @@ namespace crx
 
     seria::seria(bool use_simp /*= false*/)
     {
-        auto impl = new seria_impl(use_simp);
+        auto impl = std::make_shared<seria_impl>(use_simp);
         if (use_simp)
             impl->m_packer.pack_str_body((const char*)&impl->m_stub_header, sizeof(simp_header));
         /*
@@ -32,17 +32,12 @@ namespace crx
          */
         int32_t pack_size = use_simp ? sizeof(simp_header)+5 : 5;
         impl->m_packer.pack_fix_int32(pack_size);
-        m_obj = impl;
-    }
-
-    seria::~seria()
-    {
-        delete (seria_impl*)m_obj;
+        m_impl = impl;
     }
 
     void seria::reset()
     {
-        auto impl = (seria_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<seria_impl>(m_impl);
         //在执行重置操作时除将缓冲区pack_buf清空之外，同样需要预留5个字节的空间
         impl->m_pack_buf.clear();
 
@@ -54,7 +49,7 @@ namespace crx
 
     void seria::insert(const char *key, const char *data, size_t len)
     {
-        auto impl = (seria_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<seria_impl>(m_impl);
         raw_ref rkey(key, strlen(key));
         raw_ref rval(data, len);
         std::pair<raw_ref, raw_ref> pair(rkey, rval);
@@ -70,7 +65,7 @@ namespace crx
 
     mem_ref seria::get_string(bool comp /*= false*/)
     {
-        auto impl = (seria_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<seria_impl>(m_impl);
         if (comp) {     //使用ZIP算法对原始序列化串进行压缩
             size_t org_len = impl->m_pack_buf.size();
             size_t dst_len = compressBound(org_len);		//根据原始大小计算压缩之后整个字符串的大小
@@ -136,7 +131,7 @@ namespace crx
 
     std::unordered_map<std::string, mem_ref> seria::dump(const char *data, size_t len)
     {
-        auto impl = (seria_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<seria_impl>(m_impl);
         impl->m_dump_map.clear();
         impl->deseria(data, len);		//反序列化
 

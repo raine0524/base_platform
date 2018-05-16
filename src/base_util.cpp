@@ -26,7 +26,7 @@ namespace crx
             return "";
 
         // Use = signs so the end is properly padded.
-        std::string retval((((len + 2) / 3) * 4), '=');
+        std::string retval((size_t)(((len + 2) / 3) * 4), '=');
         size_t outpos = 0;
         int bits_collected = 0;
         unsigned int accumulator = 0;
@@ -101,7 +101,7 @@ namespace crx
         return true;
     }
 
-    int64_t measure_timecns(std::function<void()> f)
+    int64_t measure_time(std::function<void()> f)
     {
         timeval start = {0}, end = {0};
         gettimeofday(&start, nullptr);
@@ -110,19 +110,10 @@ namespace crx
         return ((int64_t)(end.tv_sec-start.tv_sec))*1000000+(int64_t)(end.tv_usec-start.tv_usec);
     }
 
-    bool symlink_exist(const char *file)
-    {
-        if (!file)		//接口参数安全性检查
-            return false;
-
-        struct stat buf;
-        return (0 == lstat(file, &buf));
-    }
-
     void dump_segment()
     {
         void *buffer[1024] = {0};
-        size_t size = backtrace(buffer, 1024);		//获取函数调用栈中每个调用点的地址
+        int size = backtrace(buffer, 1024);		//获取函数调用栈中每个调用点的地址
         char **strings = backtrace_symbols(buffer, size);		//将地址转换为函数名及其在函数内部以十六进制表示的偏移量
         if (!strings) {
             perror("backtrace_symbols failed");
@@ -141,8 +132,8 @@ namespace crx
         //过滤掉开始的一条(调用dump_segment的记录)和最后两条记录
         for (int i = 1; i < size-2; ++i) {
             std::string sym_str = strings[i];
-            int first = sym_str.find('[');
-            int last = sym_str.rfind(']');
+            size_t first = sym_str.find('[');
+            size_t last = sym_str.rfind(']');
             std::string ins_addr(strings[i]+first+1, last-first-1);
 
             /*
@@ -150,12 +141,12 @@ namespace crx
              * 			so_name				func_symbol				  offset			address
              * ../so/libkbase_d.so(_ZN3crx7console3runEiPPc+0xb9) [0x7fc1fdf920b3]
              */
-            int left_bracket = sym_str.find('(');
+            size_t left_bracket = sym_str.find('(');
             std::string elf_name(strings[i], left_bracket);		//获取当前指令所在映像对应的elf文件
             if (std::string::npos != elf_name.rfind(".so")) {		//so
                 unsigned long so_ins_addr = std::stoul(ins_addr, nullptr, 0);
-                int plus_symbol = sym_str.find('+');
-                int right_bracket = sym_str.find(')');
+                size_t plus_symbol = sym_str.find('+');
+                size_t right_bracket = sym_str.find(')');
                 std::string ins_off_str(strings[i]+plus_symbol+1, right_bracket-plus_symbol-1);
                 unsigned long ins_off = std::stoul(ins_off_str, nullptr, 0);
                 unsigned long so_func_addr = so_ins_addr-ins_off;		//获取函数地址
@@ -211,9 +202,9 @@ namespace crx
         }
     }
 
-    std::string charset_convert(const char *from_charset, const char *to_charset, const char *src_data, int src_len)
+    std::string charset_convert(const char *from_charset, const char *to_charset, const char *src_data, size_t src_len)
     {
-        if (!src_data || src_len <= 0)		//接口安全性检查
+        if (!src_data || src_len == 0)		//接口安全性检查
             return "";
 
         /*
@@ -238,46 +229,46 @@ namespace crx
         if (!net_card)		//接口安全性检查
             return "";
 
-        char buffer[32] = {0};
-        struct ifreq ifr;
-        memset(&ifr, 0, sizeof(ifr));
-        strcpy(ifr.ifr_name, net_card);
+        size_t cmd = 0;
+        if (ADDR_MAC == type)
+            cmd = SIOCGIFHWADDR;
+        else if (ADDR_IP == type)
+            cmd = SIOCGIFADDR;
+        else
+            return "";
+
         int sock_fd = ::socket(AF_INET, SOCK_STREAM, 0);		//获取MAC或者IP地址都需要用到socket套接字
         if (-1 == sock_fd) {
             perror("get_local_addr::socket");
             return "";
         }
-        int cmd = -1;
-        switch (type) {
-            case ADDR_MAC: cmd = SIOCGIFHWADDR; break;
-            case ADDR_IP: cmd = SIOCGIFADDR; break;
-            default: goto exit_flag;
-        }
+
+        struct ifreq ifr;
+        memset(&ifr, 0, sizeof(ifr));
+        strcpy(ifr.ifr_name, net_card);
 
         if (-1 == ioctl(sock_fd, cmd, &ifr)) {		//根据不同的cmd获取不同的ifr结构体
             perror("get_local_addr::ioctl");
-            goto exit_flag;
+            close(sock_fd);
+            return "";
         }
 
-        switch (type) {
-            case ADDR_MAC:
-                sprintf(buffer, "%02x:%02x:%02x:%02x:%02x:%02x",
-                        (unsigned char)ifr.ifr_hwaddr.sa_data[0],
-                        (unsigned char)ifr.ifr_hwaddr.sa_data[1],
-                        (unsigned char)ifr.ifr_hwaddr.sa_data[2],
-                        (unsigned char)ifr.ifr_hwaddr.sa_data[3],
-                        (unsigned char)ifr.ifr_hwaddr.sa_data[4],
-                        (unsigned char)ifr.ifr_hwaddr.sa_data[5]);
-                break;
-            case ADDR_IP:
-                struct sockaddr_in *addr = (struct sockaddr_in*)&ifr.ifr_addr;
-                strcpy(buffer, inet_ntoa(addr->sin_addr));
-                break;
+        char buffer[32] = {0};
+        if (ADDR_MAC == type) {
+            sprintf(buffer, "%02x:%02x:%02x:%02x:%02x:%02x",
+                    (unsigned char)ifr.ifr_hwaddr.sa_data[0],
+                    (unsigned char)ifr.ifr_hwaddr.sa_data[1],
+                    (unsigned char)ifr.ifr_hwaddr.sa_data[2],
+                    (unsigned char)ifr.ifr_hwaddr.sa_data[3],
+                    (unsigned char)ifr.ifr_hwaddr.sa_data[4],
+                    (unsigned char)ifr.ifr_hwaddr.sa_data[5]);
+        } else {        //ADDR_IP == type
+            struct sockaddr_in *addr = (struct sockaddr_in*)&ifr.ifr_addr;
+            strcpy(buffer, inet_ntoa(addr->sin_addr));
         }
 
-        exit_flag:
         close(sock_fd);
-        return buffer;
+        return std::string(buffer);
     }
 
     std::string get_current_working_path()
@@ -326,7 +317,7 @@ namespace crx
         return week_day;
     }
 
-    unsigned int get_Nth_day(unsigned int spec_day, int N)
+    int get_Nth_day(unsigned int spec_day, int N)
     {
         tm spec_time;
         spec_time.tm_year = spec_day/10000;
@@ -352,7 +343,7 @@ namespace crx
             if (-1 == stat(file, &st))
                 return -1;
             else
-                return st.st_size;
+                return (int)st.st_size;
         }
     }
 
@@ -364,7 +355,7 @@ namespace crx
         if (n < 0) {		//找src中的最后一个子串
             size_t pos = src.rfind(pattern);
             if (pos != std::string::npos)		//find
-                return pos;
+                return (int)pos;
             else
                 return -1;
         }
@@ -379,7 +370,7 @@ namespace crx
                 cnt++;			//记录在原始串中已经找到的模式串的个数 cnt+1
 
             if (cnt == n)
-                return pch-src.c_str();
+                return (int)(pch-src.c_str());
         }
         return -1;
     }
@@ -414,8 +405,8 @@ namespace crx
 
     bool convert_ipaddr(const char *server, std::string& ip_addr)
     {
-        in_addr_t ret = inet_addr(server);		//判断服务器的地址是否为点分十进制的ip地址
-        if (INADDR_NONE != ret) {		//已经是ip地址
+        in_addr_t ret = inet_addr(server);      //判断服务器的地址是否为点分十进制的ip地址
+        if (INADDR_NONE != ret) {               //已经是ip地址
             ip_addr = server;
             return true;
         }
@@ -427,12 +418,11 @@ namespace crx
 
         //当前使用的协议为ipv4
         assert(hent->h_addrtype == AF_INET);
-        ip_addr.resize(32);
         if (!hent->h_addr_list[0])
             return false;
 
-        //取addr_list列表中的第一个地址转化为ip地址
-        inet_ntop(hent->h_addrtype, hent->h_addr_list[0], &ip_addr[0], ip_addr.size()-1);
+        ip_addr.resize(32);     //取addr_list列表中的第一个地址转化为ip地址
+        inet_ntop(hent->h_addrtype, hent->h_addr_list[0], &ip_addr[0], (socklen_t)ip_addr.size());
         return true;
     }
 
@@ -447,7 +437,7 @@ namespace crx
 
         struct stat st;
         struct dirent *ent = nullptr;
-        while (ent = readdir(dir)) {
+        while ((ent = readdir(dir))) {
             if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
                 continue;
 

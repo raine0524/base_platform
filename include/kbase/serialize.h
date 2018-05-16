@@ -10,7 +10,7 @@ namespace crx
          * 若是那么seria组件将会预留额外的空间用于组装满足协议格式的封包，否则不做任何预留
          */
         seria(bool use_simp = false);
-        virtual ~seria();
+        virtual ~seria() {}
 
         //序列化操作，reset为重置操作，该seria对象可以重复使用
         void reset();

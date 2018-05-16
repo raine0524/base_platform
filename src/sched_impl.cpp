@@ -4,86 +4,50 @@ namespace crx
 {
     log *g_log = nullptr;
 
-    scheduler::scheduler(bool remote_log /*= false*/)
+    scheduler::scheduler()
     {
-        auto *impl = new scheduler_impl(this);
+        auto impl = std::make_shared<scheduler_impl>(this);
         impl->m_cos.reserve(64);        //预留64个协程
         impl->m_ev_array.reserve(128);  //预留128个epoll事件
-        impl->m_remote_log = remote_log;
-        m_obj = impl;
+        m_impl = std::move(impl);
     }
 
     scheduler::~scheduler()
     {
-        auto impl = (scheduler_impl*)m_obj;
-        for (auto co_impl : impl->m_cos)
-            delete co_impl;
-
-        for (auto log : impl->m_logs)
-            delete log;
-
-        if (impl->m_sigctl)
-            delete impl->m_sigctl;
-
-        if (impl->m_tcp_client) {
-            delete (tcp_client_impl*)impl->m_tcp_client->m_obj;
-            delete impl->m_tcp_client;
-        }
-
-        if (impl->m_tcp_server)
-            delete impl->m_tcp_server;
-
-        if (impl->m_http_client) {
-            delete (http_client_impl*)impl->m_http_client->m_obj;
-            delete impl->m_http_client;
-        }
-
-        if (impl->m_http_server)
-            delete impl->m_http_server;
-
-        if (impl->m_simp_server) {
-            delete (simpack_server_impl*)impl->m_simp_server->m_obj;
-            delete impl->m_simp_server;
-        }
-
-        if (impl->m_fs_monitor)
-            delete impl->m_fs_monitor;
-
-        if (-1 != impl->m_epoll_fd) {
+        auto impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        if (-1 != impl->m_epoll_fd)
             close(impl->m_epoll_fd);
-            impl->m_epoll_fd = -1;
-        }
-        delete impl;
     }
 
     size_t scheduler::co_create(std::function<void(scheduler *sch, void *arg)> f, void *arg,
                                 bool is_share /*= false*/, const char *comment /*= nullptr*/)
     {
-        auto impl = (scheduler_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         return impl->co_create(f, arg, this, false, is_share, comment);
     }
 
-    bool scheduler::co_yield(size_t co_id, SUS_STATUS sts /*= STS_WAIT*/)
+    bool scheduler::co_yield(size_t co_id, SUS_TYPE type /*= WAIT_EVENT*/)
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        assert(co_id < sch_impl->m_cos.size());
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        if (co_id >= sch_impl->m_cos.size())
+            return false;
+
         if (sch_impl->m_running_co == co_id)        //co_id无效或对自身进行切换，直接返回
             return true;
 
         auto yield_co = sch_impl->m_cos[co_id];
-        if (!yield_co || CO_UNKNOWN == yield_co->status)      //指定协程无效或者状态指示不可用，同样不发生切换
-            return false;
+        if (!yield_co || CO_UNKNOWN == yield_co->status || CO_RUNNING == yield_co->status)
+            return false;               //指定协程无效或者状态指示不可用，同样不发生切换
 
-        assert(CO_RUNNING != yield_co->status);
         auto curr_co = sch_impl->m_cos[sch_impl->m_running_co];
         sch_impl->m_running_co = (int)co_id;
 
         auto main_co = sch_impl->m_cos[0];
         if (curr_co->is_share)      //当前协程使用的是共享栈模式，其使用的栈是主协程中申请的空间
-            sch_impl->save_stack(curr_co, main_co->stack+STACK_SIZE);
+            sch_impl->save_stack(curr_co, main_co->stack.data()+STACK_SIZE);
 
         curr_co->status = CO_SUSPEND;
-        curr_co->sus_sts = sts;
+        curr_co->type = type;
 
         //当前协程与待切换的协程都使用了共享栈
         if (curr_co->is_share && yield_co->is_share && CO_SUSPEND == yield_co->status) {
@@ -92,7 +56,7 @@ namespace crx
         } else {
             //待切换的协程使用的是共享栈模式并且当前处于挂起状态，恢复其栈空间至主协程的缓冲区中
             if (yield_co->is_share && CO_SUSPEND == yield_co->status)
-                memcpy(main_co->stack+STACK_SIZE-yield_co->size, yield_co->stack, yield_co->size);
+                memcpy(&main_co->stack[0]+STACK_SIZE-yield_co->size, yield_co->stack.data(), yield_co->size);
 
             sch_impl->m_next_co = -1;
             yield_co->status = CO_RUNNING;
@@ -100,21 +64,20 @@ namespace crx
         }
 
         //此时位于主协程中，且主协程用于帮助从一个使用共享栈的协程切换到另一个使用共享栈的协程中
-        while (-1 != sch_impl->m_next_co) {
+        if (-1 != sch_impl->m_next_co) {
             auto next_co = sch_impl->m_cos[sch_impl->m_next_co];
-            sch_impl->m_next_co = -1;
-            memcpy(main_co->stack+STACK_SIZE-next_co->size, next_co->stack, next_co->size);
+            memcpy(&main_co->stack[0]+STACK_SIZE-next_co->size, next_co->stack.data(), next_co->size);
             next_co->status = CO_RUNNING;
             swapcontext(&main_co->ctx, &next_co->ctx);
         }
         return true;
     }
 
-    std::vector<coroutine*> scheduler::get_avail_cos()
+    std::vector<std::shared_ptr<coroutine>> scheduler::get_avail_cos()
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        std::vector<coroutine*> cos;
-        for (auto co_impl : sch_impl->m_cos)
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        std::vector<std::shared_ptr<coroutine>> cos;
+        for (auto& co_impl : sch_impl->m_cos)
             if (CO_UNKNOWN != co_impl->status)
                 cos.push_back(co_impl);
         return cos;
@@ -123,26 +86,25 @@ namespace crx
     size_t scheduler_impl::co_create(std::function<void(scheduler *sch, void *arg)>& f, void *arg, scheduler *sch,
                                      bool is_main_co, bool is_share /*= false*/, const char *comment /*= nullptr*/)
     {
-        coroutine_impl *co_impl = nullptr;
+        std::shared_ptr<coroutine_impl> co_impl;
         if (m_unused_cos.empty()) {
-            co_impl = new coroutine_impl;
+            co_impl = std::make_shared<coroutine_impl>();
             co_impl->co_id = m_cos.size();
             m_cos.push_back(co_impl);
         } else {        //复用之前已创建的协程
             std::pop_heap(m_unused_cos.begin(), m_unused_cos.end(), std::greater<size_t>());
             size_t co_id = m_unused_cos.back();
             m_unused_cos.pop_back();
-            co_impl = m_cos[co_id];       //复用时其id不变
-            if (co_impl->is_share != is_share) {        //复用时堆栈的使用模式改变
-                delete []co_impl->stack;
-                co_impl->stack = nullptr;
-            }
+
+            co_impl = m_cos[co_id];                 //复用时其id不变
+            if (co_impl->is_share != is_share)      //复用时堆栈的使用模式改变
+                co_impl->stack.clear();
         }
 
         co_impl->status = is_main_co ? CO_RUNNING : CO_READY;
         co_impl->is_share = is_share;
         if (!is_share)      //不使用共享栈时将在协程创建的同时创建协程所用的栈
-            co_impl->stack = new char[STACK_SIZE];
+            co_impl->stack.resize(STACK_SIZE);
 
         if (comment) {
             bzero(co_impl->comment, sizeof(co_impl->comment));
@@ -156,9 +118,9 @@ namespace crx
             auto main_co = m_cos[0];
             getcontext(&co_impl->ctx);
             if (is_share)
-                co_impl->ctx.uc_stack.ss_sp = main_co->stack;
+                co_impl->ctx.uc_stack.ss_sp = &main_co->stack[0];
             else
-                co_impl->ctx.uc_stack.ss_sp = co_impl->stack;
+                co_impl->ctx.uc_stack.ss_sp = &co_impl->stack[0];
             co_impl->ctx.uc_stack.ss_size = STACK_SIZE;
             co_impl->ctx.uc_link = &main_co->ctx;
 
@@ -168,25 +130,23 @@ namespace crx
         return co_impl->co_id;
     }
 
-    void scheduler_impl::save_stack(coroutine_impl *co_impl, const char *top)
+    void scheduler_impl::save_stack(std::shared_ptr<coroutine_impl>& co_impl, const char *top)
     {
         char stub = 0;
         assert(top-&stub <= STACK_SIZE);
-        if (co_impl->capacity < top-&stub) {        //容量不足
-            co_impl->capacity = top-&stub;
-            delete []co_impl->stack;
-            co_impl->stack = new char[co_impl->capacity];
-        }
+        if (co_impl->stack.size() < top-&stub)      //容量不足
+            co_impl->stack.resize(top-&stub);
+
         co_impl->size = top-&stub;
-        memcpy(co_impl->stack, &stub, co_impl->size);
+        memcpy(&co_impl->stack[0], &stub, co_impl->size);
     }
 
     void scheduler_impl::coroutine_wrap(uint32_t low32, uint32_t hi32)
     {
         uintptr_t this_ptr = ((uintptr_t)hi32 << 32) | (uintptr_t)low32;
         auto sch = (scheduler*)this_ptr;
-        auto sch_impl = (scheduler_impl*)sch->m_obj;
-        coroutine_impl *co_impl = sch_impl->m_cos[sch_impl->m_running_co];
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(sch->m_impl);
+        auto co_impl = sch_impl->m_cos[sch_impl->m_running_co];
         co_impl->f(sch, co_impl->arg);
 
         //协程执行完成后退出，此时处于不可用状态，进入未使用队列等待复用
@@ -199,10 +159,10 @@ namespace crx
 
     void scheduler_impl::main_coroutine(scheduler *sch)
     {
-        auto events = new epoll_event[EPOLL_SIZE];
+        std::vector<epoll_event> events(EPOLL_SIZE);
         m_go_done = true;
         while (m_go_done) {
-            int cnt = epoll_wait(m_epoll_fd, events, EPOLL_SIZE, 10);		//时间片设置为10ms，与Linux内核使用的时间片相近
+            int cnt = epoll_wait(m_epoll_fd, &events[0], EPOLL_SIZE, 10);		//时间片设置为10ms，与Linux内核使用的时间片相近
 
             if (-1 == cnt) {			//epoll_wait有可能因为中断操作而返回，然而此时并没有任何监听事件触发
                 perror("main_coroutine::epoll_wait");
@@ -216,13 +176,15 @@ namespace crx
             for (; i < cnt; ++i) {      //处理已触发的事件
                 int fd = events[i].data.fd;
                 auto ev = m_ev_array[fd];
-                if (ev)
-                    ev->f(sch, ev->arg);
+                if (ev && !ev->arg.expired()) {
+                    auto cb_arg = ev->arg.lock();
+                    ev->f(sch, cb_arg);
+                }
             }
 
             i = 1;
             while (i < m_cos.size()) {
-                if (CO_SUSPEND == m_cos[i]->status && STS_HAVE_REST == m_cos[i]->sus_sts)
+                if (CO_SUSPEND == m_cos[i]->status && HAVE_REST == m_cos[i]->type)
                     m_sch->co_yield(i);
                 ++i;
             }
@@ -232,12 +194,10 @@ namespace crx
             if (total_cos > 64 && m_unused_cos.size() >= 3*total_cos/4.0) {
                 for (i = 0; i < total_cos/2; ++i) {
                     auto last_co = m_cos.back();
-                    if (CO_UNKNOWN == last_co->status) {        //从后往前释放资源，当最后一个协程无效时才释放该资源
-                        delete last_co;
+                    if (CO_UNKNOWN == last_co->status)      //从后往前释放资源，当最后一个协程无效时才释放该资源
                         m_cos.pop_back();
-                    } else {
+                    else
                         break;
-                    }
                 }
 
                 //重新建立未使用co_id的最小堆
@@ -249,9 +209,11 @@ namespace crx
             }
         }
 
-        for (auto ev : m_ev_array)
-            remove_event(ev);
-        delete []events;
+        auto& simp_server = m_util_objs[SIMP_SVR];
+        if (simp_server) {
+            auto simp_impl = std::dynamic_pointer_cast<simpack_server_impl>(simp_server->m_impl);
+            simp_impl->stop();
+        }
     }
 
     void scheduler_impl::handle_event(int op, int fd, uint32_t event)
@@ -264,13 +226,14 @@ namespace crx
             perror("handle_event::epoll_ctl");
     }
 
-    void scheduler_impl::add_event(eth_event *ev, uint32_t event /*= EPOLLIN*/)
+    void scheduler_impl::add_event(std::shared_ptr<eth_event> ev, uint32_t event /*= EPOLLIN*/)
     {
         if (ev) {
             if (ev->fd >= m_ev_array.size())
                 m_ev_array.resize((size_t)ev->fd+1, nullptr);
-            m_ev_array[ev->fd] = ev;
+
             handle_event(EPOLL_CTL_ADD, ev->fd, event);
+            m_ev_array[ev->fd] = std::move(ev);
         }
     }
 
@@ -278,20 +241,23 @@ namespace crx
      * 移除事件对象时，对内存资源的释放进行优化较为困难，本质上是因为事件指针可能指向多个不同的继承对象，在复用该内存区域时
      * 前后两个实际对象并不一致，此时进行针对性的优化意义不大，直接使用系统的一般化内存管理方案即可
      */
-    void scheduler_impl::remove_event(eth_event *ev)
+    void scheduler_impl::remove_event(int fd)
     {
+        if (fd < 0 || fd >= m_ev_array.size())
+            return;
+
+        auto& ev = m_ev_array[fd];
         if (ev) {
-            handle_event(EPOLL_CTL_DEL, ev->fd, EPOLLIN);
-            if (ev->fd == m_ev_array.size()-1)
-                m_ev_array.resize((size_t)ev->fd);
+            handle_event(EPOLL_CTL_DEL, fd, EPOLLIN);
+            if (fd == m_ev_array.size()-1)
+                m_ev_array.resize((size_t)fd);
             else
-                m_ev_array[ev->fd] = nullptr;
-            delete ev;
+                m_ev_array[fd].reset();
         }
     }
 
     //异步读的一个原则是只要可读就一直读，直到errno被置为EAGAIN提示等待更多数据可读
-    int scheduler_impl::async_read(eth_event *ev, std::string& read_str)
+    int scheduler_impl::async_read(std::shared_ptr<eth_event> ev, std::string& read_str)
     {
         size_t read_size = read_str.size();
         while (true) {
@@ -320,7 +286,7 @@ namespace crx
         }
     }
 
-    void scheduler_impl::async_write(eth_event *ev, const char *data, size_t len)
+    void scheduler_impl::async_write(std::shared_ptr<eth_event> ev, const char *data, size_t len)
     {
         if (!ev->cache_data.empty()) {      //存在缓存数据，正在监听可写事件
             ev->cache_data.push_back(std::string(data, len));
@@ -333,7 +299,7 @@ namespace crx
 
         if (-1 == sts && EAGAIN != errno) {     //出现异常，不再监听关联事件
             perror("scheduler_impl::async_write");
-            remove_event(ev);
+            remove_event(ev->fd);
             return;
         }
 
@@ -348,7 +314,7 @@ namespace crx
         handle_event(EPOLL_CTL_MOD, ev->fd, EPOLLOUT);
     }
 
-    void scheduler_impl::switch_write(scheduler *sch, eth_event *arg)
+    void scheduler_impl::switch_write(scheduler *sch, std::shared_ptr<eth_event>& arg)
     {
         bool excep_occur = false;
         for (auto it = arg->cache_data.begin(); it != arg->cache_data.end(); ) {
@@ -374,82 +340,83 @@ namespace crx
             arg->f_bk(sch, arg);
         } else if (arg->cache_data.empty()) {   //切换监听读事件
             arg->f = std::move(arg->f_bk);
-            arg->sch_impl->handle_event(EPOLL_CTL_MOD, arg->fd, EPOLLIN);
+            auto sch_impl = arg->sch_impl.lock();
+            sch_impl->handle_event(EPOLL_CTL_MOD, arg->fd, EPOLLIN);
         }
     }
 
     log* scheduler::get_log(const char *prefix, const char *root_dir /*= "log_files"*/,
                             int max_size /*= 2*/, bool print_screen /*= true*/)
     {
-        g_log = new log;
-        auto impl = new log_impl;
-        g_log->m_obj = impl;
-        impl->m_prefix = prefix;
-        impl->m_root_dir = root_dir;
-        impl->m_max_size = max_size*1024*1024;
-        impl->m_pscreen = print_screen;
-        impl->m_now = get_datetime();
-
-        char log_path[256] = {0}, file_wh[64] = {0};
-        int ret = sprintf(log_path, "%s/%d/%02d/%02d/", root_dir, impl->m_now.t->tm_year+1900,
-                          impl->m_now.t->tm_mon+1, impl->m_now.t->tm_mday);
-        mkdir_multi(log_path);
-
-        sprintf(file_wh, "%s_%02d", prefix, impl->m_now.t->tm_hour);
-        depth_first_traverse_dir(log_path, [&](const std::string& fname, void *arg) {
-            if (std::string::npos != fname.find(file_wh)) {
-                auto pos = fname.rfind('[');
-                int split_idx = atoi(&fname[pos+1]);
-                if (split_idx > impl->m_split_idx)
-                    impl->m_split_idx = split_idx;
-            }
-        }, nullptr, false);
-        sprintf(log_path+ret, "%s[%02d].log", file_wh, impl->m_split_idx);
-
-        if (-1 != impl->fd)
-            close(impl->fd);
-        if (access(log_path, F_OK))     //file not exist
-            impl->fd = open(log_path, O_CREAT | O_WRONLY, 0644);
-        else
-            impl->fd = open(log_path, O_WRONLY);
-        impl->m_curr_size = (int)lseek(impl->fd, 0, SEEK_END);
-
-        auto sch_impl = (scheduler_impl*)m_obj;
-        sch_impl->m_logs.push_back(g_log);
+//        g_log = new log;
+//        auto impl = new log_impl;
+//        g_log->m_obj = impl;
+//        impl->m_prefix = prefix;
+//        impl->m_root_dir = root_dir;
+//        impl->m_max_size = max_size*1024*1024;
+//        impl->m_pscreen = print_screen;
+//        impl->m_now = get_datetime();
+//
+//        char log_path[256] = {0}, file_wh[64] = {0};
+//        int ret = sprintf(log_path, "%s/%d/%02d/%02d/", root_dir, impl->m_now.t->tm_year+1900,
+//                          impl->m_now.t->tm_mon+1, impl->m_now.t->tm_mday);
+//        mkdir_multi(log_path);
+//
+//        sprintf(file_wh, "%s_%02d", prefix, impl->m_now.t->tm_hour);
+//        depth_first_traverse_dir(log_path, [&](const std::string& fname, void *arg) {
+//            if (std::string::npos != fname.find(file_wh)) {
+//                auto pos = fname.rfind('[');
+//                int split_idx = atoi(&fname[pos+1]);
+//                if (split_idx > impl->m_split_idx)
+//                    impl->m_split_idx = split_idx;
+//            }
+//        }, nullptr, false);
+//        sprintf(log_path+ret, "%s[%02d].log", file_wh, impl->m_split_idx);
+//
+//        if (-1 != impl->fd)
+//            close(impl->fd);
+//        if (access(log_path, F_OK))     //file not exist
+//            impl->fd = open(log_path, O_CREAT | O_WRONLY, 0644);
+//        else
+//            impl->fd = open(log_path, O_WRONLY);
+//        impl->m_curr_size = (int)lseek(impl->fd, 0, SEEK_END);
+//
+//        auto sch_impl = (scheduler_impl*)m_obj;
+//        sch_impl->m_logs.push_back(g_log);
     }
 
     void log::printf(const char *fmt, ...)
     {
-        timeval tv = {0};
-        gettimeofday(&tv, nullptr);
-
-        auto impl = (log_impl*)m_obj;
-        if (tv.tv_sec != impl->m_last_sec) {
-            impl->m_last_sec = tv.tv_sec;
-            impl->m_now = get_datetime(&tv);
-            sprintf(&impl->m_log_buffer[0], "[%04d/%02d/%02d %02d:%02d:%02d.%06ld] ", impl->m_now.t->tm_year+1900, impl->m_now.t->tm_mon+1,
-                     impl->m_now.t->tm_mday, impl->m_now.t->tm_hour, impl->m_now.t->tm_min, impl->m_now.t->tm_sec, tv.tv_usec);
-        } else {
-            sprintf(&impl->m_log_buffer[21], "%06ld", tv.tv_usec);
-            impl->m_log_buffer[27] = ']';
-        }
-
-        va_list var1, var2;
-        va_start(var1, fmt);
-        va_copy(var2, var1);
-
-        char *data = &impl->m_log_buffer[0];
-        size_t remain = impl->m_log_buffer.size()-29;
-        size_t ret = (size_t)vsnprintf(&impl->m_log_buffer[29], remain, fmt, var1);
-        if (ret > remain) {
-            impl->m_temp.resize(ret+30, 0);
-            data = &impl->m_temp[0];
-            strncpy(&impl->m_temp[0], impl->m_log_buffer.c_str(), 29);
-            ret = (size_t)vsnprintf(&impl->m_temp[29], ret+1, fmt, var2);
-        }
-
-        va_end(var2);
-        va_end(var1);
+//        timeval tv = {0};
+//        gettimeofday(&tv, nullptr);
+//
+//        auto impl = (log_impl*)m_obj;
+//        if (tv.tv_sec != impl->m_last_sec) {
+//            impl->m_last_sec = tv.tv_sec;
+//            impl->m_now = get_datetime(&tv);
+//            sprintf(&impl->m_log_buffer[0], "[%04d/%02d/%02d %02d:%02d:%02d.%06ld] ", impl->m_now.t->tm_year+1900, impl->m_now.t->tm_mon+1,
+//                     impl->m_now.t->tm_mday, impl->m_now.t->tm_hour, impl->m_now.t->tm_min, impl->m_now.t->tm_sec, tv.tv_usec);
+//        } else {
+//            sprintf(&impl->m_log_buffer[21], "%06ld", tv.tv_usec);
+//            impl->m_log_buffer[27] = ']';
+//        }
+//
+//        va_list var1, var2;
+//        va_start(var1, fmt);
+//        va_copy(var2, var1);
+//
+//        char *data = &impl->m_log_buffer[0];
+//        size_t remain = impl->m_log_buffer.size()-29;
+//        size_t ret = (size_t)vsnprintf(&impl->m_log_buffer[29], remain, fmt, var1);
+//        if (ret > remain) {
+//            impl->m_temp.resize(ret+30, 0);
+//            data = &impl->m_temp[0];
+//            strncpy(&impl->m_temp[0], impl->m_log_buffer.c_str(), 29);
+//            ret = (size_t)vsnprintf(&impl->m_temp[29], ret+1, fmt, var2);
+//        }
+//
+//        va_end(var2);
+//        va_end(var1);
     }
 
     int simpack_protocol(char *data, size_t len)
@@ -481,14 +448,15 @@ namespace crx
             return ctx_len;
     }
 
-    sigctl* scheduler::get_sigctl(std::function<void(int, uint64_t, void*)> f, void *arg /*= nullptr*/)
+    std::shared_ptr<sigctl> scheduler::get_sigctl(std::function<void(int, uint64_t, void*)> f, void *arg /*= nullptr*/)
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        if (!sch_impl->m_sigctl) {
-            sch_impl->m_sigctl = new sigctl;        //创建一个新的sigctl
-            sch_impl->m_sigctl->m_obj = new sigctl_impl;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto& obj = sch_impl->m_util_objs[SIG_CTL];
+        if (!obj) {
+            obj = std::make_shared<sigctl>();        //创建一个新的sigctl
+            obj->m_impl = std::make_shared<sigctl_impl>();
 
-            auto sig_impl = (sigctl_impl*)sch_impl->m_sigctl->m_obj;
+            auto sig_impl = std::dynamic_pointer_cast<sigctl_impl>(obj->m_impl);
             sig_impl->fd = signalfd(-1, &sig_impl->m_mask, SFD_NONBLOCK);
             sig_impl->f = sig_impl->sigctl_callback;
             sig_impl->arg = sig_impl;
@@ -498,12 +466,12 @@ namespace crx
             sig_impl->m_arg = arg;
             sch_impl->add_event(sig_impl);
         }
-        return sch_impl->m_sigctl;
+        return std::dynamic_pointer_cast<sigctl>(obj);
     }
 
-    void sigctl_impl::sigctl_callback(scheduler *sch, eth_event *arg)
+    void sigctl_impl::sigctl_callback(scheduler *sch, std::shared_ptr<eth_event>& arg)
     {
-        auto impl = dynamic_cast<sigctl_impl*>(arg);
+        auto impl = std::dynamic_pointer_cast<sigctl_impl>(arg);
         int st_size = sizeof(impl->m_fd_info);
         while (true) {
             int64_t ret = read(impl->fd, &impl->m_fd_info, (size_t)st_size);
@@ -522,7 +490,8 @@ namespace crx
     //添加/删除信号文件描述符相关的信号掩码值时，要使新的信号集合生效，必须要重新添加该epoll上监听的signalfd
     void sigctl_impl::handle_sigs(const std::vector<int>& sigset, bool add)
     {
-        sch_impl->handle_event(EPOLL_CTL_DEL, fd, EPOLLIN);
+        auto impl = sch_impl.lock();
+        impl->handle_event(EPOLL_CTL_DEL, fd, EPOLLIN);
         for (auto sig : sigset) {
             if (add)
                 sigaddset(&m_mask, sig);
@@ -532,17 +501,18 @@ namespace crx
 
         sigprocmask(SIG_SETMASK, &m_mask, nullptr);
         signalfd(fd, &m_mask, SFD_NONBLOCK);
-        sch_impl->handle_event(EPOLL_CTL_ADD, fd, EPOLLIN);
+        impl->handle_event(EPOLL_CTL_ADD, fd, EPOLLIN);
     }
 
-    timer* scheduler::get_timer(std::function<void(void*)> f, void *arg /*= nullptr*/)
+    std::shared_ptr<timer> scheduler::get_timer(std::function<void(void*)> f, void *arg /*= nullptr*/)
     {
-        auto tmr = new timer;
-        tmr->m_obj = new timer_impl;
-        auto tmr_impl = (timer_impl*)tmr->m_obj;
+        auto tmr = std::make_shared<timer>();
+        auto tmr_impl = std::make_shared<timer_impl>();
+        tmr->m_impl = tmr_impl;
+
         tmr_impl->fd = timerfd_create(CLOCK_REALTIME, TFD_NONBLOCK);    //创建一个非阻塞的定时器资源
         if (__glibc_likely(-1 != tmr_impl->fd)) {
-            auto sch_impl = (scheduler_impl*)m_obj;
+            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
             tmr_impl->sch_impl = sch_impl;
             tmr_impl->f = tmr_impl->timer_callback;
             tmr_impl->arg = tmr_impl;
@@ -552,9 +522,7 @@ namespace crx
             sch_impl->add_event(tmr_impl);      //加入epoll监听事件
         } else {
             perror("scheduler::get_timer");
-            delete tmr_impl;
-            delete tmr;
-            tmr = nullptr;
+            tmr.reset();
         }
         return tmr;
     }
@@ -563,22 +531,23 @@ namespace crx
      * 触发定时器回调时首先读文件描述符 fd，读操作将定时器状态切换为已读，若不执行读操作，
      * 则由于epoll采用edge-trigger边沿触发模式，定时器事件再次触发时将不再回调该函数
      */
-    void timer_impl::timer_callback(scheduler* sch, eth_event *arg)
+    void timer_impl::timer_callback(scheduler *sch, std::shared_ptr<eth_event>& arg)
     {
-        auto impl = dynamic_cast<timer_impl*>(arg);
+        auto impl = std::dynamic_pointer_cast<timer_impl>(arg);
         uint64_t cnt;
         read(impl->fd, &cnt, sizeof(cnt));
         impl->m_f(impl->m_arg);
     }
 
-    event* scheduler::get_event(std::function<void(int, void*)> f, void *arg /*= nullptr*/)
+    std::shared_ptr<event> scheduler::get_event(std::function<void(int, void*)> f, void *arg /*= nullptr*/)
     {
-        auto ev = new event;
-        ev->m_obj = new event_impl;
-        auto ev_impl = (event_impl*)ev->m_obj;
+        auto ev = std::make_shared<event>();
+        auto ev_impl = std::make_shared<event_impl>();
+        ev->m_impl = ev_impl;
+
         ev_impl->fd = eventfd(0, EFD_NONBLOCK);			//创建一个非阻塞的事件资源
         if (__glibc_likely(-1 != ev_impl->fd)) {
-            auto sch_impl = (scheduler_impl*)m_obj;
+            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
             ev_impl->sch_impl = sch_impl;
             ev_impl->f = ev_impl->event_callback;
             ev_impl->arg = ev_impl;
@@ -588,16 +557,14 @@ namespace crx
             sch_impl->add_event(ev_impl);
         } else {
             perror("scheduler::get_event");
-            delete ev;
-            delete ev_impl;
-            ev = nullptr;
+            ev.reset();
         }
         return ev;
     }
 
-    void event_impl::event_callback(scheduler *sch, eth_event *arg)
+    void event_impl::event_callback(scheduler *sch, std::shared_ptr<eth_event>& arg)
     {
-        auto impl = dynamic_cast<event_impl*>(arg);
+        auto impl = std::dynamic_pointer_cast<event_impl>(arg);
         eventfd_t val;
         eventfd_read(impl->fd, &val);       //读操作将事件重置
 
@@ -605,23 +572,23 @@ namespace crx
             impl->m_f(signal, impl->m_arg);			//执行事件回调函数
     }
 
-    udp_ins* scheduler::get_udp_ins(bool is_server, uint16_t port,
-                                    std::function<void(const std::string&, uint16_t, const char*, size_t, void*)> f,
-                                    void *arg /*= nullptr*/)
+    std::shared_ptr<udp_ins>
+    scheduler::get_udp_ins(bool is_server, uint16_t port,
+                           std::function<void(const std::string&, uint16_t, const char*, size_t, void*)> f,
+                           void *arg /*= nullptr*/)
     {
-        auto ui = new udp_ins;
-        ui->m_obj = new udp_ins_impl;
+        auto ui = std::make_shared<udp_ins>();
+        auto ui_impl = std::make_shared<udp_ins_impl>();
+        ui->m_impl = ui_impl;
 
-        auto ui_impl = (udp_ins_impl*)ui->m_obj;
-        memset(&ui_impl->m_send_addr, 0, sizeof(ui_impl->m_send_addr));
         ui_impl->m_send_addr.sin_family = AF_INET;
-        if (is_server)		//创建server端的udp套接字不需要指明ip地址，若port设置为0，则系统将随机绑定一个可用端口
+        if (is_server)      //创建server端的udp套接字不需要指明ip地址，若port设置为0，则系统将随机绑定一个可用端口
             ui_impl->fd = ui_impl->m_net_sock.create(PRT_UDP, USR_SERVER, nullptr, port);
-        else		//创建client端的udp套接字时不会使用ip地址和端口
+        else                //创建client端的udp套接字时不会使用ip地址和端口
             ui_impl->fd = ui_impl->m_net_sock.create(PRT_UDP, USR_CLIENT, "127.0.0.1", port);
 
         if (__glibc_likely(-1 != ui_impl->fd)) {
-            auto sch_impl = (scheduler_impl*)m_obj;
+            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
             ui_impl->sch_impl = sch_impl;
             ui_impl->f = ui_impl->udp_ins_callback;
             ui_impl->arg = ui_impl;
@@ -631,19 +598,16 @@ namespace crx
             sch_impl->add_event(ui_impl);
         } else {
             perror("scheduler::get_udp_ins");
-            delete ui;
-            delete ui_impl;
-            ui = nullptr;
+            ui.reset();
         }
         return ui;
     }
 
-    void udp_ins_impl::udp_ins_callback(scheduler *sch, eth_event *arg)
+    void udp_ins_impl::udp_ins_callback(scheduler *sch, std::shared_ptr<eth_event>& arg)
     {
-        auto impl = dynamic_cast<udp_ins_impl*>(arg);
+        auto impl = std::dynamic_pointer_cast<udp_ins_impl>(arg);
         bzero(&impl->m_recv_addr, sizeof(impl->m_recv_addr));
         impl->m_recv_len = sizeof(impl->m_recv_addr);
-
         while (true) {
             /*
              * 一个udp包的最大长度为65536个字节，因此在获取数据包的时候将应用层缓冲区大小设置为65536个字节，
@@ -667,68 +631,56 @@ namespace crx
         }
     }
 
-    void scheduler::register_tcp_hook(bool client, std::function<int(int, char*, size_t, void*)> f,
-                                      void *arg /*= nullptr*/)
+    void scheduler::register_tcp_hook(bool client, std::function<int(int, char*, size_t, void*)> f, void *arg /*= nullptr*/)
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         if (client) {
-            auto tcp_impl = (tcp_client_impl*)sch_impl->m_tcp_client->m_obj;
+            auto& obj = sch_impl->m_util_objs[TCP_CLI];
+            auto tcp_impl = std::dynamic_pointer_cast<tcp_client_impl>(obj->m_impl);
             tcp_impl->m_protocol_hook = std::move(f);
             tcp_impl->m_protocol_arg = arg;
         } else {        //server
-            auto tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
+            auto& obj = sch_impl->m_util_objs[TCP_SVR];
+            auto tcp_impl = std::dynamic_pointer_cast<tcp_server_impl>(obj->m_impl);
             tcp_impl->m_protocol_hook = std::move(f);
             tcp_impl->m_protocol_arg = arg;
         }
     }
 
-    tcp_client* scheduler::get_tcp_client(std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> f,
-                                          void *arg /*= nullptr*/)
+    std::shared_ptr<tcp_client>
+    scheduler::get_tcp_client(std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> f,
+                              void *arg /*= nullptr*/)
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        if (!sch_impl->m_tcp_client) {
-            sch_impl->m_tcp_client = new tcp_client;		//创建一个新的tcp_client
-            sch_impl->m_tcp_client->m_obj = new tcp_client_impl;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto& obj = sch_impl->m_util_objs[TCP_CLI];
+        if (!obj) {
+            obj = std::make_shared<tcp_client>();		//创建一个新的tcp_client
+            auto tcp_impl = std::make_shared<tcp_client_impl>();
+            obj->m_impl = tcp_impl;
 
-            auto tcp_impl = (tcp_client_impl*)sch_impl->m_tcp_client->m_obj;
             tcp_impl->m_sch = this;
             tcp_impl->m_f = std::move(f);			//记录回调函数及参数
             tcp_impl->m_arg = arg;
         }
-        return sch_impl->m_tcp_client;
+        return std::dynamic_pointer_cast<tcp_client>(obj);
     }
 
-    void tcp_client_impl::tcp_client_callback(scheduler *sch, eth_event *ev)
+    void tcp_client_impl::tcp_client_callback(scheduler *sch, std::shared_ptr<eth_event>& ev)
     {
-        auto sch_impl = (scheduler_impl*)sch->m_obj;
-        auto tcp_conn = dynamic_cast<tcp_client_conn*>(ev);
-        tcp_client_impl *tcp_impl = nullptr;
-        switch (tcp_conn->app_prt) {
-            case PRT_NONE: {
-                tcp_impl = (tcp_client_impl*)sch_impl->m_tcp_client->m_obj;
-                break;
-            }
-            case PRT_HTTP: {
-                tcp_impl = (http_client_impl*)sch_impl->m_http_client->m_obj;
-                break;
-            }
-            case PRT_SIMP: {
-                auto simp_impl = (simpack_server_impl*)sch_impl->m_simp_server->m_obj;
-                tcp_impl = (tcp_client_impl*)simp_impl->m_client->m_obj;
-                break;
-            }
-        }
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(sch->m_impl);
+        auto conn = std::dynamic_pointer_cast<tcp_client_conn>(ev);
+        auto& tcp_impl = conn->tcp_impl;
 
         if (!ev->sock_error) {
-            if (!tcp_conn->is_connect) {
-                tcp_conn->is_connect = true;
-                tcp_conn->f_bk = std::move(tcp_conn->f);
-                tcp_conn->sch_impl->switch_write(tcp_impl->m_sch, ev);
+            if (!conn->is_connect) {
+                conn->is_connect = true;
+                conn->f_bk = std::move(conn->f);
+                sch_impl->switch_write(sch, ev);
                 return;
             }
 
-            int sts = sch_impl->async_read(tcp_conn, tcp_conn->stream_buffer);        //读tcp响应流
-            handle_stream(ev->fd, tcp_impl, tcp_conn);
+            int sts = sch_impl->async_read(conn, conn->stream_buffer);        //读tcp响应流
+            handle_stream(ev->fd, tcp_impl, conn);
 
             if (sts <= 0) {     //读文件描述符检测到异常或发现对端已关闭连接
 //                if (sts < 0)
@@ -739,47 +691,45 @@ namespace crx
             }
         }
 
-        if (ev->sock_error) {
-            tcp_impl->m_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->conn_sock.m_port, nullptr, 0, tcp_impl->m_arg);
-            sch_impl->remove_event(tcp_conn);
+        if (ev->sock_error) {       //在因为异常或对端关闭需要释放该套接字资源时通知上层
+            tcp_impl->m_f(conn->fd, conn->ip_addr, conn->conn_sock.m_port, nullptr, 0, tcp_impl->m_arg);
+            sch_impl->remove_event(conn->fd);
         }
     }
 
-    tcp_server* scheduler::get_tcp_server(uint16_t port,
-                                          std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> f,
-                                          void *arg /*= nullptr*/)
+    std::shared_ptr<tcp_server>
+    scheduler::get_tcp_server(uint16_t port,
+                              std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> f,
+                              void *arg /*= nullptr*/)
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        if (!sch_impl->m_tcp_server) {
-            sch_impl->m_tcp_server = new tcp_server;
-            sch_impl->m_tcp_server->m_obj = new tcp_server_impl;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto& obj = sch_impl->m_util_objs[TCP_SVR];
+        if (!obj) {
+            obj = std::make_shared<tcp_server>();
+            auto tcp_impl = std::make_shared<tcp_server_impl>();
+            obj->m_impl = tcp_impl;
 
-            auto tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
             tcp_impl->m_sch = this;
             tcp_impl->m_f = std::move(f);		//保存回调函数及参数
             tcp_impl->m_arg = arg;
-            tcp_impl->start_listen(sch_impl, port);			//开始监听
+
+            //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
+            tcp_impl->fd = tcp_impl->m_net_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
+            tcp_impl->sch_impl = sch_impl;
+            tcp_impl->f = tcp_impl->tcp_server_callback;
+            tcp_impl->arg = tcp_impl;
+            sch_impl->add_event(tcp_impl);
         }
-        return sch_impl->m_tcp_server;
+        return std::dynamic_pointer_cast<tcp_server>(obj);
     }
 
-    void tcp_server_impl::start_listen(scheduler_impl *impl, uint16_t port)
+    void tcp_server_impl::tcp_server_callback(scheduler *sch, std::shared_ptr<eth_event>& ev)
     {
-        //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
-        fd = m_net_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
-        sch_impl = impl;
-        f = tcp_server_callback;
-        arg = this;
-        impl->add_event(this);      //加入epoll监听事件
-    }
-
-    void tcp_server_impl::tcp_server_callback(scheduler *sch, eth_event *ev)
-    {
-        tcp_server_impl *impl = dynamic_cast<tcp_server_impl*>(ev);
-        bzero(&impl->m_accept_addr, sizeof(struct sockaddr_in));
-        impl->m_addr_len = sizeof(struct sockaddr_in);
+        auto tcp_impl = std::dynamic_pointer_cast<tcp_server_impl>(ev);
+        bzero(&tcp_impl->m_accept_addr, sizeof(struct sockaddr_in));
+        tcp_impl->m_addr_len = sizeof(struct sockaddr_in);
         while (true) {		//接受所有请求连接的tcp客户端
-            int client_fd = accept(impl->fd, (struct sockaddr*)&impl->m_accept_addr, &impl->m_addr_len);
+            int client_fd = accept(tcp_impl->fd, (struct sockaddr*)&tcp_impl->m_accept_addr, &tcp_impl->m_addr_len);
             if (-1 == client_fd) {
                 if (EAGAIN != errno)
                     perror("tcp_server_callback::accept");
@@ -787,21 +737,20 @@ namespace crx
             }
 
             setnonblocking(client_fd);			//将客户端连接文件描述符设为非阻塞并加入监听事件
-            tcp_server_conn *conn = nullptr;
-            switch (impl->m_app_prt) {
-                case PRT_NONE:      conn = new tcp_server_conn;     break;
-                case PRT_HTTP:		conn = new http_server_conn;    break;
-                case PRT_SIMP:      conn = new tcp_server_conn;     break;
+            std::shared_ptr<tcp_server_conn> conn;
+            switch (tcp_impl->m_app_prt) {
+                case PRT_NONE:
+                case PRT_SIMP:      conn = std::make_shared<tcp_server_conn>();     break;
+                case PRT_HTTP:		conn = std::make_shared<http_server_conn>();    break;
             }
 
             conn->fd = client_fd;
-            conn->f = impl->read_tcp_stream;
+            conn->f = tcp_impl->read_tcp_stream;
             conn->arg = conn;
 
-            conn->app_prt = impl->m_app_prt;
-            conn->ip_addr = inet_ntoa(impl->m_accept_addr.sin_addr);        //将地址转换为点分十进制格式的ip地址
-            conn->conn_sock.m_port = ntohs(impl->m_accept_addr.sin_port);   //将端口由网络字节序转换为主机字节序
-            conn->conn_sock.m_ptype = PRT_TCP;
+            conn->tcp_impl = tcp_impl;
+            conn->ip_addr = inet_ntoa(tcp_impl->m_accept_addr.sin_addr);        //将地址转换为点分十进制格式的ip地址
+            conn->conn_sock.m_port = ntohs(tcp_impl->m_accept_addr.sin_port);   //将端口由网络字节序转换为主机字节序
             conn->conn_sock.m_sock_fd = client_fd;
 
             /*
@@ -812,35 +761,21 @@ namespace crx
              */
             conn->conn_sock.set_keep_alive(1, 60, 5, 3);
 
-            auto sch_impl = (scheduler_impl*)sch->m_obj;
+            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(sch->m_impl);
             sch_impl->add_event(conn);        //将该连接加入监听事件
         }
     }
 
-    void tcp_server_impl::read_tcp_stream(scheduler *sch, eth_event *ev)
+    void tcp_server_impl::read_tcp_stream(scheduler *sch, std::shared_ptr<eth_event>& ev)
     {
-        auto sch_impl = (scheduler_impl*)sch->m_obj;
-        auto tcp_conn = dynamic_cast<tcp_server_conn*>(ev);
-        tcp_server_impl *tcp_impl = nullptr;
-        switch (tcp_conn->app_prt) {
-            case PRT_NONE: {
-                tcp_impl = (tcp_server_impl*)sch_impl->m_tcp_server->m_obj;
-                break;
-            }
-            case PRT_HTTP: {
-                tcp_impl = (http_server_impl*)sch_impl->m_http_server->m_obj;
-                break;
-            }
-            case PRT_SIMP: {
-                auto simp_impl = (simpack_server_impl*)sch_impl->m_simp_server->m_obj;
-                tcp_impl = (tcp_server_impl*)simp_impl->m_server->m_obj;
-                break;
-            }
-        }
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(sch->m_impl);
+        auto conn = std::dynamic_pointer_cast<tcp_server_conn>(ev);
+        auto& tcp_impl = conn->tcp_impl;
 
         if (!ev->sock_error) {
-            int sts = sch_impl->async_read(tcp_conn, tcp_conn->stream_buffer);
-            handle_stream(ev->fd, tcp_impl, tcp_conn);
+            int sts = sch_impl->async_read(conn, conn->stream_buffer);
+            handle_stream(ev->fd, tcp_impl, conn);
+
             if (sts <= 0) {     //读文件描述符检测到异常或发现对端已关闭连接
 //                if (sts < 0)
 //                    printf("[tcp_server_impl::read_tcp_stream] 读文件描述符 %d 出现异常", ev->fd);
@@ -851,41 +786,42 @@ namespace crx
         }
 
         if (ev->sock_error) {
-            tcp_impl->m_f(tcp_conn->fd, tcp_conn->ip_addr, tcp_conn->conn_sock.m_port, nullptr, 0, tcp_impl->m_arg);
-            sch_impl->remove_event(tcp_conn);
+            tcp_impl->m_f(conn->fd, conn->ip_addr, conn->conn_sock.m_port, nullptr, 0, tcp_impl->m_arg);
+            sch_impl->remove_event(conn->fd);
         }
     }
 
-    http_client* scheduler::get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, const char*, size_t, void*)> f,
-                                            void *arg /*= nullptr*/)
+    std::shared_ptr<http_client>
+    scheduler::get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, const char*, size_t, void*)> f,
+                               void *arg /*= nullptr*/)
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        if (!sch_impl->m_http_client) {
-            sch_impl->m_http_client = new http_client;
-            sch_impl->m_http_client->m_obj = new http_client_impl;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto& obj = sch_impl->m_util_objs[HTTP_CLI];
+        if (!obj) {
+            obj = std::make_shared<http_client>();
+            auto http_impl = std::make_shared<http_client_impl>();
+            obj->m_impl = http_impl;
 
-            auto http_impl = (http_client_impl*)sch_impl->m_http_client->m_obj;
             http_impl->m_sch = this;
             http_impl->m_app_prt = PRT_HTTP;
             http_impl->m_protocol_hook = http_impl->check_http_stream;
-            http_impl->m_protocol_arg = http_impl;
-            http_impl->m_f = http_impl->protocol_hook;
-            http_impl->m_arg = http_impl;
+            http_impl->m_protocol_arg = http_impl.get();
+            http_impl->m_f = http_impl->tcp_callback;
+            http_impl->m_arg = http_impl.get();
             http_impl->m_http_f = std::move(f);		//保存回调函数及参数
             http_impl->m_http_arg = arg;
 
-            sigctl *ctl = get_sigctl(http_impl->name_resolve_callback, http_impl);
+            auto ctl = get_sigctl(http_impl->name_resolve_callback, http_impl.get());
             ctl->add_sigs({SIGRTMIN+14});
         }
-        return sch_impl->m_http_client;
+        return std::dynamic_pointer_cast<http_client>(obj);
     }
 
-    void http_client_impl::protocol_hook(int fd, const std::string& ip_addr, uint16_t port,
-                                         char *data, size_t len, void *arg)
+    void http_client_impl::tcp_callback(int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len, void *arg)
     {
         auto http_impl = (http_client_impl*)arg;
-        auto sch_impl = (scheduler_impl*)http_impl->m_sch->m_obj;
-        auto conn = dynamic_cast<http_client_conn*>(sch_impl->m_ev_array[fd]);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(http_impl->m_sch->m_impl);
+        auto conn = std::dynamic_pointer_cast<http_client_conn>(sch_impl->m_ev_array[fd]);
 
         const char *cb_data = nullptr;
         size_t cb_len = 0;
@@ -894,9 +830,7 @@ namespace crx
             cb_len = (size_t)conn->content_len;
         }
 
-        http_impl->m_http_f(fd, conn->status, conn->headers, cb_data, cb_len,
-                            http_impl->m_http_arg);
-
+        http_impl->m_http_f(fd, conn->status, conn->headers, cb_data, cb_len, http_impl->m_http_arg);
         if (sch_impl->m_ev_array[fd]) {
             conn->content_len = -1;
             conn->headers.clear();
@@ -917,11 +851,9 @@ namespace crx
     int http_client_impl::check_http_stream(int fd, char* data, size_t len, void* arg)
     {
         auto http_impl = (http_client_impl*)arg;
-        auto sch_impl = (scheduler_impl*)http_impl->m_sch->m_obj;
-        if (fd >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[fd])
-            return -(int)len;       //检查是否越界以及连接是否有效
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(http_impl->m_sch->m_impl);
+        auto conn = std::dynamic_pointer_cast<http_client_conn>(sch_impl->m_ev_array[fd]);
 
-        auto conn = dynamic_cast<http_client_conn*>(sch_impl->m_ev_array[fd]);
         if (-1 == conn->content_len) {        //与之前的http响应流已完成分包处理，开始处理新的响应
             if (len < 4)        //首先验证流的开始4个字节是否为签名"HTTP"
                 return 0;
@@ -986,42 +918,49 @@ namespace crx
             }
         }
 
-        if (len < conn->content_len)      //响应体中不包含足够的数据，等待该连接上更多的数据到来
+        if (len < conn->content_len-1)      //响应体中不包含足够的数据，等待该连接上更多的数据到来
             return 0;
         else        //已取到响应体，通知上层执行m_f回调
-            return conn->content_len;
+            return (len > conn->content_len) ? conn->content_len : (int)len;
     }
 
-    http_server* scheduler::get_http_server(uint16_t port,
-                                            std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&,
-                                                               const char*, size_t, void*)> f,
-                                            void *arg /*= nullptr*/)
+    std::shared_ptr<http_server>
+    scheduler::get_http_server(uint16_t port,
+                               std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&,
+                                       const char*, size_t, void*)> f,
+                               void *arg /*= nullptr*/)
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        if (!sch_impl->m_http_server) {
-            sch_impl->m_http_server = new http_server;
-            sch_impl->m_http_server->m_obj = new http_server_impl;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto& obj = sch_impl->m_util_objs[HTTP_SVR];
+        if (!obj) {
+            obj = std::make_shared<http_server>();
+            auto http_impl = std::make_shared<http_server_impl>();
+            obj->m_impl = http_impl;
 
-            auto http_impl = (http_server_impl*)sch_impl->m_http_server->m_obj;
             http_impl->m_app_prt = PRT_HTTP;
             http_impl->m_sch = this;
             http_impl->m_protocol_hook = http_impl->check_http_stream;
-            http_impl->m_protocol_arg = http_impl;
-            http_impl->m_f = http_impl->protocol_hook;
-            http_impl->m_arg = http_impl;
+            http_impl->m_protocol_arg = http_impl.get();
+            http_impl->m_f = http_impl->tcp_callback;
+            http_impl->m_arg = http_impl.get();
             http_impl->m_http_f = std::move(f);
             http_impl->m_http_arg = arg;
-            http_impl->start_listen(sch_impl, port);		//开始监听
+
+            //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
+            http_impl->fd = http_impl->m_net_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
+            http_impl->sch_impl = sch_impl;
+            http_impl->f = http_impl->tcp_server_callback;
+            http_impl->arg = http_impl;
+            sch_impl->add_event(http_impl);
         }
-        return sch_impl->m_http_server;
+        return std::dynamic_pointer_cast<http_server>(obj);;
     }
 
-    void http_server_impl::protocol_hook(int fd, const std::string& ip_addr, uint16_t port,
-                                         char *data, size_t len, void *arg)
+    void http_server_impl::tcp_callback(int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len, void *arg)
     {
         auto http_impl = (http_server_impl*)arg;
-        auto sch_impl = http_impl->sch_impl;
-        auto conn = dynamic_cast<http_server_conn*>(sch_impl->m_ev_array[fd]);
+        auto sch_impl = http_impl->sch_impl.lock();
+        auto conn = std::dynamic_pointer_cast<http_server_conn>(sch_impl->m_ev_array[fd]);
 
         const char *cb_data = nullptr;
         size_t cb_len = 0;
@@ -1053,11 +992,9 @@ namespace crx
     int http_server_impl::check_http_stream(int fd, char* data, size_t len, void* arg)
     {
         auto http_impl = (http_server_impl*)arg;
-        auto sch_impl = http_impl->sch_impl;
-        if (fd >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[fd])
-            return -(int)len;       //检查是否越界以及连接是否有效
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(http_impl->m_sch->m_impl);
+        auto conn = std::dynamic_pointer_cast<http_server_conn>(sch_impl->m_ev_array[fd]);
 
-        auto conn = dynamic_cast<http_server_conn*>(sch_impl->m_ev_array[fd]);
         if (-1 == conn->content_len) {        //与之前的http请求流已完成分包处理，开始处理新的请求
             char *delim_pos = strstr(data, "\r\n\r\n");
             if (!delim_pos || delim_pos > data+len-4) {     //还未取到分隔符或已超出查找范围
@@ -1120,24 +1057,115 @@ namespace crx
             return ret;     //先截断http头部
         }
 
-        if (len < conn->content_len)      //请求体中不包含足够的数据，等待该连接上更多的数据到来
+        if (len < conn->content_len-1)      //请求体中不包含足够的数据，等待该连接上更多的数据到来
             return 0;
         else        //已取到请求体，通知上层执行m_f回调
-            return conn->content_len;
+            return (len > conn->content_len) ? conn->content_len : (int)len;
     }
 
-    simpack_server* scheduler::get_simpack_server(void *arg)
+    std::shared_ptr<simpack_server>
+    scheduler::get_simpack_server(
+            std::function<void(const crx::server_info&, void*)> on_connect,
+            std::function<void(const crx::server_info&, void*)> on_disconnect,
+            std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t, void*)> on_request,
+            std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t, void*)> on_response,
+            std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t, void*)> on_notify,
+            void *arg)
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        if (!sch_impl->m_simp_server) {
-            sch_impl->m_simp_server = new simpack_server;
-            sch_impl->m_simp_server->m_obj = new simpack_server_impl;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto& obj = sch_impl->m_util_objs[SIMP_SVR];
+        if (!obj) {
+            obj = std::make_shared<simpack_server>();
+            auto simp_impl = std::make_shared<simpack_server_impl>();
+            obj->m_impl = simp_impl;
 
-            auto simp_impl = (simpack_server_impl*)sch_impl->m_simp_server->m_obj;
             simp_impl->m_sch = this;
+            simp_impl->m_on_connect = std::move(on_connect);
+            simp_impl->m_on_disconnect = std::move(on_disconnect);
+            simp_impl->m_on_request = std::move(on_request);
+            simp_impl->m_on_response = std::move(on_response);
+            simp_impl->m_on_notify = std::move(on_notify);
             simp_impl->m_arg = arg;
+
+            if (sch_impl->m_ini_file.empty()) {
+                printf("不存在配置文件\n");
+                return std::dynamic_pointer_cast<simpack_server>(obj);
+            }
+
+            ini ini_parser;
+            ini_parser.load(sch_impl->m_ini_file.c_str());
+
+            if (!ini_parser.has_section("registry")) {
+                printf("配置文件 %s 没有 [registry] 节区\n", sch_impl->m_ini_file.c_str());
+                return std::dynamic_pointer_cast<simpack_server>(obj);
+            }
+
+            //使用simpack_server组件的应用必须配置registry节区以及ip,port,name这三个字段
+            ini_parser.set_section("registry");
+            simp_impl->m_conf.info.ip = ini_parser.get_str("ip");
+            simp_impl->m_conf.info.port = (uint16_t)ini_parser.get_int("port");
+            simp_impl->m_conf.info.name = ini_parser.get_str("name");
+            simp_impl->m_conf.listen = ini_parser.get_int("listen");
+
+            //创建tcp_client用于主动连接
+            simp_impl->m_client = get_tcp_client([](int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg) {
+                auto impl = (simpack_server_impl*)arg;
+                impl->simp_callback(conn, ip, port, data, len);
+            }, simp_impl.get());
+            auto cli_impl = std::dynamic_pointer_cast<tcp_client_impl>(simp_impl->m_client->m_impl);
+            cli_impl->m_app_prt = PRT_SIMP;
+            register_tcp_hook(true, [](int conn, char *data, size_t len, void *arg) {
+                return simpack_protocol(data, len); });
+            sch_impl->m_util_objs[TCP_CLI].reset();
+
+            //创建tcp_server用于被动连接
+            simp_impl->m_server = get_tcp_server((uint16_t)simp_impl->m_conf.listen,
+                    [](int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg) {
+                auto impl = (simpack_server_impl*)arg;
+                impl->simp_callback(conn, ip, port, data, len);
+            }, simp_impl.get());
+            auto svr_impl = std::dynamic_pointer_cast<tcp_server_impl>(simp_impl->m_server->m_impl);
+            svr_impl->m_app_prt = PRT_SIMP;
+            register_tcp_hook(false, [](int conn, char *data, size_t len, void *arg) {
+                return simpack_protocol(data, len); });
+            simp_impl->m_conf.listen = simp_impl->m_server->get_port();
+            sch_impl->m_util_objs[TCP_SVR].reset();
+
+            //只有配置了名字才连接registry，否则作为单点应用
+            if (!simp_impl->m_conf.info.name.empty()) {
+                int conn = simp_impl->m_client->connect(simp_impl->m_conf.info.ip.c_str(), simp_impl->m_conf.info.port);
+                simp_impl->m_seria.insert("ip", simp_impl->m_conf.info.ip.c_str(), simp_impl->m_conf.info.ip.size());
+                uint16_t net_port = htons((uint16_t)simp_impl->m_conf.listen);
+                simp_impl->m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
+                simp_impl->m_seria.insert("name", simp_impl->m_conf.info.name.c_str(), simp_impl->m_conf.info.name.size());
+                auto ref = simp_impl->m_seria.get_string();
+
+                //setup header
+                auto header = (simp_header*)ref.data;
+                header->length = htonl((uint32_t)(ref.len-sizeof(simp_header)));
+                header->cmd = htons(CMD_REG_NAME);
+
+                simp_impl->m_client->send_data(conn, ref.data, ref.len);
+                simp_impl->m_seria.reset();
+            }
         }
-        return sch_impl->m_simp_server;
+        return std::dynamic_pointer_cast<simpack_server>(obj);
+    }
+
+    void simpack_server_impl::stop()
+    {
+        for (auto& wrapper : m_server_info) {
+            if (wrapper && -1 != wrapper->info.conn) {
+                m_on_disconnect(wrapper->info, m_arg);
+                say_goodbye(false, wrapper->info.conn);
+                wrapper.reset();
+            }
+        }
+
+        if (-1 != m_conf.info.conn) {
+            say_goodbye(true, m_conf.info.conn);
+            m_conf.info.conn = -1;
+        }
     }
 
     void simpack_server_impl::simp_callback(int conn, const std::string &ip, uint16_t port, char *data, size_t len)
@@ -1165,13 +1193,11 @@ namespace crx
             }
 
             if (GET_BIT(ctl_flag, 1)) {     //推送
-                if (m_on_notify)
-                    m_on_notify(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
+                m_on_notify(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
             } else {        //非推送
-                bool is_request = GET_BIT(ctl_flag, 2) != 0;
-                if (is_request && m_on_request)            //客户端只接受响应
+                if (GET_BIT(ctl_flag, 2))
                     m_on_request(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
-                else if (!is_request && m_on_response)       //服务端只接受请求
+                else
                     m_on_response(wrapper->info, m_app_cmd, data+header_len, len-header_len, m_arg);
             }
         }
@@ -1214,10 +1240,7 @@ namespace crx
     void simpack_server_impl::handle_reg_name(int conn, unsigned char *token, std::unordered_map<std::string, mem_ref>& kvs)
     {
         if (m_app_cmd.result) {    //失败
-            auto info_it = kvs.find("error_info");
-            if (kvs.end() != info_it)
-                printf("pronounce failed: %s\n", info_it->second.data);
-
+            printf("pronounce failed: %s\n", kvs["error_info"].data);
             m_client->release(conn);
             return;
         }
@@ -1233,12 +1256,10 @@ namespace crx
             m_conf.info.conn = conn;
         }
 
-        auto role_it = kvs.find("role");
-        if (kvs.end() != role_it) {
-            std::string role(role_it->second.data, role_it->second.len);
-            printf("pronounce succ: role=%s\n", role.c_str());
-            m_conf.info.role = std::move(role);
-        }
+        auto role_it = kvs.find("role");        //registry一定会返回当前节点的role
+        std::string role(role_it->second.data, role_it->second.len);
+        printf("pronounce succ: role=%s\n", role.c_str());
+        m_conf.info.role = std::move(role);
 
         auto clients_it = kvs.find("clients");
         if (kvs.end() != clients_it) {
@@ -1262,51 +1283,35 @@ namespace crx
     void simpack_server_impl::handle_svr_online(unsigned char *token, std::unordered_map<std::string, mem_ref>& kvs)
     {
         auto name_it = kvs.find("name");
-        if (kvs.end() == name_it) {
-            printf("server online without name\n");
-            return;
-        }
         std::string svr_name(name_it->second.data, name_it->second.len);
 
         auto ip_it = kvs.find("ip");
-        if (kvs.end() == ip_it) {
-            printf("server online without ip\n");
-            return;
-        }
         std::string ip(ip_it->second.data, ip_it->second.len);
 
-        auto port_it = kvs.find("port");
-        if (kvs.end() == port_it) {
-            printf("server online without port\n");
-            return;
-        }
-        uint16_t port = ntohs(*(uint16_t*)port_it->second.data);
+        uint16_t port = ntohs(*(uint16_t*)kvs["port"].data);
 
-        //say hello
-        size_t co_id = m_sch->co_create([&](scheduler *sch, void *arg) {
-            int conn = m_client->connect(ip.c_str(), port);
-            if (conn >= m_server_info.size())
-                m_server_info.resize((size_t)conn+1, nullptr);
+        //握手
+        int conn = m_client->connect(ip.c_str(), port);
+        if (conn >= m_server_info.size())
+            m_server_info.resize((size_t)conn+1, nullptr);
 
-            auto& wrapper = m_server_info[conn];
-            if (!wrapper)
-                wrapper = std::make_shared<info_wrapper>();
+        auto& wrapper = m_server_info[conn];
+        if (!wrapper)
+            wrapper = std::make_shared<info_wrapper>();
 
-            wrapper->info.conn = conn;
-            wrapper->info.ip = std::move(ip);
-            wrapper->info.port = port;
+        wrapper->info.conn = conn;
+        wrapper->info.ip = std::move(ip);
+        wrapper->info.port = port;
 
-            m_seria.insert("name", m_conf.info.name.c_str(), m_conf.info.name.size());
-            m_seria.insert("role", m_conf.info.role.c_str(), m_conf.info.role.size());
+        m_seria.insert("name", m_conf.info.name.c_str(), m_conf.info.name.size());
+        m_seria.insert("role", m_conf.info.role.c_str(), m_conf.info.role.size());
 
-            auto ref = m_seria.get_string();
-            bzero(&m_app_cmd, sizeof(m_app_cmd));
-            m_app_cmd.cmd = CMD_HELLO;
-            m_app_cmd.type = 1;     //请求
-            send_package(1, conn, m_app_cmd, true, token, ref.data, ref.len);
-            m_seria.reset();
-        }, nullptr, true);
-        m_sch->co_yield(co_id);
+        auto ref = m_seria.get_string();
+        bzero(&m_app_cmd, sizeof(m_app_cmd));
+        m_app_cmd.cmd = CMD_HELLO;
+        m_app_cmd.type = 1;
+        send_package(1, conn, m_app_cmd, true, token, ref.data, ref.len);
+        m_seria.reset();
     }
 
     void simpack_server_impl::handle_hello_request(int conn, const std::string &ip, uint16_t port, unsigned char *token,
@@ -1318,17 +1323,9 @@ namespace crx
         }
 
         auto name_it = kvs.find("name");
-        if (kvs.end() == name_it) {
-            printf("say hello without name\n");
-            return;
-        }
         std::string cli_name(name_it->second.data, name_it->second.len);
 
         auto role_it = kvs.find("role");
-        if (kvs.end() == role_it) {
-            printf("say hello without role\n");
-            return;
-        }
         std::string cli_role(role_it->second.data, role_it->second.len);
 
         bool client_valid = m_conf.clients.end() != m_conf.clients.find(cli_name);
@@ -1356,9 +1353,7 @@ namespace crx
             MD5((const unsigned char*)text.c_str(), text.size(), wrapper->token);
             new_token = wrapper->token;
 
-            if (m_on_connect)
-                m_on_connect(wrapper->info, m_arg);
-
+            m_on_connect(wrapper->info, m_arg);
             m_seria.insert("name", m_conf.info.name.c_str(), m_conf.info.name.size());
             m_seria.insert("role", m_conf.info.role.c_str(), m_conf.info.role.size());
         } else {
@@ -1391,45 +1386,26 @@ namespace crx
     void simpack_server_impl::handle_hello_response(int conn, uint16_t result, unsigned char *token,
                                                     std::unordered_map<std::string, mem_ref>& kvs)
     {
-        if (conn >= m_server_info.size() || !m_server_info[conn])
-            return;
-
         auto& wrapper = m_server_info[conn];
         if (result) {
-            auto error_it = kvs.find("error_info");
-            if (kvs.end() != error_it)
-                printf("say hello response error: %s\n", error_it->second.data);
-
-            auto sch_impl = (scheduler_impl*)m_sch->m_obj;
-            if (conn < sch_impl->m_ev_array.size())
-                sch_impl->remove_event(sch_impl->m_ev_array[conn]);
+            printf("say hello response error: %s\n", kvs["error_info"].data);
+            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
+            sch_impl->remove_event(conn);
             wrapper.reset();
             return;
         }
 
         auto name_it = kvs.find("name");
-        if (kvs.end() == name_it) {
-            printf("hello response without name\n");
-            return;
-        }
-        std::string svr_name(name_it->second.data, name_it->second.len);
-
+        wrapper->info.name = std::string(name_it->second.data, name_it->second.len);
         auto role_it = kvs.find("role");
-        if (kvs.end() == role_it) {
-            printf("hello response without role\n");
-            return;
-        }
-        std::string svr_role(role_it->second.data, role_it->second.len);
-
-        wrapper->info.name = std::move(svr_name);
-        wrapper->info.role = std::move(svr_role);
+        wrapper->info.role = std::string(role_it->second.data, role_it->second.len);
         memcpy(wrapper->token, token, 16);
-        if (m_on_connect)
-            m_on_connect(wrapper->info, m_arg);
+        m_on_connect(wrapper->info, m_arg);
     }
 
     void simpack_server_impl::say_goodbye(bool registry, int conn)
     {
+        //挥手
         auto& info = registry ? m_conf.info : m_server_info[conn]->info;
         auto token = registry ? &m_conf.token[0] : &m_server_info[conn]->token[0];
         m_seria.insert("name", info.name.c_str(), info.name.size());
@@ -1440,16 +1416,14 @@ namespace crx
         m_seria.reset();
 
         //通知服务下线之后断开对应连接
-        auto sch_impl = (scheduler_impl*)m_sch->m_obj;
-        if (conn < sch_impl->m_ev_array.size())
-            sch_impl->remove_event(sch_impl->m_ev_array[conn]);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
+        sch_impl->remove_event(conn);
     }
 
     void simpack_server_impl::handle_goodbye(int conn, std::unordered_map<std::string, mem_ref>& kvs)
     {
         auto& wrapper = m_server_info[conn];
-        if (m_on_disconnect)
-            m_on_disconnect(wrapper->info, m_arg);
+        m_on_disconnect(wrapper->info, m_arg);
 
         if (conn == m_server_info.size()-1)
             m_server_info.resize((size_t)conn);
@@ -1460,13 +1434,8 @@ namespace crx
     void simpack_server_impl::send_package(int type, int conn, const server_cmd& cmd, bool lib_proc,
                                            unsigned char *token, const char *data, size_t len)
     {
-        auto sch_impl = (scheduler_impl*)m_sch->m_obj;
-        if (conn >= sch_impl->m_ev_array.size())
-            return;
-
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
         auto ev = sch_impl->m_ev_array[conn];
-        if (!ev)
-            return;
 
         simp_header *header = nullptr;
         size_t total_len = len;
@@ -1489,27 +1458,17 @@ namespace crx
         uint32_t ctl_flag = 0;
         if (lib_proc)
             SET_BIT(ctl_flag, 0);       //由库这一层处理
-        else
-            CLR_BIT(ctl_flag, 0);       //由上层应用处理
 
-        switch (type) {
-            case 1: {       //request
-                CLR_BIT(ctl_flag, 1);
-                SET_BIT(ctl_flag, 2);
-                break;
-            }
-            case 2: {       //response
-                CLR_BIT(ctl_flag, 1);
-                CLR_BIT(ctl_flag, 2);
-                break;
-            }
-            case 3: {       //notify
-                SET_BIT(ctl_flag, 1);
-                break;
-            }
-            default: {
-                return;
-            }
+        if (1 == type) {            //request
+            CLR_BIT(ctl_flag, 1);
+            SET_BIT(ctl_flag, 2);
+        } else if (2 == type) {     //response
+            CLR_BIT(ctl_flag, 1);
+            CLR_BIT(ctl_flag, 2);
+        } else if (3 == type) {     //notify
+            SET_BIT(ctl_flag, 1);
+        } else {
+            return;
         }
         header->ctl_flag = htonl(ctl_flag);
 
@@ -1518,30 +1477,31 @@ namespace crx
         sch_impl->async_write(ev, (const char*)header, total_len);
     }
 
-    fs_monitor* scheduler::get_fs_monitor(std::function<void(const char*, uint32_t, void *arg)> f,
-                                          void *arg /*= nullptr*/)
+    std::shared_ptr<fs_monitor>
+    scheduler::get_fs_monitor(std::function<void(const char*, uint32_t, void *arg)> f, void *arg /*= nullptr*/)
     {
-        auto sch_impl = (scheduler_impl*)m_obj;
-        if (!sch_impl->m_fs_monitor) {
-            sch_impl->m_fs_monitor = new fs_monitor;
-            sch_impl->m_fs_monitor->m_obj = new fs_monitor_impl;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto& obj = sch_impl->m_util_objs[FS_MONI];
+        if (!obj) {
+            obj = std::make_shared<fs_monitor>();
+            auto moni_impl = std::make_shared<fs_monitor_impl>();
+            obj->m_impl = moni_impl;
 
-            auto monitor_impl = (fs_monitor_impl*)sch_impl->m_fs_monitor->m_obj;
-            monitor_impl->fd = inotify_init1(IN_NONBLOCK);
-            monitor_impl->sch_impl = sch_impl;
-            monitor_impl->f = monitor_impl->fs_monitory_callback;
-            monitor_impl->arg = monitor_impl;
+            moni_impl->fd = inotify_init1(IN_NONBLOCK);
+            moni_impl->sch_impl = sch_impl;
+            moni_impl->f = moni_impl->fs_monitory_callback;
+            moni_impl->arg = moni_impl;
 
-            monitor_impl->m_monitor_f = std::move(f);
-            monitor_impl->m_monitor_arg = arg;
-            sch_impl->add_event(monitor_impl);
+            moni_impl->m_monitor_f = std::move(f);
+            moni_impl->m_monitor_arg = arg;
+            sch_impl->add_event(moni_impl);
         }
-        return sch_impl->m_fs_monitor;
+        return std::dynamic_pointer_cast<fs_monitor>(obj);
     }
 
-    void fs_monitor_impl::fs_monitory_callback(scheduler *sch, eth_event *ev)
+    void fs_monitor_impl::fs_monitory_callback(scheduler *sch, std::shared_ptr<eth_event>& ev)
     {
-        fs_monitor_impl *impl = dynamic_cast<fs_monitor_impl*>(ev);
+        auto impl = std::dynamic_pointer_cast<fs_monitor_impl>(ev);
         char buf[1024] = {0};
         int filter = 0, offset = 0;
         while (true) {

@@ -4,7 +4,8 @@ class py_plot_test : public crx::console
 {
 public:
     virtual bool init(int argc, char *argv[]);
-    virtual void destroy();
+
+    virtual void destroy() {}
 
 private:
     void plot_2d_func();
@@ -15,7 +16,7 @@ private:
 
 private:
     crx::py_env m_py_wrapper;
-    crx::py_plot *m_plot;
+    std::shared_ptr<crx::py_plot> m_plot;
 };
 
 void py_plot_test::plot_2d_func()
@@ -100,11 +101,6 @@ bool py_plot_test::init(int argc, char *argv[])
 	plot_2d_func();
 	plot_3d_func();
 	return true;
-}
-
-void py_plot_test::destroy()
-{
-	m_plot->release();
 }
 
 int main(int argc, char *argv[])

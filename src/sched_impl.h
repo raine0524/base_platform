@@ -7,26 +7,21 @@ namespace crx
     static const int STACK_SIZE = 256*1024;     //栈大小设置为256K
 
     class scheduler_impl;
-    struct eth_event
+    struct eth_event : public impl
     {
         int fd;      //与epoll事件关联的文件描述符
-        std::function<void(crx::scheduler*, eth_event*)> f, f_bk;     //回调函数
-        eth_event *arg;         //回调参数
-        scheduler_impl *sch_impl;
+        std::function<void(crx::scheduler*, std::shared_ptr<eth_event>&)> f, f_bk;     //回调函数
+        std::weak_ptr<eth_event> arg;         //回调参数
+        std::weak_ptr<scheduler_impl> sch_impl;
+
+        bool sock_error;                        //指示套接字文件是否出错
         std::list<std::string> cache_data;      //缓存队列，等待可写事件
-        bool sock_error;       //指示是否写出错
 
-        eth_event()
-                :fd(-1)
-                ,arg(nullptr)
-                ,sch_impl(nullptr)
-                ,sock_error(false) {}
-
-        virtual ~eth_event() {
-            if (-1 != fd && STDIN_FILENO != fd) {
+        eth_event() :fd(-1), sock_error(false) {}
+        virtual ~eth_event()
+        {
+            if (-1 != fd && STDIN_FILENO != fd)
                 close(fd);
-                fd = -1;
-            }
         }
     };
 
@@ -40,8 +35,6 @@ namespace crx
                 ,m_pscreen(true)
                 ,m_last_sec(-1)
                 ,m_log_buffer(1024, 0) {}
-
-        virtual ~log_impl() {}
 
         std::string m_root_dir;
         std::string m_prefix;
@@ -104,7 +97,7 @@ namespace crx
         }
         ~sigctl_impl() override = default;
 
-        static void sigctl_callback(scheduler *sch, eth_event *arg);
+        static void sigctl_callback(scheduler *sch, std::shared_ptr<eth_event>& arg);
 
         void handle_sigs(const std::vector<int>& sigset, bool add);
 
@@ -121,7 +114,7 @@ namespace crx
         timer_impl() : m_delay(0), m_interval(0), m_arg(nullptr) {}
         ~timer_impl() override = default;
 
-        static void timer_callback(scheduler *sch, eth_event *arg);
+        static void timer_callback(scheduler *sch, std::shared_ptr<eth_event>& arg);
 
         int64_t m_delay, m_interval;        //分别对应于首次触发时的延迟时间以及周期性触发时的间隔时间
         std::function<void(void*)> m_f;
@@ -134,7 +127,7 @@ namespace crx
         event_impl() : m_arg(nullptr) {}
         ~event_impl() override = default;
 
-        static void event_callback(scheduler *sch, eth_event *arg);
+        static void event_callback(scheduler *sch, std::shared_ptr<eth_event>& arg);
 
         std::list<int> m_signals;		//同一个事件可以由多个线程通过发送不同的信号同时触发
         std::function<void(int, void*)> m_f;
@@ -144,10 +137,13 @@ namespace crx
     class udp_ins_impl : public eth_event
     {
     public:
-        udp_ins_impl() : m_recv_buffer(65536, 0), m_arg(nullptr) {}
+        udp_ins_impl() : m_recv_buffer(65536, 0), m_arg(nullptr)
+        {
+            bzero(&m_send_addr, sizeof(m_send_addr));
+        }
         ~udp_ins_impl() override = default;
 
-        static void udp_ins_callback(scheduler *sch, eth_event *arg);
+        static void udp_ins_callback(scheduler *sch, std::shared_ptr<eth_event>& arg);
 
         struct sockaddr_in m_send_addr, m_recv_addr;
         socklen_t m_recv_len;
@@ -166,6 +162,7 @@ namespace crx
         PRT_SIMP,           //SIMP协议(私有)
     };
 
+    class tcp_client_impl;
     struct tcp_client_conn : public eth_event
     {
         gaicb *name_reqs[1];
@@ -173,7 +170,7 @@ namespace crx
         sigevent sigev;
         size_t this_co;
 
-        APP_PRT app_prt;
+        std::shared_ptr<tcp_client_impl> tcp_impl;
         std::string domain_name;        //连接对端使用的主机地址
         std::string ip_addr;            //转换之后的ip地址
 
@@ -181,10 +178,7 @@ namespace crx
         net_socket conn_sock;
         std::string stream_buffer;      //tcp缓冲流
 
-        tcp_client_conn()
-                :this_co(0)
-                ,app_prt(PRT_NONE)
-                ,is_connect(false)
+        tcp_client_conn() : this_co(0), is_connect(false)
         {
             stream_buffer.reserve(4096);
             name_reqs[0] = new gaicb;
@@ -198,15 +192,10 @@ namespace crx
         }
     };
 
-    class tcp_client_impl
+    class tcp_client_impl : public impl
     {
     public:
-        tcp_client_impl()
-                :m_co_id(0)
-                ,m_sch(nullptr)
-                ,m_app_prt(PRT_NONE)
-                ,m_protocol_arg(nullptr)
-                ,m_arg(nullptr) {}
+        tcp_client_impl() : m_co_id(0), m_app_prt(PRT_NONE) {}
 
         static void name_resolve_callback(int signo, uint64_t sigval, void *arg)
         {
@@ -216,7 +205,7 @@ namespace crx
             }
         }
 
-        static void tcp_client_callback(scheduler *sch, eth_event *ev);
+        static void tcp_client_callback(scheduler *sch, std::shared_ptr<eth_event>& ev);
 
         size_t m_co_id;
         scheduler *m_sch;
@@ -229,14 +218,15 @@ namespace crx
         void *m_arg;
     };
 
+    class tcp_server_impl;
     struct tcp_server_conn : public eth_event
     {
-        APP_PRT app_prt;
+        std::shared_ptr<tcp_server_impl> tcp_impl;
         std::string ip_addr;        //连接对端的ip地址
         net_socket conn_sock;       //保存对端端口
         std::string stream_buffer;  //tcp缓冲流
 
-        tcp_server_conn() :app_prt(PRT_NONE)
+        tcp_server_conn()
         {
             stream_buffer.reserve(8192);        //预留8k字节
         }
@@ -245,17 +235,11 @@ namespace crx
     class tcp_server_impl : public eth_event
     {
     public:
-        tcp_server_impl()
-                :m_addr_len(0)
-                ,m_app_prt(PRT_NONE)
-                ,m_sch(nullptr)
-                ,m_arg(nullptr) {}
+        tcp_server_impl() : m_addr_len(0), m_app_prt(PRT_NONE) {}
 
-        void start_listen(scheduler_impl *impl, uint16_t port);
+        static void tcp_server_callback(scheduler *sch, std::shared_ptr<eth_event>& ev);
 
-        static void tcp_server_callback(scheduler *sch, eth_event *ev);
-
-        static void read_tcp_stream(scheduler *sch, eth_event *ev);
+        static void read_tcp_stream(scheduler *sch, std::shared_ptr<eth_event>& ev);
 
         struct sockaddr_in m_accept_addr;
         socklen_t m_addr_len;
@@ -287,8 +271,7 @@ namespace crx
     public:
         http_client_impl() : m_http_arg(nullptr) {}
 
-        static void protocol_hook(int fd, const std::string& ip_addr, uint16_t port,
-                                  char *data, size_t len, void *arg);
+        static void tcp_callback(int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len, void *arg);
 
         //检查当前流中是否存在完整的http响应流，对可能的多个响应进行分包处理并执行相应的回调
         static int check_http_stream(int fd, char* data, size_t len, void* arg);
@@ -313,8 +296,7 @@ namespace crx
     public:
         http_server_impl() : m_http_arg(nullptr) {}
 
-        static void protocol_hook(int fd, const std::string& ip_addr, uint16_t port,
-                                  char *data, size_t len, void *arg);
+        static void tcp_callback(int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len, void *arg);
 
         //检查当前流中是否存在完整的http请求流，对可能连续的多个请求进行分包处理并执行相应的回调
         static int check_http_stream(int fd, char* data, size_t len, void* arg);
@@ -339,52 +321,16 @@ namespace crx
         unsigned char token[16];
     };
 
-    class simpack_server_impl
+    class simpack_server_impl : public impl
     {
     public:
-        simpack_server_impl()
-                :m_seria(true)
-                ,m_sch(nullptr)
-                ,m_client(nullptr)
-                ,m_server(nullptr)
-                ,m_arg(nullptr)
+        simpack_server_impl() : m_seria(true)
         {
             simp_header stub_header;
             m_simp_buf = std::string((const char*)&stub_header, sizeof(simp_header));
         }
 
-        virtual ~simpack_server_impl()
-        {
-            if (m_client) {
-                delete (tcp_client_impl*)m_client->m_obj;
-                delete m_client;
-            }
-
-            if (m_server)
-                delete m_server;
-        }
-
-        static int client_protohook(int conn, char *data, size_t len, void *arg)
-        {
-            return simpack_protocol(data, len);
-        }
-
-        static int server_protohook(int conn, char *data, size_t len, void *arg)
-        {
-            return simpack_protocol(data, len);
-        }
-
-        static void tcp_client_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
-        {
-            auto impl = (simpack_server_impl*)arg;
-            impl->simp_callback(conn, ip, port, data, len);
-        }
-
-        static void tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg)
-        {
-            auto impl = (simpack_server_impl*)arg;
-            impl->simp_callback(conn, ip, port, data, len);
-        }
+        void stop();
 
         void simp_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len);
 
@@ -414,8 +360,8 @@ namespace crx
         std::string m_simp_buf;
 
         scheduler *m_sch;
-        tcp_client *m_client;
-        tcp_server *m_server;
+        std::shared_ptr<tcp_client> m_client;
+        std::shared_ptr<tcp_server> m_server;
 
         std::function<void(const server_info&, void*)> m_on_connect;
         std::function<void(const server_info&, void*)> m_on_disconnect;
@@ -436,9 +382,7 @@ namespace crx
     class fs_monitor_impl : public eth_event
     {
     public:
-        fs_monitor_impl() : m_monitor_arg(nullptr) {}
-
-        static void fs_monitory_callback(scheduler *sch, eth_event *ev);
+        static void fs_monitory_callback(scheduler *sch, std::shared_ptr<eth_event>& ev);
 
         void recursive_monitor(const std::string& root_dir, bool add, uint32_t mask);
 
@@ -454,53 +398,49 @@ namespace crx
 
     struct coroutine_impl : public coroutine
     {
-        SUS_STATUS sus_sts;
+        SUS_TYPE type;
         std::function<void(crx::scheduler *sch, void *arg)> f;
         void *arg;
 
         ucontext_t ctx;
-        char *stack;
-        size_t capacity, size;
+        std::string stack;
+        size_t size;
 
         coroutine_impl()
-                :sus_sts(STS_WAIT_EVENT)
+                :type(WAIT_EVENT)
                 ,arg(nullptr)
-                ,stack(nullptr)
-                ,capacity(0)
                 ,size(0)
         {
             co_id = 0;
             status = CO_UNKNOWN;
             is_share = false;
         }
-
-        virtual ~coroutine_impl()
-        {
-            if (stack) {
-                delete []stack;
-                stack = nullptr;
-            }
-        }
     };
 
-    class scheduler_impl
+    enum
+    {
+        SIG_CTL = 0,
+        TCP_CLI,
+        TCP_SVR,
+        HTTP_CLI,
+        HTTP_SVR,
+        SIMP_SVR,
+        FS_MONI,
+        IDX_MAX,
+    };
+
+    class scheduler_impl : public impl
     {
     public:
-        scheduler_impl(scheduler *sch)
+        scheduler_impl(scheduler* sch)
                 :m_sch(sch)
                 ,m_running_co(0)
                 ,m_next_co(-1)
-                ,m_go_done(false)
                 ,m_epoll_fd(-1)
-                ,m_obj(nullptr)
                 ,m_remote_log(false)
-                ,m_sigctl(nullptr)
-                ,m_tcp_client(nullptr)
-                ,m_tcp_server(nullptr)
-                ,m_http_client(nullptr)
-                ,m_http_server(nullptr)
-                ,m_simp_server(nullptr)
-                ,m_fs_monitor(nullptr) {}
+        {
+            m_util_objs.resize(IDX_MAX);
+        }
 
         virtual ~scheduler_impl() = default;
 
@@ -512,12 +452,12 @@ namespace crx
 
         void main_coroutine(scheduler *sch);
 
-        void save_stack(coroutine_impl *co, const char *top);
+        void save_stack(std::shared_ptr<coroutine_impl>& co_impl, const char *top);
 
     public:
-        void add_event(eth_event *ev, uint32_t event = EPOLLIN);
+        void add_event(std::shared_ptr<eth_event> ev, uint32_t event = EPOLLIN);
 
-        void remove_event(eth_event *ev);
+        void remove_event(int fd);
 
         /*
          * 添加epoll事件，每个事件都采用edge-trigger的模式，只要可读/写，就一直进行读/写，直到不再有数据或者
@@ -533,37 +473,32 @@ namespace crx
          *      -> 0: 所读文件正常关闭
          *      -> -1: 出现异常，异常由errno描述
          */
-        int async_read(eth_event *ev, std::string& read_str);
+        int async_read(std::shared_ptr<eth_event> ev, std::string& read_str);
 
         /*
          * @ev: eth_event对象
          * @data: 待写的数据
          */
-        void async_write(eth_event *ev, const char *data, size_t len);
+        void async_write(std::shared_ptr<eth_event> ev, const char *data, size_t len);
 
-        static void switch_write(scheduler *sch, eth_event *arg);
+        static void switch_write(scheduler *sch, std::shared_ptr<eth_event>& arg);
 
     public:
-        scheduler *m_sch;
+        scheduler* m_sch;
+        std::string m_ini_file;
+
         int m_running_co, m_next_co;
-        std::vector<coroutine_impl*> m_cos;     //第一个协程为主协程，且在进程的生命周期内常驻内存
-        std::vector<size_t> m_unused_cos;       //those coroutines that unused
+        std::vector<std::shared_ptr<coroutine_impl>> m_cos;     //第一个协程为主协程，且在进程的生命周期内常驻内存
+        std::vector<size_t> m_unused_cos;                       //those coroutines that unused
 
         bool m_go_done;
         int m_epoll_fd;		//epoll线程描述符及等待线程终止信号的事件描述符
-        std::vector<eth_event*> m_ev_array;
-        void *m_obj;        //扩展数据区
+        std::vector<std::shared_ptr<eth_event>> m_ev_array;
+        std::shared_ptr<impl> m_ext_data;       //扩展数据区
 
         bool m_remote_log;
-        std::vector<log*> m_logs;
-        sigctl *m_sigctl;
-
-        tcp_client *m_tcp_client;
-        tcp_server *m_tcp_server;
-        http_client *m_http_client;
-        http_server *m_http_server;
-        simpack_server *m_simp_server;
-        fs_monitor *m_fs_monitor;
+        std::vector<std::shared_ptr<log>> m_logs;
+        std::vector<std::shared_ptr<kobj>> m_util_objs;
     };
 
     template<typename IMPL_TYPE, typename CONN_TYPE>
@@ -572,7 +507,7 @@ namespace crx
         if (conn_ins->stream_buffer.empty())
             return;
 
-        auto sch_impl = (scheduler_impl*)impl->m_sch->m_obj;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(impl->m_sch->m_impl);
         if (impl->m_protocol_hook) {
             conn_ins->stream_buffer.push_back(0);
             char *start = &conn_ins->stream_buffer[0];

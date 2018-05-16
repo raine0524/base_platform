@@ -21,7 +21,7 @@ namespace crx
         return p;
     }
 
-    class statis_imp
+    class statis_imp : public impl
     {
     public:
         statis_imp(pid_t pid)
@@ -29,12 +29,10 @@ namespace crx
         {
             char buf[64] = {0};
             sprintf(buf, "/proc/%d/", pid);
-            m_proc_pid = buf;			//m_proc_pid指向该进程内存映像的根目录
+            m_proc_pid = std::string(buf);			//m_proc_pid指向该进程内存映像的根目录
         }
-        virtual ~statis_imp() {}
 
-    public:
-        unsigned int get_cpu_process_occupy()
+        int get_cpu_process_occupy()
         {
             FILE *fd = fopen (std::string(m_proc_pid+"stat").c_str(), "r");		//以读方式打开文件
             char line_buff[1024] = {0};
@@ -48,7 +46,7 @@ namespace crx
             return (t.utime + t.stime + t.cutime + t.cstime);		//计算当前进程占用cpu的总用时
         }
 
-        static unsigned int get_cpu_total_occupy()
+        static int get_cpu_total_occupy()
         {
             FILE *fd = fopen ("/proc/stat", "r");		//以读方式打开
             char buff[1024] = {0};
@@ -63,7 +61,6 @@ namespace crx
             return (t.user + t.nice + t.system + t.idle);			//计算cpu总的运行时长
         }
 
-    public:
         pid_t m_pid;
         std::string m_proc_pid;
         std::unordered_map<std::string, int> m_proc_status;
@@ -72,17 +69,12 @@ namespace crx
 
     statis::statis(pid_t pid)
     {
-        m_obj = new statis_imp(pid);
-    }
-
-    statis::~statis()
-    {
-        delete (statis_imp*)m_obj;
+        m_impl = std::make_shared<statis_imp>(pid);
     }
 
     process_mem_occupy_t statis::get_process_mem_occupy()
     {
-        statis_imp *impl = (statis_imp*)m_obj;
+        auto impl = std::dynamic_pointer_cast<statis_imp>(m_impl);
         process_mem_occupy_t mem_meas;
         memset(&mem_meas, 0, sizeof(mem_meas));
         std::string mem_info = impl->m_proc_pid+"status";
@@ -112,14 +104,14 @@ namespace crx
 
     float statis::get_process_cpu_occupy(int delay_milliseconds)
     {
-        statis_imp *impl = (statis_imp*)m_obj;
+        auto impl = std::dynamic_pointer_cast<statis_imp>(m_impl);
         //获取度量间隔起始时点处的cpu总用时及进程的cpu占用情况
-        unsigned int total_cpu_start = impl->get_cpu_total_occupy();
-        unsigned int pro_cpu_start = impl->get_cpu_process_occupy();
+        int total_cpu_start = impl->get_cpu_total_occupy();
+        int pro_cpu_start = impl->get_cpu_process_occupy();
         std::this_thread::sleep_for(std::chrono::milliseconds(delay_milliseconds));
         //度量间隔结束时点处的cpu总用时及进程的cpu占用情况
-        unsigned int total_cpu_end = impl->get_cpu_total_occupy();
-        unsigned int pro_cpu_end = impl->get_cpu_process_occupy();
+        int total_cpu_end = impl->get_cpu_total_occupy();
+        int pro_cpu_end = impl->get_cpu_process_occupy();
         return 1.0f*(pro_cpu_end-pro_cpu_start)/(total_cpu_end-total_cpu_start);
     }
 
@@ -136,7 +128,7 @@ namespace crx
         char key[128];
         int32_t value;
         char line_buff[256] = {0};		//获取行的缓冲区
-        statis_imp *impl = (statis_imp*)m_obj;
+        auto impl = std::dynamic_pointer_cast<statis_imp>(m_impl);
         while (fgets(line_buff, sizeof(line_buff), fd)) {
             memset(key, 0, sizeof(key));
             sscanf(line_buff, "%s %d", key, &value);		//格式化每一行的键值对
@@ -150,7 +142,7 @@ namespace crx
 
     int32_t statis::get_open_file_handle()
     {
-        statis_imp *impl = (statis_imp*)m_obj;
+        auto impl = std::dynamic_pointer_cast<statis_imp>(m_impl);
         DIR *dir = opendir(std::string(impl->m_proc_pid+"fd").c_str());		//打开/proc/{%pid/fd目录
         if (!dir) {
             perror("get_open_file_handle::opendir.\n");

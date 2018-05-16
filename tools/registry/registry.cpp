@@ -54,7 +54,6 @@ void registry::tcp_server_callback(int conn, const std::string& ip, uint16_t por
         }
         reg->m_conn_node.erase(conn_it);
     }
-
 }
 
 void registry::setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_t cmd, uint16_t *result)
@@ -63,7 +62,7 @@ void registry::setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_
     header->cmd = htons(cmd);
     if (result)
         header->result = htons(*result);
-    SET_BIT(header->ctl_flag, 0);       //由库层处理
+    SET_BIT(header->ctl_flag, 0);       //由库处理
     SET_BIT(header->ctl_flag, 3);       //由registry发送
     header->ctl_flag = htonl(header->ctl_flag);
 }

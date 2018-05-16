@@ -5,8 +5,8 @@ namespace crx
     class CRX_SHARE console : public scheduler
     {
     public:
-        console(bool remote_log = false);
-        virtual ~console();
+        console();
+        virtual ~console() = default;
 
         //控制台初始化，返回true表示初始化成功，false将直接退出main函数
         virtual bool init(int argc, char *argv[]) = 0;
@@ -33,6 +33,6 @@ namespace crx
          * @param bind_flag: 是否将当前进程的主线程绑定到某个cpu核上，-1表示不绑定，INT_MAX表示随机绑定到一个核上
          * 除此之外也可以将bing_flag绑定到用户指定的核上，此时bind_flag的取值范围为0~N-1，其中N为核心数
          */
-        int run(int argc, char *argv[], int bind_flag = -1);
+        int run(int argc, char *argv[], const char *conf = "ini/server.ini", int bind_flag = -1);
     };
 }

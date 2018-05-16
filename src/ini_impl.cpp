@@ -25,11 +25,10 @@ namespace crx
         ini_section() : valid(true) {}
     };
 
-    class ini_impl
+    class ini_impl : public impl
     {
     public:
         ini_impl() : m_com_flag('#'), m_sec_idx(-1) {}
-        virtual ~ini_impl() {}
 
         size_t parse_line(size_t sec_idx, std::string& line);
 
@@ -49,24 +48,19 @@ namespace crx
 
     ini::ini()
     {
-        m_obj = new ini_impl;
+        m_impl = std::make_shared<ini_impl>();
     }
 
-    ini::~ini()
+    bool ini::load(const char *file_name)
     {
-        delete (ini_impl*)m_obj;
-    }
-
-    bool ini::load(const char *fname)
-    {
-        if (!fname)
+        if (!file_name)
             return false;
 
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         impl->m_sections.clear();
-        impl->m_file_name = fname;
+        impl->m_file_name = file_name;
 
-        FILE *fp = fopen(fname, "r");
+        FILE *fp = fopen(file_name, "r");
         if (!fp)
             return false;
 
@@ -80,7 +74,7 @@ namespace crx
         sec.name = impl->m_sec_map.find(def_sec)->first.c_str();
 
         std::string line(1024, 0);
-        while (fgets(&line[0], line.size()-1, fp)) {
+        while (fgets(&line[0], (int)(line.size()-1), fp)) {
             std::string temp = line.substr(0, strlen(line.data())-1);   //去掉最后一个换行符
             trim(temp);
             if (temp.empty())
@@ -160,13 +154,13 @@ namespace crx
 
     void ini::print()
     {
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         impl->dump(stdout, true);
     }
 
     void ini::saveas(const char *fname /*= nullptr*/)
     {
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         if (!fname && impl->m_file_name.empty())
             return;
 
@@ -214,17 +208,13 @@ namespace crx
 
     bool ini::has_section(const char *sec_name)
     {
-        auto impl = (ini_impl*)m_obj;
-        auto it = impl->m_sec_map.find(sec_name);
-        if (impl->m_sec_map.end() != it)
-            return true;
-        else
-            return false;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
+        return impl->m_sec_map.end() != impl->m_sec_map.find(sec_name);
     }
 
     void ini::set_section(const char *sec_name)
     {
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         auto it = impl->m_sec_map.find(sec_name);
         if (impl->m_sec_map.end() != it && impl->m_sections[it->second].valid)
             impl->m_sec_idx = (int)it->second;
@@ -237,7 +227,7 @@ namespace crx
         if (!sec_name)
             return;
 
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         auto it = impl->m_sec_map.find(sec_name);
         if (impl->m_sec_map.end() != it) {      //已存在待创建的区段
             if (!comment)
@@ -257,7 +247,7 @@ namespace crx
 
     void ini::delete_section(const char *sec_name)
     {
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         auto it = impl->m_sec_map.find(sec_name);
         if (impl->m_sec_map.end() != it) {
             impl->m_sections[it->second].valid = false;
@@ -269,7 +259,7 @@ namespace crx
 
     bool ini::has_key(const char *key_name)
     {
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         if (-1 == impl->m_sec_idx)
             return false;
 
@@ -286,7 +276,7 @@ namespace crx
         if (!key_name || !value)
             return;
 
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         if (-1 == impl->m_sec_idx)
             return;
 
@@ -311,7 +301,7 @@ namespace crx
 
     void ini::delete_key(const char *key_name)
     {
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         if (-1 == impl->m_sec_idx)
             return;
 
@@ -338,21 +328,21 @@ namespace crx
 
     std::string ini::get_str(const char *key_name, const char *def /*= ""*/)
     {
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         const char *value = impl->get_key(key_name);
         return (value ? value : std::string(def));
     }
 
     int ini::get_int(const char *key_name, int def /*= 0*/)
     {
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         const char *value = impl->get_key(key_name);
         return (value ? atoi(value) : def);
     }
 
     double ini::get_double(const char *key_name, double def /*= 0.0f*/)
     {
-        auto impl = (ini_impl*)m_obj;
+        auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         const char *value = impl->get_key(key_name);
         return (value ? atof(value) : def);
     }

@@ -66,5 +66,5 @@ private:
     std::list<size_t> m_conn_uslots;        //连接数组中未使用的槽
 
     crx::seria m_seria;
-    crx::tcp_server *m_tcp_server;
+    std::shared_ptr<crx::tcp_server> m_tcp_server;
 };

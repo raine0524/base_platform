@@ -2,7 +2,14 @@
 
 namespace crx
 {
-    class CRX_SHARE sigctl : public kobj
+    class sch_util : public kobj
+    {
+    protected:
+        sch_util() = default;
+        friend scheduler;
+    };
+
+    class CRX_SHARE sigctl : public sch_util
     {
     public:
         void add_sigs(const std::vector<int>& sigset);
@@ -10,13 +17,9 @@ namespace crx
         void remove_sigs(const std::vector<int>& sigset);
 
         void clear_sigs();
-
-    protected:
-        sigctl() = default;
-        friend scheduler;
     };
 
-    class CRX_SHARE timer : public kobj
+    class CRX_SHARE timer : public sch_util
     {
     public:
         /*
@@ -30,27 +33,19 @@ namespace crx
         //重置定时器回到初始启动状态
         void reset();
 
-        //释放定时器
-        void release();
-
-    protected:
-        timer() = default;
-        friend scheduler;
+        //分离定时器
+        void detach();
     };
 
-    class CRX_SHARE event : public kobj
+    class CRX_SHARE event : public sch_util
     {
     public:
         void send_signal(int signal);       //发送事件信号
 
-        void release();     //释放事件对象
-
-    protected:
-        event() = default;
-        friend scheduler;
+        void detach();     //分离事件对象
     };
 
-    class CRX_SHARE udp_ins : public kobj
+    class CRX_SHARE udp_ins : public sch_util
     {
     public:
         //获取使用的端口
@@ -59,16 +54,12 @@ namespace crx
         //发送udp数据包(包的大小上限为65536个字节)
         void send_data(const char *ip_addr, uint16_t port, const char *data, size_t len);
 
-        //释放udp_ins对象
-        void release();
-
-    protected:
-        udp_ins() = default;
-        friend scheduler;
+        //分离udp_ins对象
+        void detach();
     };
 
     //tcp_client实例支持同时连接多个tcp server
-    class CRX_SHARE tcp_client : public kobj
+    class CRX_SHARE tcp_client : public sch_util
     {
     public:
         /*
@@ -84,13 +75,9 @@ namespace crx
 
         //发送tcp数据流
         void send_data(int conn, const char *data, size_t len);
-
-    protected:
-        tcp_client() = default;
-        friend scheduler;
     };
 
-    class CRX_SHARE tcp_server : public kobj
+    class CRX_SHARE tcp_server : public sch_util
     {
     public:
         //获取监听的端口
@@ -101,10 +88,6 @@ namespace crx
 
         //发送tcp响应流，@conn表示指定的连接，@data表示响应数据
         void send_data(int conn, const char *data, size_t len);
-
-    protected:
-        tcp_server() = default;
-        friend scheduler;
     };
 
     enum EXT_DST
@@ -139,23 +122,15 @@ namespace crx
         //发送一次POST请求
         void POST(int conn, const char *post_page, std::unordered_map<std::string, std::string> *extra_headers,
                   const char *ext_data, size_t ext_len, EXT_DST ed = DST_JSON);
-
-    protected:
-        http_client() = default;
-        friend scheduler;
     };
 
     class CRX_SHARE http_server : public tcp_server
     {
     public:
         void response(int conn, const char *ext_data, size_t ext_len, EXT_DST ed = DST_JSON);
-
-    protected:
-        http_server() = default;
-        friend scheduler;
     };
 
-    class CRX_SHARE fs_monitor : public kobj
+    class CRX_SHARE fs_monitor : public sch_util
     {
     public:
         /*
@@ -172,9 +147,5 @@ namespace crx
          * @param recursive 若path为目录，该参数指明是否递归移除子目录的监控
          */
         void rm_watch(const char *path, bool recursive = true);
-
-    protected:
-        fs_monitor() = default;
-        friend scheduler;
     };
 }

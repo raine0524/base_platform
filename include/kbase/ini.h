@@ -6,10 +6,10 @@ namespace crx
     {
     public:
         ini();
-        virtual ~ini();
+        virtual ~ini() {}
 
         //加载ini文件
-        bool load(const char *fname);
+        bool load(const char *file_name);
 
         //打印当前已加载的ini文件
         void print();

@@ -38,7 +38,6 @@ namespace crx
                 perror("net_socket::create::socket");
                 return -1;
             }
-            m_ptype = ptype;		//保存当前套接所用的协议类型
 
             //允许重用ip地址
             socklen_t opt_val = 1;
@@ -91,18 +90,12 @@ namespace crx
          */
         void set_tcp_nodelay(socklen_t opt_val)
         {
-            if (PRT_TCP != m_ptype)
-                return;
-
             if (-1 == setsockopt(m_sock_fd, IPPROTO_TCP, TCP_NODELAY, &opt_val, sizeof(opt_val)))
                 perror("net_socket::set_tcp_nodelay::setsockopt");
         }
 
         void set_keep_alive(int val, int idle, int interval, int count)
         {
-            if (PRT_TCP != m_ptype)
-                return;
-
             if (-1 == setsockopt(m_sock_fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)))
                 perror("net_socket::set_keep_alive::setsockopt");
 
@@ -133,7 +126,6 @@ namespace crx
         }
 
     public:
-        PRT_TYPE m_ptype;
         uint16_t m_port;
         int m_sock_fd;
     };
