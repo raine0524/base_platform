@@ -497,7 +497,7 @@ namespace crx
         std::shared_ptr<impl> m_ext_data;       //扩展数据区
 
         bool m_remote_log;
-        std::vector<std::shared_ptr<log>> m_logs;
+        std::vector<std::shared_ptr<crx::log>> m_logs;
         std::vector<std::shared_ptr<kobj>> m_util_objs;
     };
 

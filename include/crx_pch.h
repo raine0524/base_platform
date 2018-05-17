@@ -176,7 +176,6 @@ namespace crx
 //////////////////////////////////////////////////////////////////////////
 //kbase library (self custome interface)
 #include "kbase/base_util.h"
-#include "kbase/log.h"
 #include "kbase/ini.h"
 #include "kbase/tinyxml2.h"
 #include "kbase/serialize.h"

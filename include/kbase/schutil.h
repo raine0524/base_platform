@@ -2,6 +2,7 @@
 
 namespace crx
 {
+    class scheduler;
     class sch_util : public kobj
     {
     protected:
@@ -148,4 +149,26 @@ namespace crx
          */
         void rm_watch(const char *path, bool recursive = true);
     };
+
+    class CRX_SHARE log : public sch_util
+    {
+    public:
+        void printf(const char *fmt, ...);
+    };
+
+#define log_error(log_ins, fmt, args...) do { \
+        log_ins->printf("[%s|%s|%d] [ERROR] " fmt, __FILENAME__, __func__, __LINE__, ##args); \
+    } while(0)
+
+#define log_warn(log_ins, fmt, args...) do { \
+        log_ins->printf("[%s|%s|%d] [WARN] " fmt, __FILENAME__, __func__, __LINE__, ##args); \
+    } while(0)
+
+#define log_info(log_ins, fmt, args...) do { \
+        log_ins->printf("[%s|%s|%d] [INFO] " fmt, __FILENAME__, __func__, __LINE__, ##args); \
+    } while(0)
+
+#define log_debug(log_ins, fmt, args...) do { \
+        log_ins->printf("[%s|%s|%d] [DEBUG] " fmt, __FILENAME__, __func__, __LINE__, ##args); \
+    } while(0)
 }

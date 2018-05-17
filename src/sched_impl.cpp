@@ -2,8 +2,6 @@
 
 namespace crx
 {
-    log *g_log = nullptr;
-
     scheduler::scheduler()
     {
         auto impl = std::make_shared<scheduler_impl>(this);
@@ -345,8 +343,7 @@ namespace crx
         }
     }
 
-    log* scheduler::get_log(const char *prefix, const char *root_dir /*= "log_files"*/,
-                            int max_size /*= 2*/, bool print_screen /*= true*/)
+    std::shared_ptr<crx::log> scheduler::get_log(const char *prefix, const char *root_dir /*= "log_files"*/, int max_size /*= 2*/)
     {
 //        g_log = new log;
 //        auto impl = new log_impl;

@@ -48,10 +48,8 @@ namespace crx
          * @prefix 日志文件的前缀
          * @root_dir 设置日志的根目录，将在根目录基础上按照年/月/日逐级构造子目录
          * @max_size 文件切割大小(单位为MB)
-         * @print_screen 是否在写文件的同时将日志打印在屏幕上
          */
-        log* get_log(const char *prefix, const char *root_dir = "log_files",
-                     int max_size = 2, bool print_screen = true);
+        std::shared_ptr<crx::log> get_log(const char *prefix, const char *root_dir = "log_files", int max_size = 2);
 
         //[单例] 回调函数中的3个参数依次为信号量、信号量关联参数以及回调参数
         std::shared_ptr<sigctl> get_sigctl(std::function<void(int, uint64_t, void*)> f, void *arg = nullptr);
