@@ -166,20 +166,18 @@ namespace crx
         }
     }
 
-    std::shared_ptr<py_plot> py_env::get_mat_plot()
+    py_plot py_env::get_mat_plot()
     {
+        py_plot plot;
         //首先加载"matplotlib.pyplot"和"numpy"这两个模块
         bool matplot_b = load_module(mat_module_name);
         bool numpy_b = load_module(numpy_module_name);
         bool plot3d_b = load_module(plot3d_module_name);
         if (!matplot_b || !numpy_b || !plot3d_b)
-            return nullptr;
-
-        auto plot = std::make_shared<py_plot>();        //创建一个新的py_plot对象
-        auto plot_impl = std::make_shared<py_plot_impl>();
-        plot->m_impl = plot_impl;
+            return plot;
 
         //从"matplotlib.pyplot"模块中获取绘图所需的一系列函数对象
+        auto plot_impl = std::make_shared<py_plot_impl>();
         auto env_impl = std::dynamic_pointer_cast<py_env_impl>(m_impl);
         PyObject *mat_module = env_impl->m_persis_modules[mat_module_name];
         std::vector<std::string> func_vec = {"title", "text", "legend", "axis", "gca", "figure",
@@ -192,6 +190,8 @@ namespace crx
             }
             plot_impl->m_persis_funcs[func_name] = py_func;
         }
+
+        plot.m_impl = plot_impl;
         return plot;
     }
 

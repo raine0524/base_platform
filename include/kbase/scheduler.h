@@ -48,13 +48,13 @@ namespace crx
          * @root_dir 设置日志的根目录，将在根目录基础上按照年/月/日逐级构造子目录
          * @max_size 文件切割大小(单位为MB)
          */
-        std::shared_ptr<crx::log> get_log(const char *prefix, const char *root_dir = "log_files", int max_size = 2);
+        log get_log(const char *prefix, const char *root_dir = "log_files", int max_size = 2);
 
         //[单例] 回调函数中的2个参数依次为信号量、信号量关联参数
-        std::shared_ptr<sigctl> get_sigctl(std::function<void(int, uint64_t)> f);
+        sigctl get_sigctl(std::function<void(int, uint64_t)> f);
 
         //获取timer实例
-        std::shared_ptr<timer> get_timer(std::function<void()> f);
+        timer get_timer(std::function<void()> f);
 
         /*
          * 获取定时轮timer_wheel实例
@@ -63,10 +63,10 @@ namespace crx
          * @slot 定时轮的槽数
          * 一个经典的定时轮是表盘，interval为1000(1s)，slot为60(0~59)
          */
-        std::shared_ptr<timer_wheel> get_timer_wheel(uint64_t interval, size_t slot);
+        timer_wheel get_timer_wheel(uint64_t interval, size_t slot);
 
         //获取event实例
-        std::shared_ptr<event> get_event(std::function<void(int)> f);
+        event get_event(std::function<void(int)> f);
 
         /*
          * 获取udp实例
@@ -75,9 +75,8 @@ namespace crx
          * 				需要显示指定监听的端口，若port为0，则系统将为该套接字选择一个随机的端口
          * 	@f：回调函数，函数的4个参数分别为对端的ip地址、端口、接收到的udp包和大小
          */
-        std::shared_ptr<udp_ins>
-        get_udp_ins(bool is_server, uint16_t port,
-                    std::function<void(const std::string&, uint16_t, const char*, size_t)> f);
+        udp_ins get_udp_ins(bool is_server, uint16_t port,
+                            std::function<void(const std::string&, uint16_t, const char*, size_t)> f);
 
         /*
          * 注册tcp钩子，这个函数将在收到tcp流之后回调，主要用于定制应用层协议，并将协议与原始的tcp流进行解耦
@@ -96,17 +95,15 @@ namespace crx
         void register_tcp_hook(bool client, std::function<int(int, char*, size_t)> f);
 
         //[单例] 获取tcp客户端实例，回调函数的3个参数分别为指定的连接，收到的tcp数据流以及回调参数
-        std::shared_ptr<tcp_client>
-        get_tcp_client(std::function<void(int, const std::string&, uint16_t, char*, size_t)> f);
+        tcp_client get_tcp_client(std::function<void(int, const std::string&, uint16_t, char*, size_t)> f);
 
         /*
          * [单例] 获取tcp服务实例
          * @port：指示tcp服务将在哪个端口上进行监听，若port为0，则系统将随机选择一个可用端口
          * @f：回调函数，函数的5个参数分别为指定的连接，连接的ip地址/端口，收到的tcp数据流
          */
-        std::shared_ptr<tcp_server>
-        get_tcp_server(uint16_t port,
-                       std::function<void(int, const std::string&, uint16_t, char*, size_t)> f);
+        tcp_server get_tcp_server(uint16_t port,
+                                  std::function<void(int, const std::string&, uint16_t, char*, size_t)> f);
 
         /*
          * [单例] 获取http客户端实例(自动释放)，回调函数中的4个参数依次为
@@ -115,8 +112,7 @@ namespace crx
          * ③头部键值对
          * ④响应体
          */
-        std::shared_ptr<http_client>
-        get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, const char*, size_t)> f);
+        http_client get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, const char*, size_t)> f);
 
         /*
          * [单例] 获取http服务实例(自动释放)，回调函数中的6个参数依次为
@@ -127,12 +123,11 @@ namespace crx
          * ⑤请求体(可能不存在)
          * ⑥回调参数
          */
-        std::shared_ptr<http_server>
-        get_http_server(uint16_t port,
-                        std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&, const char*, size_t)> f);
+        http_server get_http_server(uint16_t port,
+                                    std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&, const char*, size_t)> f);
 
         //[单例] 获取simpack服务实例(自动释放)，主要用于分布式系统中可控服务节点之间的通信
-        std::shared_ptr<simpack_server>
+        simpack_server
         get_simpack_server(std::function<void(const crx::server_info&)> on_connect,
                            std::function<void(const crx::server_info&)> on_disconnect,
                            std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t)> on_request,
@@ -145,6 +140,6 @@ namespace crx
          * ②监控文件的掩码，用于确定触发事件的类型
          * ③回调参数
          */
-        std::shared_ptr<fs_monitor> get_fs_monitor(std::function<void(const char*, uint32_t)> f);
+        fs_monitor get_fs_monitor(std::function<void(const char*, uint32_t)> f);
     };
 }

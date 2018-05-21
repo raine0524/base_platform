@@ -149,10 +149,6 @@ namespace crx
         kobj() = default;
         virtual ~kobj() = default;
         std::shared_ptr<impl> m_impl;
-
-    private:
-        kobj(const kobj&) = delete;
-        kobj& operator=(const kobj&) = delete;
     };
 
     struct CRX_SHARE datetime   //日期时间

@@ -24,7 +24,7 @@ namespace crx
         server_cmd() { bzero(this, sizeof(server_cmd)); }
     };
 
-    class CRX_SHARE simpack_server : public sch_util
+    class CRX_SHARE simpack_server : public kobj
     {
     public:
         void request(int conn, const server_cmd& cmd, const char *data, size_t len);

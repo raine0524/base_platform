@@ -76,9 +76,6 @@ namespace crx
     class CRX_SHARE py_plot : public kobj
     {
     public:
-        py_plot() = default;
-        virtual ~py_plot() = default;
-
         void set_title(const char *title, size_t font_size = 16);		//plot标题
 
         void set_text(double x_coor, double y_coor, const char *text, size_t font_size = 16);		//plot文本
@@ -144,6 +141,6 @@ namespace crx
         void release_retobj(PyObject *ret);
 
         //获取py_plot绘图对象(使用完毕之后调用release手动释放资源)
-        std::shared_ptr<py_plot> get_mat_plot();
+        py_plot get_mat_plot();
     };
 }

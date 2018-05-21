@@ -2,14 +2,7 @@
 
 namespace crx
 {
-    class sch_util : public kobj
-    {
-    protected:
-        sch_util() = default;
-        friend class scheduler;
-    };
-
-    class CRX_SHARE sigctl : public sch_util
+    class CRX_SHARE sigctl : public kobj
     {
     public:
         void add_sigs(const std::vector<int>& sigset);
@@ -19,7 +12,7 @@ namespace crx
         void clear_sigs();
     };
 
-    class CRX_SHARE timer : public sch_util
+    class CRX_SHARE timer : public kobj
     {
     public:
         virtual ~timer();
@@ -36,7 +29,7 @@ namespace crx
         void reset();
     };
 
-    class CRX_SHARE timer_wheel : public sch_util
+    class CRX_SHARE timer_wheel : public kobj
     {
     public:
         void add_handler(int type, std::function<void(int64_t)> handler);
@@ -44,7 +37,7 @@ namespace crx
         void add_node(int type, uint64_t interval, int64_t id);
     };
 
-    class CRX_SHARE event : public sch_util
+    class CRX_SHARE event : public kobj
     {
     public:
         virtual ~event();
@@ -52,7 +45,7 @@ namespace crx
         void send_signal(int signal);       //发送事件信号
     };
 
-    class CRX_SHARE udp_ins : public sch_util
+    class CRX_SHARE udp_ins : public kobj
     {
     public:
         virtual ~udp_ins();
@@ -65,7 +58,7 @@ namespace crx
     };
 
     //tcp_client实例支持同时连接多个tcp server
-    class CRX_SHARE tcp_client : public sch_util
+    class CRX_SHARE tcp_client : public kobj
     {
     public:
         /*
@@ -85,7 +78,7 @@ namespace crx
         void send_data(int conn, const char *data, size_t len);
     };
 
-    class CRX_SHARE tcp_server : public sch_util
+    class CRX_SHARE tcp_server : public kobj
     {
     public:
         //获取监听的端口
@@ -138,7 +131,7 @@ namespace crx
         void response(int conn, const char *ext_data, size_t ext_len, EXT_DST ed = DST_JSON);
     };
 
-    class CRX_SHARE fs_monitor : public sch_util
+    class CRX_SHARE fs_monitor : public kobj
     {
     public:
         /*
@@ -157,17 +150,17 @@ namespace crx
         void rm_watch(const char *path, bool recursive = true);
     };
 
-    class CRX_SHARE log : public sch_util
+    class CRX_SHARE log : public kobj
     {
     public:
         void printf(const char *fmt, ...);
     };
 
-#define log_error(log_ins, fmt, args...)    log_ins->printf("[%s|%s|%d] [ERROR] " fmt, __FILENAME__, __func__, __LINE__, ##args)
+#define log_error(log_ins, fmt, args...)    log_ins.printf("[%s|%s|%d] [ERROR] " fmt, __FILENAME__, __func__, __LINE__, ##args)
 
-#define log_warn(log_ins, fmt, args...)     log_ins->printf("[%s|%s|%d] [WARN] "  fmt, __FILENAME__, __func__, __LINE__, ##args)
+#define log_warn(log_ins, fmt, args...)     log_ins.printf("[%s|%s|%d] [WARN] "  fmt, __FILENAME__, __func__, __LINE__, ##args)
 
-#define log_info(log_ins, fmt, args...)     log_ins->printf("[%s|%s|%d] [INFO] "  fmt, __FILENAME__, __func__, __LINE__, ##args)
+#define log_info(log_ins, fmt, args...)     log_ins.printf("[%s|%s|%d] [INFO] "  fmt, __FILENAME__, __func__, __LINE__, ##args)
 
-#define log_debug(log_ins, fmt, args...)    log_ins->printf("[%s|%s|%d] [DEBUG] " fmt, __FILENAME__, __func__, __LINE__, ##args)
+#define log_debug(log_ins, fmt, args...)    log_ins.printf("[%s|%s|%d] [DEBUG] " fmt, __FILENAME__, __func__, __LINE__, ##args)
 }

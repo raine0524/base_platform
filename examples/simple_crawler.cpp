@@ -10,15 +10,15 @@ public:
     void get_web_page(std::vector<std::string>& urls);
 
 private:
-    std::shared_ptr<crx::http_client> m_http_client;
+    crx::http_client m_http_client;
 };
 
 void simple_crawler::get_web_page(std::vector<std::string>& urls)
 {
     for (auto& url : urls) {
         size_t co_id = co_create([&](crx::scheduler *sch) {
-            int conn = m_http_client->connect(url.c_str(), 80);
-            m_http_client->GET(conn, "/", nullptr);
+            int conn = m_http_client.connect(url.c_str(), 80);
+            m_http_client.GET(conn, "/", nullptr);
             }, true);
 
         printf("url: %s, co_id: %lu\n", url.c_str(), co_id);
@@ -33,7 +33,7 @@ bool simple_crawler::init(int argc, char *argv[])
         printf("\nresponse: %d %d\n\n", conn, status);
         if (data)
             printf("%s\n", data);
-        m_http_client->release(conn);
+        m_http_client.release(conn);
     });
     return true;
 }

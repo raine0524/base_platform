@@ -351,7 +351,7 @@ namespace crx
     console::console()
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-        sch_impl->m_ext_data = std::make_shared<console_impl>(this);
+        sch_impl->m_util_impls[EXT_DATA] = std::make_shared<console_impl>(this);
     }
 
     //添加控制台命令
@@ -359,7 +359,7 @@ namespace crx
                           const char *comment)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-        auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_ext_data);
+        auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_util_impls[EXT_DATA]);
         assert(con_impl->m_cmd_idx.end() == con_impl->m_cmd_idx.find(cmd));		//断言当前添加的命令在已添加的命令集中不重复存在
         con_impl->m_cmd_idx[cmd] = con_impl->m_cmd_vec.size();
         con_impl->m_cmd_vec.push_back({cmd, f, comment});
@@ -382,7 +382,7 @@ namespace crx
     int console::run(int argc, char *argv[], const char *conf /*= "ini/server.ini"*/, int bind_flag /*= -1*/)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-        auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_ext_data);
+        auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_util_impls[EXT_DATA]);
 
         int cpu_num = get_nprocs();
         if (-1 != bind_flag) {

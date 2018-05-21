@@ -16,18 +16,18 @@ private:
 
 private:
     crx::py_env m_py_wrapper;
-    std::shared_ptr<crx::py_plot> m_plot;
+    crx::py_plot m_plot;
 };
 
 void py_plot_test::plot_2d_func()
 {
-    m_plot->create_figure(1, crx::DIM_2);
-    m_plot->set_title("2-dimension function example");
-    m_plot->set_text(2.2, 7.5, "$e^x$");
-    m_plot->set_text(3.2, 7.5, "$2^x$");
+    m_plot.create_figure(1, crx::DIM_2);
+    m_plot.set_title("2-dimension function example");
+    m_plot.set_text(2.2, 7.5, "$e^x$");
+    m_plot.set_text(3.2, 7.5, "$2^x$");
 
     std::vector<double> axis_arr = {-4.0, 4.0, -0.5, 50.0};
-    m_plot->set_axis(axis_arr);
+    m_plot.set_axis(axis_arr);
 
 //    std::vector<double> xlim_arr = {-4.0, 4.0}, ylim_arr = {-0.5, 50.0};
 //    m_plot->set_xlim(xlim_arr);
@@ -46,12 +46,12 @@ void py_plot_test::plot_2d_func()
     pf1->ls = crx::STYLE_SOLID; pf2->ls = crx::STYLE_DASH_DOT;
     pf1->pm = crx::MARKER_CIRCLE; pf2->pm = crx::MARKER_TRIANGLE_UP;
     pf1->col = crx::COL_RED; pf2->col = crx::COL_BLUE;
-    m_plot->plot(funcs, 2.0);
+    m_plot.plot(funcs, 2.0);
 
     //必须在plot函数之后调用set_legend，否则该调用无效，legend中的参数与plot中的函数逐个对应
     std::vector<std::string> legend_arr = {"$e^x$", "$2^x$"};
-    m_plot->set_legend(legend_arr);
-    m_plot->pause();
+    m_plot.set_legend(legend_arr);
+    m_plot.pause();
 //    m_plot->save_figure("a/b/plot_2d_func");
 }
 
@@ -66,11 +66,11 @@ crx::plot_point py_plot_test::lorenz(crx::plot_point& point, double s /*= 10*/, 
 
 void py_plot_test::plot_3d_func()
 {
-    m_plot->create_figure(2, crx::DIM_3);
-    m_plot->set_title("Lorenz Attractor");
-    m_plot->set_xlabel("X Axis");
-    m_plot->set_ylabel("Y Axis");
-    m_plot->set_zlabel("Z Axis");
+    m_plot.create_figure(2, crx::DIM_3);
+    m_plot.set_title("Lorenz Attractor");
+    m_plot.set_xlabel("X Axis");
+    m_plot.set_ylabel("Y Axis");
+    m_plot.set_zlabel("Z Axis");
 
     std::vector<crx::plot_function> funcs(1);
     auto& pf = funcs[0];
@@ -88,9 +88,8 @@ void py_plot_test::plot_3d_func()
     pf.ls = crx::STYLE_SOLID;
     pf.pm = crx::MARKER_NONE;
     pf.col = crx::COL_DEFAULT;
-    m_plot->plot(funcs, 0.5);
-
-    m_plot->pause();
+    m_plot.plot(funcs, 0.5);
+    m_plot.pause();
 //    m_plot->save_figure("a/b/plot_3d_func");
 }
 

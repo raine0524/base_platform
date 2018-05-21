@@ -149,8 +149,8 @@ namespace crx
 
         void timer_callback();
 
+        timer m_timer;
         size_t m_slot_idx;
-        std::shared_ptr<timer> m_timer;
         std::vector<std::list<std::tuple<int, int64_t>>> m_slots;
         std::unordered_map<int, std::function<void(int64_t)>> m_handlers;
     };
@@ -238,7 +238,7 @@ namespace crx
         scheduler *m_sch;
         APP_PRT m_app_prt;
 
-        std::shared_ptr<timer_wheel> m_timer_wheel;
+        timer_wheel m_timer_wheel;
         std::function<int(int, char*, size_t)> m_protocol_hook;      //协议钩子
         std::function<void(int, const std::string&, uint16_t, char*, size_t)> m_f;    //收到tcp数据流时触发的回调函数
     };
@@ -360,6 +360,8 @@ namespace crx
 
         void handle_goodbye(int conn);
 
+        void send_data(int type, int conn, const server_cmd& cmd, const char *data, size_t len);
+
         void send_package(int type, int conn, const server_cmd& cmd, bool lib_proc,
                           unsigned char *token, const char *data, size_t len);
 
@@ -371,8 +373,8 @@ namespace crx
         server_cmd m_app_cmd;
         std::string m_simp_buf;
 
-        std::shared_ptr<tcp_client> m_client;
-        std::shared_ptr<tcp_server> m_server;
+        tcp_client m_client;
+        tcp_server m_server;
         std::function<void(const server_info&)> m_on_connect;
         std::function<void(const server_info&)> m_on_disconnect;
         std::function<void(const server_info&, const server_cmd&, char*, size_t)> m_on_request;
@@ -429,22 +431,22 @@ namespace crx
         HTTP_SVR,
         SIMP_SVR,
         FS_MONI,
+        EXT_DATA,
         IDX_MAX,
     };
 
     class scheduler_impl : public impl
     {
     public:
-        scheduler_impl(scheduler* sch)
-                :m_sch(sch)
-                ,m_running_co(0)
+        scheduler_impl()
+                :m_running_co(0)
                 ,m_next_co(-1)
                 ,m_epoll_fd(-1)
                 ,m_remote_log(false)
                 ,m_log_idx(0)
                 ,m_log_conn(-1)
         {
-            m_util_objs.resize(IDX_MAX);
+            m_util_impls.resize(IDX_MAX);
         }
 
         virtual ~scheduler_impl() = default;
@@ -471,9 +473,7 @@ namespace crx
         void handle_event(int op, int fd, uint32_t event);
 
     public:
-        scheduler* m_sch;
         std::string m_ini_file;
-
         int m_running_co, m_next_co;
         std::vector<std::shared_ptr<coroutine_impl>> m_cos;     //第一个协程为主协程，且在进程的生命周期内常驻内存
         std::vector<size_t> m_unused_cos;                       //those coroutines that unused
@@ -481,11 +481,10 @@ namespace crx
         bool m_go_done;
         int m_epoll_fd;		//epoll线程描述符及等待线程终止信号的事件描述符
         std::vector<std::shared_ptr<eth_event>> m_ev_array;
-        std::shared_ptr<impl> m_ext_data;       //扩展数据区
 
         bool m_remote_log;
         int m_log_idx, m_log_conn;
-        std::vector<std::shared_ptr<kobj>> m_util_objs;
+        std::vector<std::shared_ptr<impl>> m_util_impls;
     };
 
     template<typename IMPL_TYPE, typename CONN_TYPE>

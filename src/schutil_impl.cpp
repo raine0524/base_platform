@@ -78,7 +78,7 @@ namespace crx
     void timer_wheel::add_node(int type, uint64_t interval, int64_t id)
     {
         auto tw_impl = std::dynamic_pointer_cast<timer_wheel_impl>(m_impl);
-        auto tm_impl = std::dynamic_pointer_cast<timer_impl>(tw_impl->m_timer->m_impl);
+        auto tm_impl = std::dynamic_pointer_cast<timer_impl>(tw_impl->m_timer.m_impl);
         size_t tick = (size_t)std::ceil(interval/tm_impl->m_interval*1.0);
 
         size_t slot_size = tw_impl->m_slots.size();
@@ -181,9 +181,9 @@ namespace crx
         }
 
         if (conn->retry) {
-            if (!tcp_impl->m_timer_wheel)
+            if (!tcp_impl->m_timer_wheel.m_impl)
                 tcp_impl->m_timer_wheel = tcp_impl->m_sch->get_timer_wheel(1000, 60);   //秒盘
-            tcp_impl->m_timer_wheel->add_handler(1, std::bind(&tcp_client_conn::retry_connect, conn.get()));
+            tcp_impl->m_timer_wheel.add_handler(1, std::bind(&tcp_client_conn::retry_connect, conn.get()));
         }
 
         conn->fd = conn->conn_sock.create(PRT_TCP, USR_CLIENT, conn->ip_addr.c_str(), port);
@@ -321,31 +321,19 @@ namespace crx
     void simpack_server::request(int conn, const server_cmd& cmd, const char *data, size_t len)
     {
         auto simp_impl = std::dynamic_pointer_cast<simpack_server_impl>(m_impl);
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(simp_impl->m_sch->m_impl);
-        if (0 < conn && conn < sch_impl->m_ev_array.size()) {
-            auto xutil = std::dynamic_pointer_cast<simpack_xutil>(sch_impl->m_ev_array[conn]->ext_data);
-            simp_impl->send_package(1, conn, cmd, false, xutil->token, data, len);
-        }
+        simp_impl->send_data(1, conn, cmd, data, len);
     }
 
     void simpack_server::response(int conn, const server_cmd& cmd, const char *data, size_t len)
     {
         auto simp_impl = std::dynamic_pointer_cast<simpack_server_impl>(m_impl);
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(simp_impl->m_sch->m_impl);
-        if (0 < conn && conn < sch_impl->m_ev_array.size()) {
-            auto xutil = std::dynamic_pointer_cast<simpack_xutil>(sch_impl->m_ev_array[conn]->ext_data);
-            simp_impl->send_package(1, conn, cmd, false, xutil->token, data, len);
-        }
+        simp_impl->send_data(2, conn, cmd, data, len);
     }
 
     void simpack_server::notify(int conn, const server_cmd& cmd, const char *data, size_t len)
     {
         auto simp_impl = std::dynamic_pointer_cast<simpack_server_impl>(m_impl);
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(simp_impl->m_sch->m_impl);
-        if (0 < conn && conn < sch_impl->m_ev_array.size()) {
-            auto xutil = std::dynamic_pointer_cast<simpack_xutil>(sch_impl->m_ev_array[conn]->ext_data);
-            simp_impl->send_package(1, conn, cmd, false, xutil->token, data, len);
-        }
+        simp_impl->send_data(3, conn, cmd, data, len);
     }
 
     void fs_monitor::add_watch(const char *path, uint32_t mask /*= IN_CREATE | IN_DELETE | IN_MODIFY*/, bool recursive /*= true*/)

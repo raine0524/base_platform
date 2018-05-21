@@ -25,6 +25,6 @@ private:
     void on_notify(const crx::server_info& info, const crx::server_cmd& cmd, char *data, size_t len);
 
 private:
-    std::shared_ptr<crx::simpack_server> m_server;
-    std::shared_ptr<crx::log> m_log;
+    crx::simpack_server m_server;
+    crx::log m_log;
 };

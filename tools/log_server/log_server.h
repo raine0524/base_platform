@@ -26,5 +26,5 @@ private:
 
 private:
     crx::seria m_seria;
-    std::shared_ptr<crx::simpack_server> m_server;
+    crx::simpack_server m_server;
 };

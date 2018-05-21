@@ -140,7 +140,7 @@ void registry::register_server(int conn, const std::string& ip, uint16_t port,
         MD5((const unsigned char*)time_with_name.c_str(), time_with_name.size(), header->token);
         memcpy(m_nodes[node_it->second]->token, header->token, 16);
     }
-    m_tcp_server->send_data(conn, ref.data, ref.len);
+    m_tcp_server.send_data(conn, ref.data, ref.len);
     m_seria.reset();
 }
 
@@ -173,7 +173,7 @@ void registry::notify_server_online(int conn, std::unordered_map<std::string, cr
     for (auto& client : node->clients) {        //通知所有已在线的主动连接方发起连接
         auto& cli_node = m_nodes[client];
         if (cli_node && -1 != cli_node->info.conn)
-            m_tcp_server->send_data(cli_node->info.conn, ref.data, ref.len);
+            m_tcp_server.send_data(cli_node->info.conn, ref.data, ref.len);
     }
     m_seria.reset();
 
@@ -191,7 +191,7 @@ void registry::notify_server_online(int conn, std::unordered_map<std::string, cr
         auto header = (crx::simp_header*)ref.data;
         setup_header(ref, header, CMD_SVR_ONLINE, nullptr);
         memcpy(header->token, svr_node->token, 16);
-        m_tcp_server->send_data(conn, ref.data, ref.len);
+        m_tcp_server.send_data(conn, ref.data, ref.len);
         m_seria.reset();
     }
 }
