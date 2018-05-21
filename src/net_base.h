@@ -48,13 +48,13 @@ namespace crx
             if (-1 == setsockopt(m_sock_fd, SOL_SOCKET, SO_REUSEPORT, &opt_val, sizeof(opt_val)))
                 perror("set_reuse_port::setsockopt failed");
 
-            struct sockaddr_in addr;
-            addr.sin_family = AF_INET;
+            bzero(&m_addr, sizeof(m_addr));
+            m_addr.sin_family = AF_INET;
             if (USR_SERVER == utype && !ip_addr)
-                addr.sin_addr.s_addr = INADDR_ANY;		//监听任意ip地址发送的连接请求
+                m_addr.sin_addr.s_addr = INADDR_ANY;		//监听任意ip地址发送的连接请求
             else
-                addr.sin_addr.s_addr = inet_addr(ip_addr);
-            addr.sin_port = htons(port);		//将端口由本机字节序转换为网络字节序
+                m_addr.sin_addr.s_addr = inet_addr(ip_addr);
+            m_addr.sin_port = htons(port);		//将端口由本机字节序转换为网络字节序
             m_port = port;		//保存所用端口(若创建套接字时未指定使用的端口，则系统将自动选择一个可用端口)
 
             if (USR_SERVER == utype) {		//服务器端
@@ -62,7 +62,7 @@ namespace crx
                  * 将套接字与地址进行绑定(通常在指定端口上监听任意ip地址的请求)
                  * 无论传输层协议是tcp还是udp，在服务器端都需要首先进行绑定操作
                  */
-                if (-1 == bind(m_sock_fd, (struct sockaddr*)&addr, sizeof(addr))) {
+                if (-1 == bind(m_sock_fd, (struct sockaddr*)&m_addr, sizeof(m_addr))) {
                     perror("net_socket::create::bind");
                     return -1;
                 }
@@ -72,8 +72,8 @@ namespace crx
                     perror("net_socket::create::listen");
                     return -1;
                 }
-            } else if (PRT_TCP == ptype && -1 == connect(m_sock_fd, (struct sockaddr*)&addr,
-                                                         sizeof(addr))) {		//tcp客户端需要执行连接操作
+            } else if (PRT_TCP == ptype && -1 == connect(m_sock_fd, (struct sockaddr*)&m_addr,
+                                                         sizeof(m_addr))) {		//tcp客户端需要执行连接操作
                 if (EINPROGRESS != errno) {
                     perror("net_socket::create::connect");
                     return -1;
@@ -126,6 +126,7 @@ namespace crx
         }
 
     public:
+        struct sockaddr_in m_addr;
         uint16_t m_port;
         int m_sock_fd;
     };

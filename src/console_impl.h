@@ -5,7 +5,7 @@ namespace crx
     struct console_cmd
     {
         std::string cmd;        //命令
-        std::function<void(std::vector<std::string>&, console*)> f;     //回调函数
+        std::function<void(std::vector<std::string>&)> f;     //回调函数
         std::string comment;    //注释
     };
 
@@ -25,9 +25,9 @@ namespace crx
 
         void listen_pipe_input();
 
-        static void quit_loop(std::vector<std::string>& args, console *c);
+        void quit_loop(std::vector<std::string>& args);
 
-        static void print_help(std::vector<std::string>& args, console *c);
+        void print_help(std::vector<std::string>& args);
 
     private:
         void start_daemon();

@@ -1,17 +1,17 @@
-#include "crx_pch.h"
+#pragma once
 
-class simple_simps : public crx::console
+#include "stdafx.h"
+
+class log_server : public crx::console
 {
 public:
-    simple_simps() = default;
-    virtual ~simple_simps() override = default;
+    log_server() = default;
+    virtual ~log_server() override = default;
 
 public:
     bool init(int argc, char **argv) override;
 
     void destroy() override {}
-
-    void test_remote_log(std::vector<std::string>& args);
 
 private:
     void on_connect(const crx::server_info& info);
@@ -20,11 +20,11 @@ private:
 
     void on_request(const crx::server_info& info, const crx::server_cmd& cmd, char *data, size_t len);
 
-    void on_response(const crx::server_info& info, const crx::server_cmd& cmd, char *data, size_t len);
+    void on_response(const crx::server_info& info, const crx::server_cmd& cmd, char *data, size_t len) {}
 
     void on_notify(const crx::server_info& info, const crx::server_cmd& cmd, char *data, size_t len);
 
 private:
+    crx::seria m_seria;
     std::shared_ptr<crx::simpack_server> m_server;
-    std::shared_ptr<crx::log> m_log;
 };

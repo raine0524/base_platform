@@ -2,12 +2,11 @@
 
 namespace crx
 {
-    class scheduler;
     class sch_util : public kobj
     {
     protected:
         sch_util() = default;
-        friend scheduler;
+        friend class scheduler;
     };
 
     class CRX_SHARE sigctl : public sch_util
@@ -23,40 +22,46 @@ namespace crx
     class CRX_SHARE timer : public sch_util
     {
     public:
+        virtual ~timer();
+
         /*
          * 启动定时器 (终止定时器只需要将timer类销毁即可)
          * @delay: 初始延迟
          * @interval: 间隔
          * 单位均为毫秒
          */
-        void start(int64_t delay, int64_t interval);
+        void start(uint64_t delay, uint64_t interval);
 
         //重置定时器回到初始启动状态
         void reset();
+    };
 
-        //分离定时器
-        void detach();
+    class CRX_SHARE timer_wheel : public sch_util
+    {
+    public:
+        void add_handler(int type, std::function<void(int64_t)> handler);
+
+        void add_node(int type, uint64_t interval, int64_t id);
     };
 
     class CRX_SHARE event : public sch_util
     {
     public:
-        void send_signal(int signal);       //发送事件信号
+        virtual ~event();
 
-        void detach();     //分离事件对象
+        void send_signal(int signal);       //发送事件信号
     };
 
     class CRX_SHARE udp_ins : public sch_util
     {
     public:
+        virtual ~udp_ins();
+
         //获取使用的端口
         uint16_t get_port();
 
         //发送udp数据包(包的大小上限为65536个字节)
         void send_data(const char *ip_addr, uint16_t port, const char *data, size_t len);
-
-        //分离udp_ins对象
-        void detach();
     };
 
     //tcp_client实例支持同时连接多个tcp server
@@ -67,9 +72,11 @@ namespace crx
          * 发起tcp连接请求，该接口是线程安全的
          * @server: 服务器主机地址，同时支持点分十进制格式的ip以及域名形式的主机地址
          * @port: 服务器的端口
+         * @retry: 是否尝试重连, -1:不断重连 0:不重连 n(>0):重连n次
+         * @timeout: 若尝试重连，timeout指明重连间隔，单位为秒
          * @return value(conn): 唯一标识与指定主机的连接，-1表示连接失败
          */
-        int connect(const char *server, uint16_t port);
+        int connect(const char *server, uint16_t port, int retry = 0, int timeout = 0);
 
         //关闭tcp连接并释放已申请的资源
         void release(int conn);
@@ -156,19 +163,11 @@ namespace crx
         void printf(const char *fmt, ...);
     };
 
-#define log_error(log_ins, fmt, args...) do { \
-        log_ins->printf("[%s|%s|%d] [ERROR] " fmt, __FILENAME__, __func__, __LINE__, ##args); \
-    } while(0)
+#define log_error(log_ins, fmt, args...)    log_ins->printf("[%s|%s|%d] [ERROR] " fmt, __FILENAME__, __func__, __LINE__, ##args)
 
-#define log_warn(log_ins, fmt, args...) do { \
-        log_ins->printf("[%s|%s|%d] [WARN] " fmt, __FILENAME__, __func__, __LINE__, ##args); \
-    } while(0)
+#define log_warn(log_ins, fmt, args...)     log_ins->printf("[%s|%s|%d] [WARN] "  fmt, __FILENAME__, __func__, __LINE__, ##args)
 
-#define log_info(log_ins, fmt, args...) do { \
-        log_ins->printf("[%s|%s|%d] [INFO] " fmt, __FILENAME__, __func__, __LINE__, ##args); \
-    } while(0)
+#define log_info(log_ins, fmt, args...)     log_ins->printf("[%s|%s|%d] [INFO] "  fmt, __FILENAME__, __func__, __LINE__, ##args)
 
-#define log_debug(log_ins, fmt, args...) do { \
-        log_ins->printf("[%s|%s|%d] [DEBUG] " fmt, __FILENAME__, __func__, __LINE__, ##args); \
-    } while(0)
+#define log_debug(log_ins, fmt, args...)    log_ins->printf("[%s|%s|%d] [DEBUG] " fmt, __FILENAME__, __func__, __LINE__, ##args)
 }

@@ -21,9 +21,9 @@ namespace crx
             ,m_stdout_backup(-1)
     {
         m_cmd_idx["h"] = m_cmd_vec.size();
-        m_cmd_vec.push_back({"h", print_help, "显示帮助"});
+        m_cmd_vec.push_back({"h", std::bind(&console_impl::print_help, this, _1), "显示帮助"});
         m_cmd_idx["q"] = m_cmd_vec.size();
-        m_cmd_vec.push_back({"q", quit_loop, "退出程序"});
+        m_cmd_vec.push_back({"q", std::bind(&console_impl::quit_loop, this, _1), "退出程序"});
     }
 
     console_impl::~console_impl()
@@ -73,7 +73,6 @@ namespace crx
     bool console_impl::preprocess(int argc, char *argv[])
     {
         signal(SIGPIPE, SIG_IGN);       //向已经断开连接的管道和套接字写数据时只返回错误,不主动退出进程
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
         cons_pipe_name(argv[0]);
 
         std::vector<std::string> stub_args;
@@ -129,7 +128,7 @@ namespace crx
     {
         auto idx_it = m_cmd_idx.find(cmd);
         if (m_cmd_idx.end() != idx_it) {
-            m_cmd_vec[idx_it->second].f(args, m_c);
+            m_cmd_vec[idx_it->second].f(args);
             return true;
         }
         return false;
@@ -151,7 +150,7 @@ namespace crx
         m_console_ev = std::make_shared<eth_event>();
         m_console_ev->fd = STDIN_FILENO;
         m_console_ev->sch_impl = sch_impl;
-        m_console_ev->f = [&](scheduler *sch, std::shared_ptr<eth_event>& ev) {
+        m_console_ev->f = [this](scheduler *sch) {
             std::string input(256, 0);
             ssize_t ret = read(STDIN_FILENO, &input[0], input.size()-1);
             if (-1 == ret || 0 == ret) {
@@ -198,8 +197,6 @@ namespace crx
                 }
             }
         };
-
-        m_console_ev->arg = m_console_ev;
         sch_impl->add_event(m_console_ev);
     }
 
@@ -216,7 +213,7 @@ namespace crx
         m_console_ev->fd = m_rd_fifo;
         m_console_ev->sch_impl = sch_impl;
 
-        m_console_ev->f = [&](scheduler *sch, std::shared_ptr<eth_event>& ev) {
+        m_console_ev->f = [this](scheduler *sch) {
             //当读管道可读时，说明有其他进程的读写管道已经创建，并且写管道已经与本进程的读管道完成连接，
             //此时在本进程中创建写管道并与其他进程的读管道完成连接
             if (!m_pipe_conn) {
@@ -226,9 +223,8 @@ namespace crx
                 m_pipe_conn = true;
             }
 
-            auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(sch->m_impl);
             std::string cmd_buf;
-            int sts = this_sch_impl->async_read(ev, cmd_buf);
+            int sts = m_console_ev->async_read(cmd_buf);
             if (sts <= 0) {			//读管道输入异常，将标准输出恢复成原先的值，并关闭已经打开的写管道
                 dup2(m_stdout_backup, STDOUT_FILENO);
                 close(m_wr_fifo);
@@ -244,7 +240,7 @@ namespace crx
 
                 std::vector<std::string> args;
                 if (!strncmp(cmd_buf.data(), service_quit_sig, strlen(service_quit_sig))) {
-                    quit_loop(args, m_c);		//收到停止daemon进程的命令，直接退出循环
+                    quit_loop(args);		//收到停止daemon进程的命令，直接退出循环
                 } else {
                     auto str_vec = crx::split(cmd_buf.data(), cmd_buf.size(), " ");		//命令行参数以空格作为分隔符
                     std::string cmd;
@@ -261,8 +257,6 @@ namespace crx
                 }
             }
         };
-
-        m_console_ev->arg = m_console_ev;
         sch_impl->add_event(m_console_ev);
     }
 
@@ -285,9 +279,9 @@ namespace crx
         auto eth_ev = std::make_shared<eth_event>();
         eth_ev->fd = rd_fifo;
         eth_ev->sch_impl = sch_impl;
-        eth_ev->f = [&](scheduler *sch, std::shared_ptr<eth_event>& arg) {
+        eth_ev->f = [&](scheduler *sch) {
             std::string output;
-            int sts = sch_impl->async_read(arg, output);
+            int sts = eth_ev->async_read(output);
             if (!output.empty()) {
                 std::cout<<output;      //打印后台daemon进程输出的运行时信息
                 if (!stop_service && !excep)        //当前shell既不是用来停止后台服务，也未出现管道异常，则打印命令行提示符
@@ -297,10 +291,9 @@ namespace crx
             if (sts <= 0) {		//对端关闭或异常
                 excep = true;		//该变量指示出现异常
                 sch_impl->m_go_done = false;
-                sch_impl->remove_event(arg->fd);
+                sch_impl->remove_event(eth_ev->fd);
             }
         };
-        eth_ev->arg = eth_ev;
         sch_impl->add_event(eth_ev);
 
         if (!stop_service)      //此时以shell方式运行当前进程，则等待控制台输入后执行相应操作
@@ -308,8 +301,8 @@ namespace crx
         else        //若是停止后台daemon进程，则首先发送自定义的退出信号
             write(wr_fifo, service_quit_sig, strlen(service_quit_sig));
 
-        std::function<void(scheduler *sch, void *arg)> stub;
-        sch_impl->co_create(stub, nullptr, m_c, true, false, "main coroutine");        //创建主协程
+        std::function<void(scheduler *sch)> stub;
+        sch_impl->co_create(stub, m_c, true, false, "main coroutine");        //创建主协程
         sch_impl->main_coroutine(m_c);      //进入主协程
 
         if (excep)
@@ -329,29 +322,26 @@ namespace crx
         m_pipe_name[1] = m_pipe_dir+"/1."+pid_str;
     }
 
-    void console_impl::quit_loop(std::vector<std::string>& args, console *c)
+    void console_impl::quit_loop(std::vector<std::string>& args)
     {
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(c->m_impl);
-        auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_ext_data);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
         for (auto co_impl : sch_impl->m_cos)
             co_impl->status = CO_UNKNOWN;
 
-        if (!con_impl->m_as_shell) {			//以shell方式运行时不需要执行init/destroy操作
+        if (!m_as_shell) {			//以shell方式运行时不需要执行init/destroy操作
             printf("[%s] 已发送控制台退出信号，正在执行退出操作...\n", g_server_name.c_str());
             fflush(stdout);
-            c->destroy();
+            m_c->destroy();
         }
         sch_impl->m_go_done = false;
     }
 
     //打印帮助信息
-    void console_impl::print_help(std::vector<std::string>& args, console *c)
+    void console_impl::print_help(std::vector<std::string>& args)
     {
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(c->m_impl);
-        auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_ext_data);
         std::cout<<std::right<<std::setw(5)<<"cmd";
         std::cout<<std::setw(10)<<' '<<std::setw(0)<<"comments"<<std::endl;
-        for (auto& cmd : con_impl->m_cmd_vec) {
+        for (auto& cmd : m_cmd_vec) {
             std::string str = "  "+cmd.cmd;
             std::cout<<std::left<<std::setw(15)<<str<<cmd.comment<<std::endl;
         }
@@ -365,7 +355,7 @@ namespace crx
     }
 
     //添加控制台命令
-    void console::add_cmd(const char *cmd, std::function<void(std::vector<std::string>&, console*)> f,
+    void console::add_cmd(const char *cmd, std::function<void(std::vector<std::string>&)> f,
                           const char *comment)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
@@ -420,15 +410,15 @@ namespace crx
             return EXIT_FAILURE;
         }
 
-        std::function<void(scheduler *sch, void *arg)> stub;
-        sch_impl->co_create(stub, nullptr, this, true, false, "main coroutine");        //创建主协程
+        std::function<void(scheduler *sch)> stub;
+        sch_impl->co_create(stub, this, true, false, "main coroutine");        //创建主协程
 
         //首先执行预处理操作，预处理主要和当前运行环境以及运行时所带参数有关
         if (con_impl->preprocess(argc, argv))
             return EXIT_SUCCESS;
 
         std::vector<std::string> str_vec;
-        con_impl->print_help(str_vec, this);		//打印帮助信息
+        con_impl->print_help(str_vec);		//打印帮助信息
 
         if (!init(argc, argv))		//执行初始化，若初始化返回失败，直接退出当前进程
             return EXIT_FAILURE;

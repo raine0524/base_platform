@@ -27,20 +27,20 @@ public:
 
     void destroy() override {}
 
-    static void add_node(std::vector<std::string>& args, crx::console *c);
+    void add_node(std::vector<std::string>& args);
 
-    static void del_node(std::vector<std::string>& args, crx::console *c);
+    void del_node(std::vector<std::string>& args);
 
-    static void cst_conn(std::vector<std::string>& args, crx::console *c);
+    void cst_conn(std::vector<std::string>& args);
 
-    static void dst_conn(std::vector<std::string>& args, crx::console *c);
+    void dst_conn(std::vector<std::string>& args);
 
-    static void display_nodes(std::vector<std::string>& args, crx::console *c);
+    void display_nodes(std::vector<std::string>& args);
 
-    static void display_conns(std::vector<std::string>& args, crx::console *c);
+    void display_conns(std::vector<std::string>& args);
 
 private:
-    static void tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len, void *arg);
+    void tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len);
 
     void register_server(int conn, const std::string& ip, uint16_t port, std::unordered_map<std::string, crx::mem_ref>& kvs);
 

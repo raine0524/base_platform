@@ -33,6 +33,13 @@ target_link_libraries(registry kbase)
 
 set_target_properties(registry PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../tools/runtime/registry/)
 
+# tools-log_server
+add_executable(log_server tools/log_server/log_server.cpp)
+
+target_link_libraries(log_server kbase)
+
+set_target_properties(log_server PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../tools/runtime/log_server)
+
 # tools-simple_simps
 add_executable(simps tools/simple_simps/simple_simps.cpp)
 

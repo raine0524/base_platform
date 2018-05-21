@@ -22,7 +22,7 @@ namespace crx
          * 例如，若在控制台输入字符串"push a b c"
          * 那么"push"将被解释为命令，而"a" "b" "c"将被装入std::vector<std::string>传给该命令对应的回调函数
          */
-        void add_cmd(const char *cmd, std::function<void(std::vector<std::string>&, console*)> f,
+        void add_cmd(const char *cmd, std::function<void(std::vector<std::string>&)> f,
                      const char *comment);
 
         /*

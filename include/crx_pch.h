@@ -55,6 +55,7 @@
 #include <deque>
 #include <bitset>
 #include <random>
+#include <tuple>
 
 //////////////////////////////////////////////////////////////////////////
 //platform(linux) specific library
@@ -116,6 +117,8 @@
 #include "rapidjson/reader.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
+
+using namespace std::placeholders;
 
 namespace crx
 {

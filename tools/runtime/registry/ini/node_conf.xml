@@ -3,6 +3,7 @@
         <test3 role="test3"/>
         <test2 role="test2"/>
         <test1 role="test1"/>
+        <log_server1 role="__log_server__"/>
     </node>
     <conn>
         <test2-test3 cli="test2" svr="test3"/>

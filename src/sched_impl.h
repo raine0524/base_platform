@@ -7,44 +7,68 @@ namespace crx
     static const int STACK_SIZE = 256*1024;     //栈大小设置为256K
 
     class scheduler_impl;
-    struct eth_event : public impl
+    class eth_event : public impl
     {
-        int fd;      //与epoll事件关联的文件描述符
-        std::function<void(crx::scheduler*, std::shared_ptr<eth_event>&)> f, f_bk;     //回调函数
-        std::weak_ptr<eth_event> arg;         //回调参数
-        std::weak_ptr<scheduler_impl> sch_impl;
-
-        bool sock_error;                        //指示套接字文件是否出错
-        std::list<std::string> cache_data;      //缓存队列，等待可写事件
-
+    public:
         eth_event() :fd(-1), sock_error(false) {}
         virtual ~eth_event()
         {
             if (-1 != fd && STDIN_FILENO != fd)
                 close(fd);
         }
+
+        /*
+         * @read_str: 将读到的数据追加在read_str尾部
+         * @return param
+         *      -> 1: 等待更多数据可读
+         *      -> 0: 所读文件正常关闭
+         *      -> -1: 出现异常，异常由errno描述
+         */
+        int async_read(std::string& read_str);
+
+        void async_write(const char *data, size_t len);
+
+        void switch_write(scheduler *sch);
+
+        int fd;      //与epoll事件关联的文件描述符
+        std::function<void(crx::scheduler*)> f, f_bk;     //回调函数
+        std::weak_ptr<scheduler_impl> sch_impl;
+
+        bool sock_error;                        //指示套接字文件是否出错
+        std::list<std::string> cache_data;      //缓存队列，等待可写事件
+        std::shared_ptr<impl> ext_data;         //扩展数据
     };
 
-    class log_impl : public eth_event
+    class log_impl : public impl
     {
     public:
         log_impl()
-                :m_max_size(2)
-                ,m_curr_size(0)
-                ,m_split_idx(0)
-                ,m_pscreen(true)
+                :m_split_idx(0)
                 ,m_last_sec(-1)
-                ,m_log_buffer(1024, 0) {}
+                ,m_log_buffer(1024, 0)
+                ,m_seria(true)
+        {
+            bzero(&m_cmd, sizeof(m_cmd));
+        }
 
-        std::string m_root_dir;
+        bool get_local_log();
+
+        bool get_remote_log(std::shared_ptr<scheduler_impl>& sch_impl);
+
         std::string m_prefix;
+        std::string m_root_dir;
+
         int m_max_size, m_curr_size;
         int m_split_idx;
-        bool m_pscreen;
 
         datetime m_now;
         int64_t m_last_sec;
         std::string m_log_buffer, m_temp;
+        int m_fd;
+
+        server_cmd m_cmd;
+        seria m_seria;
+        int m_log_idx;
     };
 
 #define GET_BIT(field, n)   (field & 1<<n)
@@ -97,62 +121,65 @@ namespace crx
         }
         ~sigctl_impl() override = default;
 
-        static void sigctl_callback(scheduler *sch, std::shared_ptr<eth_event>& arg);
+        void sigctl_callback(scheduler *sch);
 
         void handle_sigs(const std::vector<int>& sigset, bool add);
 
         sigset_t m_mask;
         signalfd_siginfo m_fd_info;
-
-        std::function<void(int, uint64_t, void*)> m_f;
-        void *m_arg;
+        std::function<void(int, uint64_t)> m_f;
     };
 
     class timer_impl : public eth_event
     {
     public:
-        timer_impl() : m_delay(0), m_interval(0), m_arg(nullptr) {}
+        timer_impl() : m_delay(0), m_interval(0) {}
         ~timer_impl() override = default;
 
-        static void timer_callback(scheduler *sch, std::shared_ptr<eth_event>& arg);
+        void timer_callback(scheduler *sch);
 
-        int64_t m_delay, m_interval;        //分别对应于首次触发时的延迟时间以及周期性触发时的间隔时间
-        std::function<void(void*)> m_f;
-        void *m_arg;
+        uint64_t m_delay, m_interval;        //分别对应于首次触发时的延迟时间以及周期性触发时的间隔时间
+        std::function<void()> m_f;
+    };
+
+    class timer_wheel_impl : public impl
+    {
+    public:
+        timer_wheel_impl() : m_slot_idx(0) {}
+
+        void timer_callback();
+
+        size_t m_slot_idx;
+        std::shared_ptr<timer> m_timer;
+        std::vector<std::list<std::tuple<int, int64_t>>> m_slots;
+        std::unordered_map<int, std::function<void(int64_t)>> m_handlers;
     };
 
     class event_impl : public eth_event
     {
     public:
-        event_impl() : m_arg(nullptr) {}
-        ~event_impl() override = default;
-
-        static void event_callback(scheduler *sch, std::shared_ptr<eth_event>& arg);
+        void event_callback(scheduler *sch);
 
         std::list<int> m_signals;		//同一个事件可以由多个线程通过发送不同的信号同时触发
-        std::function<void(int, void*)> m_f;
-        void *m_arg;
+        std::function<void(int)> m_f;
     };
 
     class udp_ins_impl : public eth_event
     {
     public:
-        udp_ins_impl() : m_recv_buffer(65536, 0), m_arg(nullptr)
+        udp_ins_impl() : m_recv_buffer(65536, 0)
         {
             bzero(&m_send_addr, sizeof(m_send_addr));
         }
-        ~udp_ins_impl() override = default;
 
-        static void udp_ins_callback(scheduler *sch, std::shared_ptr<eth_event>& arg);
+        void udp_ins_callback(scheduler *sch);
 
         struct sockaddr_in m_send_addr, m_recv_addr;
         socklen_t m_recv_len;
 
         net_socket m_net_sock;			//udp套接字
         std::string m_recv_buffer;		//接收缓冲区
-
-        std::function<void(const std::string&, uint16_t, const char*, size_t, void*)> m_f;			//收到数据时触发的回调函数
-        void *m_arg;
+        std::function<void(const std::string&, uint16_t, const char*, size_t)> m_f;			//收到数据时触发的回调函数
     };
 
     enum APP_PRT    //应用层协议的类型
@@ -163,73 +190,74 @@ namespace crx
     };
 
     class tcp_client_impl;
-    struct tcp_client_conn : public eth_event
+    class tcp_client_conn : public eth_event
     {
-        gaicb *name_reqs[1];
-        addrinfo req_spec;
-        sigevent sigev;
-        size_t this_co;
-
-        std::shared_ptr<tcp_client_impl> tcp_impl;
-        std::string domain_name;        //连接对端使用的主机地址
-        std::string ip_addr;            //转换之后的ip地址
-
-        bool is_connect;
-        net_socket conn_sock;
-        std::string stream_buffer;      //tcp缓冲流
-
-        tcp_client_conn() : this_co(0), is_connect(false)
+    public:
+        tcp_client_conn() :is_connect(false), cnt(0)
         {
             stream_buffer.reserve(4096);
             name_reqs[0] = new gaicb;
             bzero(name_reqs[0], sizeof(gaicb));
         }
 
-        ~tcp_client_conn() override
+        virtual ~tcp_client_conn()
         {
             freeaddrinfo(name_reqs[0]->ar_result);
             delete name_reqs[0];
         }
+
+        void tcp_client_callback(scheduler *sch);
+
+        void retry_connect();
+
+        gaicb *name_reqs[1];
+        addrinfo req_spec;
+        sigevent sigev;
+
+        std::shared_ptr<tcp_client_impl> tcp_impl;
+        std::string domain_name;        //连接对端使用的主机地址
+        std::string ip_addr;            //转换之后的ip地址
+
+        bool is_connect;
+        int retry, timeout, cnt;
+        net_socket conn_sock;
+        std::string stream_buffer;      //tcp缓冲流
     };
 
     class tcp_client_impl : public impl
     {
     public:
-        tcp_client_impl() : m_co_id(0), m_app_prt(PRT_NONE) {}
+        tcp_client_impl() :m_app_prt(PRT_NONE) {}
 
-        static void name_resolve_callback(int signo, uint64_t sigval, void *arg)
+        void name_resolve_callback(int signo, uint64_t sigval)
         {
-            if (SIGRTMIN+14 == signo) {
-                auto tcp_impl = (tcp_client_impl*)arg;
-                tcp_impl->m_sch->co_yield(sigval);
-            }
+            if (SIGRTMIN+14 == signo)
+                m_sch->co_yield(sigval);
         }
 
-        static void tcp_client_callback(scheduler *sch, std::shared_ptr<eth_event>& ev);
-
-        size_t m_co_id;
         scheduler *m_sch;
         APP_PRT m_app_prt;
 
-        std::function<int(int, char*, size_t, void*)> m_protocol_hook;      //协议钩子
-        void *m_protocol_arg;  //协议回调参数
-
-        std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> m_f;    //收到tcp数据流时触发的回调函数
-        void *m_arg;
+        std::shared_ptr<timer_wheel> m_timer_wheel;
+        std::function<int(int, char*, size_t)> m_protocol_hook;      //协议钩子
+        std::function<void(int, const std::string&, uint16_t, char*, size_t)> m_f;    //收到tcp数据流时触发的回调函数
     };
 
     class tcp_server_impl;
-    struct tcp_server_conn : public eth_event
+    class tcp_server_conn : public eth_event
     {
-        std::shared_ptr<tcp_server_impl> tcp_impl;
-        std::string ip_addr;        //连接对端的ip地址
-        net_socket conn_sock;       //保存对端端口
-        std::string stream_buffer;  //tcp缓冲流
-
+    public:
         tcp_server_conn()
         {
             stream_buffer.reserve(8192);        //预留8k字节
         }
+
+        void read_tcp_stream(scheduler *sch);
+
+        tcp_server_impl *tcp_impl;
+        std::string ip_addr;        //连接对端的ip地址
+        net_socket conn_sock;       //保存对端端口
+        std::string stream_buffer;  //tcp缓冲流
     };
 
     class tcp_server_impl : public eth_event
@@ -237,9 +265,7 @@ namespace crx
     public:
         tcp_server_impl() : m_addr_len(0), m_app_prt(PRT_NONE) {}
 
-        static void tcp_server_callback(scheduler *sch, std::shared_ptr<eth_event>& ev);
-
-        static void read_tcp_stream(scheduler *sch, std::shared_ptr<eth_event>& ev);
+        void tcp_server_callback(scheduler *sch);
 
         struct sockaddr_in m_accept_addr;
         socklen_t m_addr_len;
@@ -248,12 +274,9 @@ namespace crx
         APP_PRT m_app_prt;
         scheduler *m_sch;
 
-        std::function<int(int, char*, size_t, void*)> m_protocol_hook;      //协议钩子
-        void *m_protocol_arg;  //协议回调参数
-
-        //收到tcp数据流时触发的回调函数 @int类型的参数指明是哪一个连接
-        std::function<void(int, const std::string&, uint16_t, char*, size_t, void*)> m_f;
-        void *m_arg;
+        std::shared_ptr<timer_wheel> m_timer_wheel;
+        std::function<int(int, char*, size_t)> m_protocol_hook;      //协议钩子
+        std::function<void(int, const std::string&, uint16_t, char*, size_t)> m_f;      //收到tcp数据流时触发的回调函数
     };
 
     extern std::unordered_map<int, std::string> g_ext_type;
@@ -269,16 +292,12 @@ namespace crx
     class http_client_impl : public tcp_client_impl
     {
     public:
-        http_client_impl() : m_http_arg(nullptr) {}
-
-        static void tcp_callback(int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len, void *arg);
+        void tcp_callback(int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len);
 
         //检查当前流中是否存在完整的http响应流，对可能的多个响应进行分包处理并执行相应的回调
-        static int check_http_stream(int fd, char* data, size_t len, void* arg);
+        int check_http_stream(int fd, char* data, size_t len);
 
-        std::function<void(int, int, std::unordered_map<std::string, const char*>&,
-                const char*, size_t, void*)> m_http_f;
-        void *m_http_arg;
+        std::function<void(int, int, std::unordered_map<std::string, const char*>&, const char*, size_t)> m_http_f;
     };
 
     struct http_server_conn : public tcp_server_conn
@@ -294,37 +313,29 @@ namespace crx
     class http_server_impl : public tcp_server_impl
     {
     public:
-        http_server_impl() : m_http_arg(nullptr) {}
-
-        static void tcp_callback(int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len, void *arg);
+        void tcp_callback(int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len);
 
         //检查当前流中是否存在完整的http请求流，对可能连续的多个请求进行分包处理并执行相应的回调
-        static int check_http_stream(int fd, char* data, size_t len, void* arg);
+        int check_http_stream(int fd, char* data, size_t len);
 
         std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&,
-                           const char*, size_t, void*)> m_http_f;
-        void *m_http_arg;
+                           const char*, size_t)> m_http_f;
     };
 
-    struct info_wrapper
+    struct simpack_xutil : public impl
     {
         server_info info;
         unsigned char token[16];
-    };
 
-    struct registry_conf
-    {
-        server_info info;
+        //for registry
         int listen;
-
         std::unordered_set<std::string> clients;
-        unsigned char token[16];
     };
 
     class simpack_server_impl : public impl
     {
     public:
-        simpack_server_impl() : m_seria(true)
+        simpack_server_impl() : m_registry_conn(-1), m_seria(true)
         {
             simp_header stub_header;
             m_simp_buf = std::string((const char*)&stub_header, sizeof(simp_header));
@@ -345,30 +356,28 @@ namespace crx
 
         void handle_hello_response(int conn, uint16_t result, unsigned char *token, std::unordered_map<std::string, mem_ref>& kvs);
 
-        void say_goodbye(bool registry, int conn);
+        void say_goodbye(std::shared_ptr<simpack_xutil>& xutil);
 
-        void handle_goodbye(int conn, std::unordered_map<std::string, mem_ref>& kvs);
+        void handle_goodbye(int conn);
 
         void send_package(int type, int conn, const server_cmd& cmd, bool lib_proc,
                           unsigned char *token, const char *data, size_t len);
 
-        registry_conf m_conf;
-        std::vector<std::shared_ptr<info_wrapper>> m_server_info;
+        scheduler *m_sch;
+        int m_registry_conn;
+        std::unordered_set<int> m_ordinary_conn;
 
         seria m_seria;
         server_cmd m_app_cmd;
         std::string m_simp_buf;
 
-        scheduler *m_sch;
         std::shared_ptr<tcp_client> m_client;
         std::shared_ptr<tcp_server> m_server;
-
-        std::function<void(const server_info&, void*)> m_on_connect;
-        std::function<void(const server_info&, void*)> m_on_disconnect;
-        std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> m_on_request;
-        std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> m_on_response;
-        std::function<void(const server_info&, const server_cmd&, char*, size_t, void*)> m_on_notify;
-        void *m_arg;
+        std::function<void(const server_info&)> m_on_connect;
+        std::function<void(const server_info&)> m_on_disconnect;
+        std::function<void(const server_info&, const server_cmd&, char*, size_t)> m_on_request;
+        std::function<void(const server_info&, const server_cmd&, char*, size_t)> m_on_response;
+        std::function<void(const server_info&, const server_cmd&, char*, size_t)> m_on_notify;
     };
 
     struct monitor_ev
@@ -382,7 +391,7 @@ namespace crx
     class fs_monitor_impl : public eth_event
     {
     public:
-        static void fs_monitory_callback(scheduler *sch, std::shared_ptr<eth_event>& ev);
+        void fs_monitory_callback(scheduler *sch);
 
         void recursive_monitor(const std::string& root_dir, bool add, uint32_t mask);
 
@@ -391,25 +400,19 @@ namespace crx
         struct stat m_st;
         std::unordered_map<std::string, std::shared_ptr<monitor_ev>> m_path_mev;
         std::unordered_map<int, std::shared_ptr<monitor_ev>> m_wd_mev;
-
-        std::function<void(const char*, uint32_t, void *arg)> m_monitor_f;
-        void *m_monitor_arg;
+        std::function<void(const char*, uint32_t)> m_monitor_f;
     };
 
     struct coroutine_impl : public coroutine
     {
         SUS_TYPE type;
-        std::function<void(crx::scheduler *sch, void *arg)> f;
-        void *arg;
+        std::function<void(crx::scheduler *sch)> f;
 
         ucontext_t ctx;
         std::string stack;
         size_t size;
 
-        coroutine_impl()
-                :type(WAIT_EVENT)
-                ,arg(nullptr)
-                ,size(0)
+        coroutine_impl() : type(WAIT_EVENT), size(0)
         {
             co_id = 0;
             status = CO_UNKNOWN;
@@ -438,6 +441,8 @@ namespace crx
                 ,m_next_co(-1)
                 ,m_epoll_fd(-1)
                 ,m_remote_log(false)
+                ,m_log_idx(0)
+                ,m_log_conn(-1)
         {
             m_util_objs.resize(IDX_MAX);
         }
@@ -445,8 +450,8 @@ namespace crx
         virtual ~scheduler_impl() = default;
 
     public:
-        size_t co_create(std::function<void(crx::scheduler *sch, void *arg)>& f, void *arg, scheduler *sch,
-                      bool is_main_co, bool is_share = false, const char *comment = nullptr);
+        size_t co_create(std::function<void(crx::scheduler *sch)>& f, scheduler *sch,
+                         bool is_main_co, bool is_share = false, const char *comment = nullptr);
 
         static void coroutine_wrap(uint32_t low32, uint32_t hi32);
 
@@ -465,24 +470,6 @@ namespace crx
          */
         void handle_event(int op, int fd, uint32_t event);
 
-        /*
-         * @fd: 非阻塞文件描述符
-         * @read_str: 将读到的数据追加在read_str尾部
-         * @return param
-         *      -> 1: 等待更多数据可读
-         *      -> 0: 所读文件正常关闭
-         *      -> -1: 出现异常，异常由errno描述
-         */
-        int async_read(std::shared_ptr<eth_event> ev, std::string& read_str);
-
-        /*
-         * @ev: eth_event对象
-         * @data: 待写的数据
-         */
-        void async_write(std::shared_ptr<eth_event> ev, const char *data, size_t len);
-
-        static void switch_write(scheduler *sch, std::shared_ptr<eth_event>& arg);
-
     public:
         scheduler* m_sch;
         std::string m_ini_file;
@@ -497,7 +484,7 @@ namespace crx
         std::shared_ptr<impl> m_ext_data;       //扩展数据区
 
         bool m_remote_log;
-        std::vector<std::shared_ptr<crx::log>> m_logs;
+        int m_log_idx, m_log_conn;
         std::vector<std::shared_ptr<kobj>> m_util_objs;
     };
 
@@ -514,7 +501,7 @@ namespace crx
             size_t buf_len = conn_ins->stream_buffer.size()-1, read_len = 0;
             while (read_len < buf_len) {
                 size_t remain_len = buf_len-read_len;
-                int ret = impl->m_protocol_hook(conn, start, remain_len, impl->m_protocol_arg);
+                int ret = impl->m_protocol_hook(conn, start, remain_len);
                 if (0 == ret) {
                     conn_ins->stream_buffer.pop_back();
                     break;
@@ -523,8 +510,7 @@ namespace crx
                 int abs_ret = std::abs(ret);
                 assert(abs_ret <= remain_len);
                 if (ret > 0)
-                    impl->m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port,
-                              start, ret, impl->m_arg);
+                    impl->m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port, start, ret);
 
                 start += abs_ret;
                 read_len += abs_ret;
@@ -540,7 +526,7 @@ namespace crx
             }
         } else {
             impl->m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port, &conn_ins->stream_buffer[0],
-                      conn_ins->stream_buffer.size(), impl->m_arg);
+                      conn_ins->stream_buffer.size());
         }
     }
 }

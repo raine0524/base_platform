@@ -28,7 +28,16 @@ namespace crx
             perror("clear_sigs");
     }
 
-    void timer::start(int64_t delay, int64_t interval)
+    timer::~timer()
+    {
+        auto tmr_impl = std::dynamic_pointer_cast<timer_impl>(m_impl);
+        if (!tmr_impl->sch_impl.expired()) {
+            auto sch_impl = tmr_impl->sch_impl.lock();
+            sch_impl->remove_event(tmr_impl->fd);       //移除该定时器相关的监听事件
+        }
+    }
+
+    void timer::start(uint64_t delay, uint64_t interval)
     {
         auto impl = std::dynamic_pointer_cast<timer_impl>(m_impl);
         impl->m_delay = delay;			//设置初始延迟及时间间隔
@@ -60,11 +69,32 @@ namespace crx
             perror("create_timer::timerfd_settime");
     }
 
-    void timer::detach()
+    void timer_wheel::add_handler(int type, std::function<void(int64_t)> handler)
     {
-        auto tmr_impl = std::dynamic_pointer_cast<timer_impl>(m_impl);
-        auto sch_impl = tmr_impl->sch_impl.lock();
-        sch_impl->remove_event(tmr_impl->fd);       //移除该定时器相关的监听事件
+        auto tw_impl = std::dynamic_pointer_cast<timer_wheel_impl>(m_impl);
+        tw_impl->m_handlers[type] = std::move(handler);
+    }
+
+    void timer_wheel::add_node(int type, uint64_t interval, int64_t id)
+    {
+        auto tw_impl = std::dynamic_pointer_cast<timer_wheel_impl>(m_impl);
+        auto tm_impl = std::dynamic_pointer_cast<timer_impl>(tw_impl->m_timer->m_impl);
+        size_t tick = (size_t)std::ceil(interval/tm_impl->m_interval*1.0);
+
+        size_t slot_size = tw_impl->m_slots.size();
+        if (tick <= slot_size) {
+            auto& slot = tw_impl->m_slots[(tw_impl->m_slot_idx+slot_size)%slot_size];
+            slot.push_back(std::make_tuple(type, id));
+        }
+    }
+
+    event::~event()
+    {
+        auto ev_impl = std::dynamic_pointer_cast<event_impl>(m_impl);
+        if (!ev_impl->sch_impl.expired()) {
+            auto sch_impl = ev_impl->sch_impl.lock();
+            sch_impl->remove_event(ev_impl->fd);    //移除该定时器相关的监听事件
+        }
     }
 
     void event::send_signal(int signal)
@@ -74,11 +104,13 @@ namespace crx
         eventfd_write(impl->fd, 1);             //设置事件
     }
 
-    void event::detach()
+    udp_ins::~udp_ins()
     {
-        auto ev_impl = std::dynamic_pointer_cast<event_impl>(m_impl);
-        auto sch_impl = ev_impl->sch_impl.lock();
-        sch_impl->remove_event(ev_impl->fd);    //移除该定时器相关的监听事件
+        auto ui_impl = std::dynamic_pointer_cast<udp_ins_impl>(m_impl);
+        if (!ui_impl->sch_impl.expired()) {
+            auto sch_impl = ui_impl->sch_impl.lock();
+            sch_impl->remove_event(ui_impl->fd);        //移除该定时器相关的监听事件
+        }
     }
 
     uint16_t udp_ins::get_port()
@@ -96,14 +128,7 @@ namespace crx
             perror("udp_ins::send_data::sendto");
     }
 
-    void udp_ins::detach()
-    {
-        auto ui_impl = std::dynamic_pointer_cast<udp_ins_impl>(m_impl);
-        auto sch_impl = ui_impl->sch_impl.lock();
-        sch_impl->remove_event(ui_impl->fd);        //移除该定时器相关的监听事件
-    }
-
-    int tcp_client::connect(const char *server, uint16_t port)
+    int tcp_client::connect(const char *server, uint16_t port, int retry /*= 0*/, int timeout /*= 0*/)
     {
         if (!server)
             return -1;
@@ -117,7 +142,6 @@ namespace crx
             case PRT_HTTP:  conn = std::make_shared<http_client_conn>();    break;
         }
 
-        conn->this_co = (size_t)sch_impl->m_running_co;
         conn->tcp_impl = tcp_impl;
         conn->domain_name = server;		//记录当前连接的主机地址
 
@@ -133,7 +157,7 @@ namespace crx
             req->ar_request = &conn->req_spec;
 
             bzero(&conn->sigev, sizeof(conn->sigev));
-            conn->sigev.sigev_value.sival_ptr = reinterpret_cast<void*>(conn->this_co);
+            conn->sigev.sigev_value.sival_ptr = reinterpret_cast<void*>(sch_impl->m_running_co);
             conn->sigev.sigev_signo = SIGRTMIN+14;
             conn->sigev.sigev_notify = SIGEV_SIGNAL;
             int addr_ret = getaddrinfo_a(GAI_NOWAIT, conn->name_reqs, 1, &conn->sigev);
@@ -143,6 +167,11 @@ namespace crx
             }
             tcp_impl->m_sch->co_yield(0);
 
+            if (!req->ar_result) {
+                printf("name %s resolve failed\n", conn->domain_name.c_str());
+                return -1;
+            }
+
             char host[64] = {0};
             auto addr = &((sockaddr_in*)req->ar_result->ai_addr)->sin_addr;
             inet_ntop(req->ar_result->ai_family, addr, host, sizeof(host)-1);
@@ -151,11 +180,18 @@ namespace crx
             conn->ip_addr = server;
         }
 
+        if (conn->retry) {
+            if (!tcp_impl->m_timer_wheel)
+                tcp_impl->m_timer_wheel = tcp_impl->m_sch->get_timer_wheel(1000, 60);   //秒盘
+            tcp_impl->m_timer_wheel->add_handler(1, std::bind(&tcp_client_conn::retry_connect, conn.get()));
+        }
+
         conn->fd = conn->conn_sock.create(PRT_TCP, USR_CLIENT, conn->ip_addr.c_str(), port);
         conn->conn_sock.set_keep_alive(1, 60, 5, 3);
-        conn->f = tcp_impl->tcp_client_callback;
-        conn->arg = conn;
+        conn->f = std::bind(&tcp_client_conn::tcp_client_callback, conn.get(), _1);
         conn->sch_impl = sch_impl;
+        conn->retry = retry;
+        conn->timeout = timeout;
         sch_impl->add_event(conn, EPOLLOUT);        //套接字异步connect时其可写表明与对端server已经连接成功
         return conn->fd;
     }
@@ -180,7 +216,7 @@ namespace crx
         if (!tcp_conn->is_connect)      //还未建立连接
             tcp_conn->cache_data.push_back(std::string(data, len));
         else
-            sch_impl->async_write(tcp_conn, data, len);
+            tcp_conn->async_write(data, len);
     }
 
     uint16_t tcp_server::get_port()
@@ -207,7 +243,7 @@ namespace crx
 
         auto ev = sch_impl->m_ev_array[conn];
         if (ev)
-            sch_impl->async_write(ev, data, len);
+            ev->async_write(data, len);
     }
 
     std::unordered_map<int, std::string> g_ext_type =
@@ -248,7 +284,7 @@ namespace crx
         if (!http_conn->is_connect)     //还未建立连接
             http_conn->cache_data.push_back(std::move(http_request));
         else
-            sch_impl->async_write(http_conn, http_request.c_str(), http_request.size());
+            http_conn->async_write(http_request.c_str(), http_request.size());
     }
 
     void http_client::GET(int conn, const char *post_page, std::unordered_map<std::string, std::string> *extra_headers)
@@ -279,28 +315,37 @@ namespace crx
         http_response += "Content-Type: "+g_ext_type[ed]+"; charset=utf-8\r\n";
         http_response += "Content-Length: "+std::to_string(ext_len)+"\r\n\r\n";
         http_response += std::string(ext_data, ext_len);
-        sch_impl->async_write(ev, http_response.c_str(), http_response.size());
+        ev->async_write(http_response.c_str(), http_response.size());
     }
 
     void simpack_server::request(int conn, const server_cmd& cmd, const char *data, size_t len)
     {
-        auto impl = std::dynamic_pointer_cast<simpack_server_impl>(m_impl);
-        if (0 < conn && conn < impl->m_server_info.size())
-            impl->send_package(1, conn, cmd, false, impl->m_server_info[conn]->token, data, len);
+        auto simp_impl = std::dynamic_pointer_cast<simpack_server_impl>(m_impl);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(simp_impl->m_sch->m_impl);
+        if (0 < conn && conn < sch_impl->m_ev_array.size()) {
+            auto xutil = std::dynamic_pointer_cast<simpack_xutil>(sch_impl->m_ev_array[conn]->ext_data);
+            simp_impl->send_package(1, conn, cmd, false, xutil->token, data, len);
+        }
     }
 
     void simpack_server::response(int conn, const server_cmd& cmd, const char *data, size_t len)
     {
-        auto impl = std::dynamic_pointer_cast<simpack_server_impl>(m_impl);
-        if (0 < conn && conn < impl->m_server_info.size())
-            impl->send_package(2, conn, cmd, false, impl->m_server_info[conn]->token, data, len);
+        auto simp_impl = std::dynamic_pointer_cast<simpack_server_impl>(m_impl);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(simp_impl->m_sch->m_impl);
+        if (0 < conn && conn < sch_impl->m_ev_array.size()) {
+            auto xutil = std::dynamic_pointer_cast<simpack_xutil>(sch_impl->m_ev_array[conn]->ext_data);
+            simp_impl->send_package(1, conn, cmd, false, xutil->token, data, len);
+        }
     }
 
     void simpack_server::notify(int conn, const server_cmd& cmd, const char *data, size_t len)
     {
-        auto impl = std::dynamic_pointer_cast<simpack_server_impl>(m_impl);
-        if (0 < conn && conn < impl->m_server_info.size())
-            impl->send_package(3, conn, cmd, false, impl->m_server_info[conn]->token, data, len);
+        auto simp_impl = std::dynamic_pointer_cast<simpack_server_impl>(m_impl);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(simp_impl->m_sch->m_impl);
+        if (0 < conn && conn < sch_impl->m_ev_array.size()) {
+            auto xutil = std::dynamic_pointer_cast<simpack_xutil>(sch_impl->m_ev_array[conn]->ext_data);
+            simp_impl->send_package(1, conn, cmd, false, xutil->token, data, len);
+        }
     }
 
     void fs_monitor::add_watch(const char *path, uint32_t mask /*= IN_CREATE | IN_DELETE | IN_MODIFY*/, bool recursive /*= true*/)
