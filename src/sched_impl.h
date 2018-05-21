@@ -487,20 +487,20 @@ namespace crx
         std::vector<std::shared_ptr<impl>> m_util_impls;
     };
 
-    template<typename IMPL_TYPE, typename CONN_TYPE>
-    void handle_stream(int conn, IMPL_TYPE impl, CONN_TYPE conn_ins)
+    template<typename CONN_TYPE>
+    void handle_stream(int conn, CONN_TYPE conn_ins)
     {
         if (conn_ins->stream_buffer.empty())
             return;
 
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(impl->m_sch->m_impl);
-        if (impl->m_protocol_hook) {
+        auto sch_impl = conn_ins->sch_impl.lock();
+        if (conn_ins->tcp_impl->m_protocol_hook) {
             conn_ins->stream_buffer.push_back(0);
             char *start = &conn_ins->stream_buffer[0];
             size_t buf_len = conn_ins->stream_buffer.size()-1, read_len = 0;
             while (read_len < buf_len) {
                 size_t remain_len = buf_len-read_len;
-                int ret = impl->m_protocol_hook(conn, start, remain_len);
+                int ret = conn_ins->tcp_impl->m_protocol_hook(conn, start, remain_len);
                 if (0 == ret) {
                     conn_ins->stream_buffer.pop_back();
                     break;
@@ -509,7 +509,8 @@ namespace crx
                 int abs_ret = std::abs(ret);
                 assert(abs_ret <= remain_len);
                 if (ret > 0)
-                    impl->m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port, start, ret);
+                    conn_ins->tcp_impl->m_f(conn_ins->fd, conn_ins->ip_addr,
+                                            conn_ins->conn_sock.m_port, start, ret);
 
                 start += abs_ret;
                 read_len += abs_ret;
@@ -524,8 +525,8 @@ namespace crx
                 }
             }
         } else {
-            impl->m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port, &conn_ins->stream_buffer[0],
-                      conn_ins->stream_buffer.size());
+            conn_ins->tcp_impl->m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port,
+                                    &conn_ins->stream_buffer[0], conn_ins->stream_buffer.size());
         }
     }
 }

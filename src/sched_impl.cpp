@@ -719,7 +719,7 @@ namespace crx
             }
 
             int sts = async_read(stream_buffer);        //读tcp响应流
-            handle_stream(fd, tcp_impl, this);
+            handle_stream(fd, this);
 
             if (sts <= 0) {     //读文件描述符检测到异常或发现对端已关闭连接
 //                if (sts < 0)
@@ -819,7 +819,7 @@ namespace crx
     {
         if (!sock_error) {
             int sts = async_read(stream_buffer);
-            handle_stream(fd, tcp_impl, this);
+            handle_stream(fd, this);
 
             if (sts <= 0) {     //读文件描述符检测到异常或发现对端已关闭连接
 //                if (sts < 0)
