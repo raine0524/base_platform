@@ -622,7 +622,7 @@ namespace crx
     }
 
     udp_ins scheduler::get_udp_ins(bool is_server, uint16_t port,
-                                   std::function<void(const std::string&, uint16_t, const char*, size_t)> f)
+                                   std::function<void(const std::string&, uint16_t, char*, size_t)> f)
     {
         auto ui_impl = std::make_shared<udp_ins_impl>();
         ui_impl->m_send_addr.sin_family = AF_INET;
@@ -671,7 +671,7 @@ namespace crx
             uint16_t port = ntohs(m_recv_addr.sin_port);
 
             //执行回调，将完整的udp数据包传给应用层
-            m_f(ip_addr, port, m_recv_buffer.data(), (size_t)ret);
+            m_f(ip_addr, port, &m_recv_buffer[0], (size_t)ret);
         }
     }
 
@@ -834,7 +834,7 @@ namespace crx
         }
     }
 
-    http_client scheduler::get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, const char*, size_t)> f)
+    http_client scheduler::get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, char*, size_t)> f)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto& impl = sch_impl->m_util_impls[HTTP_CLI];
@@ -844,9 +844,17 @@ namespace crx
 
             http_impl->m_sch = this;
             http_impl->m_app_prt = PRT_HTTP;
-            http_impl->m_protocol_hook = std::bind(&http_client_impl::check_http_stream, http_impl.get(), _1, _2, _3);
-            http_impl->m_f = std::bind(&http_client_impl::tcp_callback, http_impl.get(), _1, _2, _3, _4, _5);
-            http_impl->m_http_f = std::move(f);		//保存回调函数
+            http_impl->m_protocol_hook = [this](int fd, char* data, size_t len) {
+                auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                auto conn = std::dynamic_pointer_cast<http_client_conn>(sch_impl->m_ev_array[fd]);
+                return http_parser(true, conn, data, len);
+            };
+            http_impl->m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
+                auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                auto http_impl = std::dynamic_pointer_cast<http_client_impl>(sch_impl->m_util_impls[HTTP_CLI]);
+                tcp_callback_for_http<std::shared_ptr<http_client_impl>, http_client_conn>(true, http_impl, fd, data, len);
+            };
+            http_impl->m_http_cli = std::move(f);		//保存回调函数
 
             auto ctl = get_sigctl();
             ctl.add_sig(SIGRTMIN+14, std::bind(&http_client_impl::name_resolve_callback, http_impl.get(), _1));
@@ -857,114 +865,8 @@ namespace crx
         return obj;
     }
 
-    void http_client_impl::tcp_callback(int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len)
-    {
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
-        auto conn = std::dynamic_pointer_cast<http_client_conn>(sch_impl->m_ev_array[fd]);
-
-        const char *cb_data = nullptr;
-        size_t cb_len = 0;
-        if (len != 1 || '\n' != *data) {
-            cb_data = data;
-            cb_len = (size_t)conn->content_len;
-        }
-
-        m_http_f(fd, conn->status, conn->headers, cb_data, cb_len);
-        if (sch_impl->m_ev_array[fd]) {
-            conn->content_len = -1;
-            conn->headers.clear();
-        }
-    }
-
-    /*
-     * 一个HTTP响应流例子如下所示：
-     * HTTP/1.1 200 OK
-     * Accept-Ranges: bytes
-     * Connection: close
-     * Pragma: no-cache
-     * Content-Type: text/plain
-     * Content-Length: 12("Hello World!"字节长度)
-     *
-     * Hello World!
-     */
-    int http_client_impl::check_http_stream(int fd, char* data, size_t len)
-    {
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
-        auto conn = std::dynamic_pointer_cast<http_client_conn>(sch_impl->m_ev_array[fd]);
-
-        if (-1 == conn->content_len) {        //与之前的http响应流已完成分包处理，开始处理新的响应
-            if (len < 4)        //首先验证流的开始4个字节是否为签名"HTTP"
-                return 0;
-
-            if (strncmp(data, "HTTP", 4)) {     //签名出错，该流不是HTTP流
-                char *sig_pos = strstr(data, "HTTP");       //查找流中是否存在"HTTP"子串
-                if (!sig_pos || sig_pos > data+len-4) {     //未找到子串或找到的子串已超出查找范围，无效的流
-                    return -(int)len;
-                } else {        //找到子串
-                    return -(int)(sig_pos-data);    //先截断签名之前多余的数据
-                }
-            }
-
-            //先判断是否已经获取到完整的响应头
-            char *delim_pos = strstr(data, "\r\n\r\n");
-            if (!delim_pos || delim_pos > data+len-4) {     //还未取到分隔符或分隔符已超出查找范围
-                if (len > 8192)
-                    return -8192;      //在HTTP签名和分隔符\r\n\r\n之间已有超过8k的数据，直接截断，保护缓冲
-                else
-                    return 0;           //等待更多数据到来
-            }
-
-            size_t valid_header_len = delim_pos-data;
-            auto str_vec = split(data, valid_header_len, "\r\n");
-            if (str_vec.size() <= 1)        //HTTP流的头部中包含一个响应行以及至少一个头部字段，头部无效
-                return -(int)(valid_header_len+4);
-
-            bool header_err = false;
-            for (size_t i = 0; i < str_vec.size(); ++i) {
-                auto& line = str_vec[i];
-                if (0 == i) {		//首先解析响应行
-                    //响应行包含空格分隔的三个字段，例如：HTTP/1.1(协议/版本) 200(状态码) OK(简单描述)
-                    auto line_elem = split(line.data, line.len, " ");
-                    if (line_elem.size() < 3) {		//响应行出错，无效的响应流
-                        header_err = true;
-                        break;
-                    }
-                    conn->status = std::atoi(line_elem[1].data);		//记录中间的状态码
-                } else {
-                    auto header = split(line.data, line.len, ": ");		//头部字段键值对的分隔符为": "
-                    if (header.size() >= 2) {       //无效的头部字段直接丢弃，不符合格式的值发生截断
-                        *(char*)(header[1].data+header[1].len) = 0;
-                        conn->headers[std::string(header[0].data, header[0].len)] = header[1].data;
-                    }
-                }
-            }
-
-            auto it = conn->headers.find("Content-Length");
-            if (header_err || conn->headers.end() == it) {    //头部有误或者未找到"Content-Length"字段，截断该头部
-                conn->headers.clear();
-                return -(int)(valid_header_len+4);
-            }
-            conn->content_len = std::stoi(conn->headers["Content-Length"]);
-            assert(conn->content_len >= 0);
-
-            //先截断http头部
-            if (conn->content_len == 0) {
-                conn->content_len = 1;
-                return -(int)(valid_header_len+3);
-            } else {
-                return -(int)(valid_header_len+4);
-            }
-        }
-
-        if (len < conn->content_len-1)      //响应体中不包含足够的数据，等待该连接上更多的数据到来
-            return 0;
-        else        //已取到响应体，通知上层执行m_f回调
-            return (len > conn->content_len) ? conn->content_len : (int)len;
-    }
-
     http_server scheduler::get_http_server(uint16_t port,
-                                           std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&,
-                                                   const char*, size_t)> f)
+                                           std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&, char*, size_t)> f)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto& impl = sch_impl->m_util_impls[HTTP_SVR];
@@ -974,9 +876,17 @@ namespace crx
 
             http_impl->m_app_prt = PRT_HTTP;
             http_impl->m_sch = this;
-            http_impl->m_protocol_hook = std::bind(&http_server_impl::check_http_stream, http_impl.get(), _1, _2, _3);
-            http_impl->m_f = std::bind(&http_server_impl::tcp_callback, http_impl.get(), _1, _2, _3, _4, _5);
-            http_impl->m_http_f = std::move(f);
+            http_impl->m_protocol_hook = [this](int fd, char* data, size_t len) {
+                auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                auto conn = std::dynamic_pointer_cast<http_server_conn>(sch_impl->m_ev_array[fd]);
+                return http_parser(false, conn, data, len);
+            };
+            http_impl->m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
+                auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                auto http_impl = std::dynamic_pointer_cast<http_server_impl>(sch_impl->m_util_impls[HTTP_SVR]);
+                tcp_callback_for_http<std::shared_ptr<http_server_impl>, http_server_conn>(true, http_impl, fd, data, len);
+            };
+            http_impl->m_http_svr = std::move(f);
 
             //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
             http_impl->fd = http_impl->m_net_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
@@ -988,109 +898,6 @@ namespace crx
         http_server obj;
         obj.m_impl = impl;
         return obj;
-    }
-
-    void http_server_impl::tcp_callback(int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len)
-    {
-        auto impl = sch_impl.lock();
-        auto conn = std::dynamic_pointer_cast<http_server_conn>(impl->m_ev_array[fd]);
-
-        const char *cb_data = nullptr;
-        size_t cb_len = 0;
-        if (len != 1 || '\n' != *data) {     //请求流中包含请求体
-            cb_data = data;
-            cb_len = (size_t)conn->content_len;
-        }
-
-        m_http_f(fd, conn->method, conn->url, conn->headers, cb_data, cb_len);
-        if (impl->m_ev_array[fd]) {
-            conn->content_len = -1;
-            conn->headers.clear();
-        }
-    }
-
-    /*
-     * 一个HTTP请求流的例子如下所示：
-     * POST /request HTTP/1.1
-     * Accept-Ranges: bytes
-     * Connection: close
-     * Pragma: no-cache
-     * Content-Type: text/plain
-     * Content-Length: 12("Hello World!"字节长度)
-     *
-     * Hello World!
-     */
-    int http_server_impl::check_http_stream(int fd, char* data, size_t len)
-    {
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
-        auto conn = std::dynamic_pointer_cast<http_server_conn>(sch_impl->m_ev_array[fd]);
-
-        if (-1 == conn->content_len) {        //与之前的http请求流已完成分包处理，开始处理新的请求
-            char *delim_pos = strstr(data, "\r\n\r\n");
-            if (!delim_pos || delim_pos > data+len-4) {     //还未取到分隔符或已超出查找范围
-                if (len > 8192)
-                    return -8192;      //在取到分隔符之前已有超过8k的数据，截断已保护缓冲
-                else
-                    return 0;           //等待接受更多的数据
-            }
-
-            char *sig_pos = strstr(data, "HTTP");       //在完整的请求头中查找是否存在"HTTP"签名
-            if (!sig_pos || sig_pos > delim_pos)        //未取到签名或已超出查找范围，截断该请求头
-                return -(int)(delim_pos-data+4);
-
-            size_t valid_header_len = delim_pos-data;
-            auto str_vec = split(data, valid_header_len, "\r\n");
-            if (str_vec.size() <= 1)        //一次HTTP请求中包含一个请求行以及至少一个头部字段
-                return -(int)(valid_header_len+4);
-
-            bool header_err = false;
-            for (size_t i = 0; i < str_vec.size(); ++i) {
-                auto line = str_vec[i];
-                if (0 == i) {		//首先解析请求行
-                    //请求行包含空格分隔的三个字段，例如：POST(请求方法) /request(url) HTTP/1.1(协议/版本)
-                    auto line_elem = split(line.data, line.len, " ");
-                    if (line_elem.size() < 3) {		//请求行出错，无效的请求流
-                        header_err = true;
-                        break;
-                    }
-
-                    conn->method = line_elem[0].data;          //记录请求方法
-                    *(char*)(line_elem[0].data+line_elem[0].len) = 0;
-                    conn->url = line_elem[1].data;             //记录请求的url(以"/"开始的部分)
-                    *(char*)(line_elem[1].data+line_elem[1].len) = 0;
-                } else {
-                    auto header = split(line.data, line.len, ": ");        //头部字段键值对的分隔符为": "
-                    if (header.size() >= 2) {       //无效的头部字段直接丢弃，不符合格式的值发生截断
-                        *(char*)(header[1].data+header[1].len) = 0;
-                        conn->headers[std::string(header[0].data, header[0].len)] = header[1].data;
-                    }
-                }
-            }
-
-            if (header_err) {       //头部有误
-                conn->headers.clear();
-                return -(int)(valid_header_len+4);
-            }
-
-            int ret = 0;
-            auto it = conn->headers.find("Content-Length");
-            if (conn->headers.end() == it) {      //有些请求流不存在请求体，此时头部中不包含"Content-Length"字段
-                //just a trick，返回0表示等待更多的数据，如果需要上层执行m_f回调必须返回大于0的值，因此在完成一次分包之后，
-                //若没有请求体，可以将content_len设置为1，但只截断分隔符"\r\n\r\n"中的前三个字符，而将最后一个字符作为请求体
-                conn->content_len = 1;
-                ret = -(int)(valid_header_len+3);
-            } else {
-                conn->content_len = std::stoi(it->second);
-                ret = -(int)(valid_header_len+4);
-            }
-            assert(conn->content_len > 0);    //此时已正确获取到当前请求中的请求体信息
-            return ret;     //先截断http头部
-        }
-
-        if (len < conn->content_len-1)      //请求体中不包含足够的数据，等待该连接上更多的数据到来
-            return 0;
-        else        //已取到请求体，通知上层执行m_f回调
-            return (len > conn->content_len) ? conn->content_len : (int)len;
     }
 
     simpack_server

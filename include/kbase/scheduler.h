@@ -76,7 +76,7 @@ namespace crx
          * 	@f：回调函数，函数的4个参数分别为对端的ip地址、端口、接收到的udp包和大小
          */
         udp_ins get_udp_ins(bool is_server, uint16_t port,
-                            std::function<void(const std::string&, uint16_t, const char*, size_t)> f);
+                            std::function<void(const std::string&, uint16_t, char*, size_t)> f);
 
         /*
          * 注册tcp钩子，这个函数将在收到tcp流之后回调，主要用于定制应用层协议，并将协议与原始的tcp流进行解耦
@@ -94,7 +94,7 @@ namespace crx
          */
         void register_tcp_hook(bool client, std::function<int(int, char*, size_t)> f);
 
-        //[单例] 获取tcp客户端实例，回调函数的3个参数分别为指定的连接，收到的tcp数据流以及回调参数
+        //[单例] 获取tcp客户端实例，回调函数的3个参数分别为指定的连接，收到的tcp数据流
         tcp_client get_tcp_client(std::function<void(int, const std::string&, uint16_t, char*, size_t)> f);
 
         /*
@@ -112,7 +112,7 @@ namespace crx
          * ③头部键值对
          * ④响应体
          */
-        http_client get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, const char*, size_t)> f);
+        http_client get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, char*, size_t)> f);
 
         /*
          * [单例] 获取http服务实例(自动释放)，回调函数中的6个参数依次为
@@ -121,10 +121,9 @@ namespace crx
          * ③url(以"/"起始的字符串，例如"/index.html")
          * ④头部键值对
          * ⑤请求体(可能不存在)
-         * ⑥回调参数
          */
         http_server get_http_server(uint16_t port,
-                                    std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&, const char*, size_t)> f);
+                                    std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&, char*, size_t)> f);
 
         //[单例] 获取simpack服务实例(自动释放)，主要用于分布式系统中可控服务节点之间的通信
         simpack_server
@@ -138,7 +137,6 @@ namespace crx
          * [单例] 获取文件系统监控实例(自动释放)，回调函数中的6个参数依次为
          * ①触发监控事件的文件
          * ②监控文件的掩码，用于确定触发事件的类型
-         * ③回调参数
          */
         fs_monitor get_fs_monitor(std::function<void(const char*, uint32_t)> f);
     };
