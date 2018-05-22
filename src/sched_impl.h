@@ -178,7 +178,7 @@ namespace crx
 
         net_socket m_net_sock;			//udp套接字
         std::string m_recv_buffer;		//接收缓冲区
-        std::function<void(const std::string&, uint16_t, char*, size_t)> m_f;			//收到数据时触发的回调函数
+        std::function<void(const std::string&, uint16_t, char*, size_t)> m_f;       //收到数据时触发的回调函数
     };
 
     enum APP_PRT    //应用层协议的类型
@@ -279,13 +279,18 @@ namespace crx
 
     extern std::unordered_map<int, std::string> g_ext_type;
 
-    struct http_client_conn : public tcp_client_conn
+    struct http_xutil
     {
         int status, content_len;
-        const char *method, *url;
+        const char *method, *url;		//请求方法/url(以"/"开始的字符串)
         std::unordered_map<std::string, const char*> headers;
 
-        http_client_conn() : content_len(-1) {}
+        http_xutil() : content_len(-1) {}
+    };
+
+    struct http_client_conn : public tcp_client_conn
+    {
+        http_xutil xutil;
     };
 
     struct http_client_impl : public tcp_client_impl
@@ -296,11 +301,7 @@ namespace crx
 
     struct http_server_conn : public tcp_server_conn
     {
-        int status, content_len;
-        const char *method, *url;		//请求方法/url(以"/"开始的字符串)
-        std::unordered_map<std::string, const char*> headers;
-
-        http_server_conn() : content_len(-1) {}
+        http_xutil xutil;
     };
 
     struct http_server_impl : public tcp_server_impl
@@ -527,16 +528,16 @@ namespace crx
         size_t cb_len = 0;
         if (len != 1 || '\n' != *data) {
             cb_data = data;
-            cb_len = (size_t) conn->content_len;
+            cb_len = (size_t) conn->xutil.content_len;
         }
 
         if (client)
-            impl->m_http_cli(fd, conn->status, conn->headers, cb_data, cb_len);
+            impl->m_http_cli(fd, conn->xutil.status, conn->xutil.headers, cb_data, cb_len);
         else
-            impl->m_http_svr(fd, conn->method, conn->url, conn->headers, cb_data, cb_len);
+            impl->m_http_svr(fd, conn->xutil.method, conn->xutil.url, conn->xutil.headers, cb_data, cb_len);
         if (sch_impl->m_ev_array[fd]) {
-            conn->content_len = -1;
-            conn->headers.clear();
+            conn->xutil.content_len = -1;
+            conn->xutil.headers.clear();
         }
     }
 
@@ -554,7 +555,7 @@ namespace crx
     template <typename CONN_TYPE>
     int http_parser(bool client, CONN_TYPE conn, char* data, size_t len)
     {
-        if (-1 == conn->content_len) {        //与之前的http响应流已完成分包处理，开始处理新的响应
+        if (-1 == conn->xutil.content_len) {        //与之前的http响应流已完成分包处理，开始处理新的响应
             if (client) {           //client的响应行与server的请求行存在差异
                 if (len < 4)        //首先验证流的开始4个字节是否为签名"HTTP"
                     return 0;
@@ -601,47 +602,47 @@ namespace crx
 
                     if (client) {
                         //响应行包含空格分隔的三个字段，例如：HTTP/1.1(协议/版本) 200(状态码) OK(简单描述)
-                        conn->status = std::atoi(line_elem[1].data);		//记录中间的状态码
+                        conn->xutil.status = std::atoi(line_elem[1].data);		//记录中间的状态码
                     } else {
                         //请求行包含空格分隔的三个字段，例如：POST(请求方法) /request(url) HTTP/1.1(协议/版本)
-                        conn->method = line_elem[0].data;          //记录请求方法
+                        conn->xutil.method = line_elem[0].data;          //记录请求方法
                         *(char*)(line_elem[0].data+line_elem[0].len) = 0;
-                        conn->url = line_elem[1].data;             //记录请求的url(以"/"开始的部分)
+                        conn->xutil.url = line_elem[1].data;             //记录请求的url(以"/"开始的部分)
                         *(char*)(line_elem[1].data+line_elem[1].len) = 0;
                     }
                 } else {
                     auto header = split(line.data, line.len, ": ");		//头部字段键值对的分隔符为": "
                     if (header.size() >= 2) {       //无效的头部字段直接丢弃，不符合格式的值发生截断
                         *(char*)(header[1].data+header[1].len) = 0;
-                        conn->headers[std::string(header[0].data, header[0].len)] = header[1].data;
+                        conn->xutil.headers[std::string(header[0].data, header[0].len)] = header[1].data;
                     }
                 }
             }
 
-            auto it = conn->headers.find("Content-Length");
-            if (header_err || (client && conn->headers.end() == it)) {  //头部有误或响应行中未找到"Content-Length"字段，截断该头部
-                conn->headers.clear();
+            auto it = conn->xutil.headers.find("Content-Length");
+            if (header_err || (client && conn->xutil.headers.end() == it)) {  //头部有误或响应行中未找到"Content-Length"字段，截断该头部
+                conn->xutil.headers.clear();
                 return -(int)(valid_header_len+4);
             }
 
-            if (!client && conn->headers.end() == it) {     //有些请求流不存在请求体，此时头部中不包含"Content-Length"字段
+            if (!client && conn->xutil.headers.end() == it) {     //有些请求流不存在请求体，此时头部中不包含"Content-Length"字段
                 //just a trick，返回0表示等待更多的数据，如果需要上层执行m_f回调必须返回大于0的值，因此在完成一次分包之后，
                 //若没有请求体，可以将content_len设置为1，但只截断分隔符"\r\n\r\n"中的前三个字符，而将最后一个字符作为请求体
-                conn->content_len = 1;
+                conn->xutil.content_len = 1;
                 return -(int)(valid_header_len+3);
             }
 
-            conn->content_len = std::stoi(it->second);
-            if (client && conn->content_len == 0) {
-                conn->content_len = 1;
+            conn->xutil.content_len = std::stoi(it->second);
+            if (client && conn->xutil.content_len == 0) {
+                conn->xutil.content_len = 1;
                 return -(int)(valid_header_len+3);
             }
             return -(int)(valid_header_len+4);
         }
 
-        if (len < conn->content_len-1)      //请求/响应体中不包含足够的数据，等待该连接上更多的数据到来
+        if (len < conn->xutil.content_len-1)      //请求/响应体中不包含足够的数据，等待该连接上更多的数据到来
             return 0;
         else        //已取到请求/响应体，通知上层执行m_f回调
-            return (len > conn->content_len) ? conn->content_len : (int)len;
+            return (len > conn->xutil.content_len) ? conn->xutil.content_len : (int)len;
     }
 }
