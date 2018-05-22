@@ -28,10 +28,10 @@ namespace crx
 
         void async_write(const char *data, size_t len);
 
-        void switch_write(scheduler *sch);
+        void switch_write();
 
         int fd;      //与epoll事件关联的文件描述符
-        std::function<void(crx::scheduler*)> f, f_bk;     //回调函数
+        std::function<void()> f, f_bk;     //回调函数
         std::weak_ptr<scheduler_impl> sch_impl;
 
         bool sock_error;                        //指示套接字文件是否出错
@@ -119,24 +119,22 @@ namespace crx
             sigemptyset(&m_mask);
             bzero(&m_fd_info, sizeof(m_fd_info));
         }
-        ~sigctl_impl() override = default;
 
-        void sigctl_callback(scheduler *sch);
+        void sigctl_callback();
 
-        void handle_sigs(const std::vector<int>& sigset, bool add);
+        void handle_sig(int signo, bool add);
 
         sigset_t m_mask;
         signalfd_siginfo m_fd_info;
-        std::function<void(int, uint64_t)> m_f;
+        std::unordered_map<int, std::function<void(uint64_t)>> m_sig_cb;
     };
 
     class timer_impl : public eth_event
     {
     public:
         timer_impl() : m_delay(0), m_interval(0) {}
-        ~timer_impl() override = default;
 
-        void timer_callback(scheduler *sch);
+        void timer_callback();
 
         uint64_t m_delay, m_interval;        //分别对应于首次触发时的延迟时间以及周期性触发时的间隔时间
         std::function<void()> m_f;
@@ -147,18 +145,19 @@ namespace crx
     public:
         timer_wheel_impl() : m_slot_idx(0) {}
 
-        void timer_callback();
+        virtual ~timer_wheel_impl() { m_timer.detach(); }
+
+        void timer_wheel_callback();
 
         timer m_timer;
         size_t m_slot_idx;
-        std::vector<std::list<std::tuple<int, int64_t>>> m_slots;
-        std::unordered_map<int, std::function<void(int64_t)>> m_handlers;
+        std::vector<std::list<std::function<void()>>> m_slots;
     };
 
     class event_impl : public eth_event
     {
     public:
-        void event_callback(scheduler *sch);
+        void event_callback();
 
         std::list<int> m_signals;		//同一个事件可以由多个线程通过发送不同的信号同时触发
         std::function<void(int)> m_f;
@@ -172,7 +171,7 @@ namespace crx
             bzero(&m_send_addr, sizeof(m_send_addr));
         }
 
-        void udp_ins_callback(scheduler *sch);
+        void udp_ins_callback();
 
         struct sockaddr_in m_send_addr, m_recv_addr;
         socklen_t m_recv_len;
@@ -206,7 +205,7 @@ namespace crx
             delete name_reqs[0];
         }
 
-        void tcp_client_callback(scheduler *sch);
+        void tcp_client_callback();
 
         void retry_connect();
 
@@ -229,10 +228,9 @@ namespace crx
     public:
         tcp_client_impl() :m_app_prt(PRT_NONE) {}
 
-        void name_resolve_callback(int signo, uint64_t sigval)
+        void name_resolve_callback(uint64_t sigval)
         {
-            if (SIGRTMIN+14 == signo)
-                m_sch->co_yield(sigval);
+            m_sch->co_yield(sigval);
         }
 
         scheduler *m_sch;
@@ -252,7 +250,7 @@ namespace crx
             stream_buffer.reserve(8192);        //预留8k字节
         }
 
-        void read_tcp_stream(scheduler *sch);
+        void read_tcp_stream();
 
         tcp_server_impl *tcp_impl;
         std::string ip_addr;        //连接对端的ip地址
@@ -265,7 +263,7 @@ namespace crx
     public:
         tcp_server_impl() : m_addr_len(0), m_app_prt(PRT_NONE) {}
 
-        void tcp_server_callback(scheduler *sch);
+        void tcp_server_callback();
 
         struct sockaddr_in m_accept_addr;
         socklen_t m_addr_len;
@@ -274,7 +272,7 @@ namespace crx
         APP_PRT m_app_prt;
         scheduler *m_sch;
 
-        std::shared_ptr<timer_wheel> m_timer_wheel;
+        timer_wheel m_timer_wheel;
         std::function<int(int, char*, size_t)> m_protocol_hook;      //协议钩子
         std::function<void(int, const std::string&, uint16_t, char*, size_t)> m_f;      //收到tcp数据流时触发的回调函数
     };
@@ -375,6 +373,7 @@ namespace crx
 
         tcp_client m_client;
         tcp_server m_server;
+
         std::function<void(const server_info&)> m_on_connect;
         std::function<void(const server_info&)> m_on_disconnect;
         std::function<void(const server_info&, const server_cmd&, char*, size_t)> m_on_request;
@@ -393,7 +392,7 @@ namespace crx
     class fs_monitor_impl : public eth_event
     {
     public:
-        void fs_monitory_callback(scheduler *sch);
+        void fs_monitory_callback();
 
         void recursive_monitor(const std::string& root_dir, bool add, uint32_t mask);
 
@@ -461,7 +460,6 @@ namespace crx
 
         void save_stack(std::shared_ptr<coroutine_impl>& co_impl, const char *top);
 
-    public:
         void add_event(std::shared_ptr<eth_event> ev, uint32_t event = EPOLLIN);
 
         void remove_event(int fd);

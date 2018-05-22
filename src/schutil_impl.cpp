@@ -2,43 +2,23 @@
 
 namespace crx
 {
-    void sigctl::add_sigs(const std::vector<int>& sigset)
+    void sigctl::add_sig(int signo, std::function<void(uint64_t)> callback)
     {
         auto impl = std::dynamic_pointer_cast<sigctl_impl>(m_impl);
-        impl->handle_sigs(sigset, true);
+        impl->handle_sig(signo, true);
+        impl->m_sig_cb[signo] = std::move(callback);
     }
 
-    void sigctl::remove_sigs(const std::vector<int>& sigset)
+    void sigctl::remove_sig(int signo)
     {
         auto impl = std::dynamic_pointer_cast<sigctl_impl>(m_impl);
-        impl->handle_sigs(sigset, false);
-    }
-
-    void sigctl::clear_sigs()
-    {
-        auto impl = std::dynamic_pointer_cast<sigctl_impl>(m_impl);
-        auto sch_impl = impl->sch_impl.lock();
-        sch_impl->handle_event(EPOLL_CTL_DEL, impl->fd, EPOLLIN);
-
-        if (-1 == sigprocmask(SIG_UNBLOCK, &impl->m_mask, nullptr))
-            perror("clear_sigs");
-
-        sigemptyset(&impl->m_mask);     //清空信号集
-        if (-1 == signalfd(impl->fd, &impl->m_mask, SFD_NONBLOCK))
-            perror("clear_sigs");
-    }
-
-    timer::~timer()
-    {
-        auto tmr_impl = std::dynamic_pointer_cast<timer_impl>(m_impl);
-        if (!tmr_impl->sch_impl.expired()) {
-            auto sch_impl = tmr_impl->sch_impl.lock();
-            sch_impl->remove_event(tmr_impl->fd);       //移除该定时器相关的监听事件
-        }
+        impl->handle_sig(signo, false);
+        impl->m_sig_cb.erase(signo);
     }
 
     void timer::start(uint64_t delay, uint64_t interval)
     {
+        if (!m_impl) return;
         auto impl = std::dynamic_pointer_cast<timer_impl>(m_impl);
         impl->m_delay = delay;			//设置初始延迟及时间间隔
         impl->m_interval = interval;
@@ -47,6 +27,7 @@ namespace crx
 
     void timer::reset()
     {
+        if (!m_impl) return;
         auto impl = std::dynamic_pointer_cast<timer_impl>(m_impl);
         int64_t delay_nanos = impl->m_delay*1000*1000;     //计算延迟及间隔对应的纳秒值
         int64_t interval_nanos = impl->m_interval*1000*1000;
@@ -69,32 +50,28 @@ namespace crx
             perror("create_timer::timerfd_settime");
     }
 
-    void timer_wheel::add_handler(int type, std::function<void(int64_t)> handler)
+    void timer::detach()
     {
-        auto tw_impl = std::dynamic_pointer_cast<timer_wheel_impl>(m_impl);
-        tw_impl->m_handlers[type] = std::move(handler);
+        auto tmr_impl = std::dynamic_pointer_cast<timer_impl>(m_impl);
+        if (!tmr_impl->sch_impl.expired()) {
+            auto sch_impl = tmr_impl->sch_impl.lock();
+            sch_impl->remove_event(tmr_impl->fd);       //移除该定时器相关的监听事件
+        }
     }
 
-    void timer_wheel::add_node(int type, uint64_t interval, int64_t id)
+    bool timer_wheel::add_handler(uint64_t delay, std::function<void()> callback)
     {
         auto tw_impl = std::dynamic_pointer_cast<timer_wheel_impl>(m_impl);
         auto tm_impl = std::dynamic_pointer_cast<timer_impl>(tw_impl->m_timer.m_impl);
-        size_t tick = (size_t)std::ceil(interval/tm_impl->m_interval*1.0);
+        size_t tick = (size_t)std::ceil(delay/tm_impl->m_interval*1.0);
 
+        bool ret = false;
         size_t slot_size = tw_impl->m_slots.size();
         if (tick <= slot_size) {
-            auto& slot = tw_impl->m_slots[(tw_impl->m_slot_idx+slot_size)%slot_size];
-            slot.push_back(std::make_tuple(type, id));
+            ret = true;
+            tw_impl->m_slots[(tw_impl->m_slot_idx+tick)%slot_size].push_back(std::move(callback));
         }
-    }
-
-    event::~event()
-    {
-        auto ev_impl = std::dynamic_pointer_cast<event_impl>(m_impl);
-        if (!ev_impl->sch_impl.expired()) {
-            auto sch_impl = ev_impl->sch_impl.lock();
-            sch_impl->remove_event(ev_impl->fd);    //移除该定时器相关的监听事件
-        }
+        return ret;
     }
 
     void event::send_signal(int signal)
@@ -104,12 +81,12 @@ namespace crx
         eventfd_write(impl->fd, 1);             //设置事件
     }
 
-    udp_ins::~udp_ins()
+    void event::detach()
     {
-        auto ui_impl = std::dynamic_pointer_cast<udp_ins_impl>(m_impl);
-        if (!ui_impl->sch_impl.expired()) {
-            auto sch_impl = ui_impl->sch_impl.lock();
-            sch_impl->remove_event(ui_impl->fd);        //移除该定时器相关的监听事件
+        auto ev_impl = std::dynamic_pointer_cast<event_impl>(m_impl);
+        if (!ev_impl->sch_impl.expired()) {
+            auto sch_impl = ev_impl->sch_impl.lock();
+            sch_impl->remove_event(ev_impl->fd);    //移除该定时器相关的监听事件
         }
     }
 
@@ -128,6 +105,15 @@ namespace crx
             perror("udp_ins::send_data::sendto");
     }
 
+    void udp_ins::detach()
+    {
+        auto ui_impl = std::dynamic_pointer_cast<udp_ins_impl>(m_impl);
+        if (!ui_impl->sch_impl.expired()) {
+            auto sch_impl = ui_impl->sch_impl.lock();
+            sch_impl->remove_event(ui_impl->fd);        //移除该定时器相关的监听事件
+        }
+    }
+
     int tcp_client::connect(const char *server, uint16_t port, int retry /*= 0*/, int timeout /*= 0*/)
     {
         if (!server)
@@ -144,6 +130,8 @@ namespace crx
 
         conn->tcp_impl = tcp_impl;
         conn->domain_name = server;		//记录当前连接的主机地址
+        conn->retry = retry;
+        conn->timeout = timeout > 60 ? 60 : timeout;
 
         in_addr_t ret = inet_addr(server);		//判断服务器的地址是否为点分十进制的ip地址
         if (INADDR_NONE == ret) {       //需要对域名进行解析
@@ -180,18 +168,13 @@ namespace crx
             conn->ip_addr = server;
         }
 
-        if (conn->retry) {
-            if (!tcp_impl->m_timer_wheel.m_impl)
-                tcp_impl->m_timer_wheel = tcp_impl->m_sch->get_timer_wheel(1000, 60);   //秒盘
-            tcp_impl->m_timer_wheel.add_handler(1, std::bind(&tcp_client_conn::retry_connect, conn.get()));
-        }
+        if (conn->retry && !tcp_impl->m_timer_wheel.m_impl)     //创建一个秒盘
+            tcp_impl->m_timer_wheel = tcp_impl->m_sch->get_timer_wheel(1000, 60);
 
         conn->fd = conn->conn_sock.create(PRT_TCP, USR_CLIENT, conn->ip_addr.c_str(), port);
         conn->conn_sock.set_keep_alive(1, 60, 5, 3);
-        conn->f = std::bind(&tcp_client_conn::tcp_client_callback, conn.get(), _1);
+        conn->f = std::bind(&tcp_client_conn::tcp_client_callback, conn.get());
         conn->sch_impl = sch_impl;
-        conn->retry = retry;
-        conn->timeout = timeout;
         sch_impl->add_event(conn, EPOLLOUT);        //套接字异步connect时其可写表明与对端server已经连接成功
         return conn->fd;
     }

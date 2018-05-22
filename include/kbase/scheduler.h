@@ -50,8 +50,8 @@ namespace crx
          */
         log get_log(const char *prefix, const char *root_dir = "log_files", int max_size = 2);
 
-        //[单例] 回调函数中的2个参数依次为信号量、信号量关联参数
-        sigctl get_sigctl(std::function<void(int, uint64_t)> f);
+        //[单例]
+        sigctl get_sigctl();
 
         //获取timer实例
         timer get_timer(std::function<void()> f);

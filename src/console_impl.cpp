@@ -150,7 +150,7 @@ namespace crx
         m_console_ev = std::make_shared<eth_event>();
         m_console_ev->fd = STDIN_FILENO;
         m_console_ev->sch_impl = sch_impl;
-        m_console_ev->f = [this](scheduler *sch) {
+        m_console_ev->f = [this]() {
             std::string input(256, 0);
             ssize_t ret = read(STDIN_FILENO, &input[0], input.size()-1);
             if (-1 == ret || 0 == ret) {
@@ -213,7 +213,7 @@ namespace crx
         m_console_ev->fd = m_rd_fifo;
         m_console_ev->sch_impl = sch_impl;
 
-        m_console_ev->f = [this](scheduler *sch) {
+        m_console_ev->f = [this]() {
             //当读管道可读时，说明有其他进程的读写管道已经创建，并且写管道已经与本进程的读管道完成连接，
             //此时在本进程中创建写管道并与其他进程的读管道完成连接
             if (!m_pipe_conn) {
@@ -279,7 +279,7 @@ namespace crx
         auto eth_ev = std::make_shared<eth_event>();
         eth_ev->fd = rd_fifo;
         eth_ev->sch_impl = sch_impl;
-        eth_ev->f = [&](scheduler *sch) {
+        eth_ev->f = [&]() {
             std::string output;
             int sts = eth_ev->async_read(output);
             if (!output.empty()) {

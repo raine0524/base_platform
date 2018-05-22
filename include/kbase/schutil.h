@@ -5,18 +5,16 @@ namespace crx
     class CRX_SHARE sigctl : public kobj
     {
     public:
-        void add_sigs(const std::vector<int>& sigset);
+        //增加监听信号及其回调函数
+        void add_sig(int signo, std::function<void(uint64_t)> callback);
 
-        void remove_sigs(const std::vector<int>& sigset);
-
-        void clear_sigs();
+        //移除监听信号
+        void remove_sig(int signo);
     };
 
     class CRX_SHARE timer : public kobj
     {
     public:
-        virtual ~timer();
-
         /*
          * 启动定时器 (终止定时器只需要将timer类销毁即可)
          * @delay: 初始延迟
@@ -27,34 +25,43 @@ namespace crx
 
         //重置定时器回到初始启动状态
         void reset();
+
+        //分离定时器
+        void detach();
     };
 
     class CRX_SHARE timer_wheel : public kobj
     {
     public:
-        void add_handler(int type, std::function<void(int64_t)> handler);
-
-        void add_node(int type, uint64_t interval, int64_t id);
+        /*
+         * 增加定时轮处理器，定时轮将根据延迟以及一个tick的间隔时间选择适当的槽，将回调函数放在这个槽内，等到
+         * 指针指向这个槽之后，执行相应的回调函数
+         *
+         * @delay 延迟时间，单位为毫秒
+         * @callback 回调函数
+         * @return 若延迟时间>interval*slot，那么处理器添加失败
+         */
+        bool add_handler(uint64_t delay, std::function<void()> callback);
     };
 
     class CRX_SHARE event : public kobj
     {
     public:
-        virtual ~event();
-
         void send_signal(int signal);       //发送事件信号
+
+        void detach();      //分离事件
     };
 
     class CRX_SHARE udp_ins : public kobj
     {
     public:
-        virtual ~udp_ins();
-
         //获取使用的端口
         uint16_t get_port();
 
         //发送udp数据包(包的大小上限为65536个字节)
         void send_data(const char *ip_addr, uint16_t port, const char *data, size_t len);
+
+        void detach();      //分离udp实例
     };
 
     //tcp_client实例支持同时连接多个tcp server
@@ -66,7 +73,7 @@ namespace crx
          * @server: 服务器主机地址，同时支持点分十进制格式的ip以及域名形式的主机地址
          * @port: 服务器的端口
          * @retry: 是否尝试重连, -1:不断重连 0:不重连 n(>0):重连n次
-         * @timeout: 若尝试重连，timeout指明重连间隔，单位为秒
+         * @timeout: 若尝试重连，timeout指明重连间隔，单位为秒且timeout<=60，因为使用的定时轮为秒盘
          * @return value(conn): 唯一标识与指定主机的连接，-1表示连接失败
          */
         int connect(const char *server, uint16_t port, int retry = 0, int timeout = 0);

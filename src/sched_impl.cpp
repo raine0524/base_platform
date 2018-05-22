@@ -173,7 +173,7 @@ namespace crx
                 int fd = events[i].data.fd;
                 auto ev = m_ev_array[fd];
                 if (ev)
-                    ev->f(sch);
+                    ev->f();
             }
 
             i = 1;
@@ -305,11 +305,11 @@ namespace crx
 
         cache_data.push_back(std::string(data, len));
         f_bk = std::move(f);
-        f = std::bind(&eth_event::switch_write, this, _1);
+        f = std::bind(&eth_event::switch_write, this);
         impl->handle_event(EPOLL_CTL_MOD, fd, EPOLLOUT);
     }
 
-    void eth_event::switch_write(scheduler *sch)
+    void eth_event::switch_write()
     {
         bool excep_occur = false;
         for (auto it = cache_data.begin(); it != cache_data.end(); ) {
@@ -330,9 +330,7 @@ namespace crx
         }
 
         if (excep_occur) {      //发生异常，移除该文件描述符上的监听事件
-            cache_data.clear();
             sock_error = true;
-            f_bk(sch);
         } else if (cache_data.empty()) {   //切换监听读事件
             f = std::move(f_bk);
             auto impl = sch_impl.lock();
@@ -484,7 +482,7 @@ namespace crx
             return ctx_len;
     }
 
-    sigctl scheduler::get_sigctl(std::function<void(int, uint64_t)> f)
+    sigctl scheduler::get_sigctl()
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto& impl = sch_impl->m_util_impls[SIG_CTL];
@@ -493,10 +491,8 @@ namespace crx
             impl = sig_impl;
 
             sig_impl->fd = signalfd(-1, &sig_impl->m_mask, SFD_NONBLOCK);
-            sig_impl->f = std::bind(&sigctl_impl::sigctl_callback, sig_impl.get(), _1);
+            sig_impl->f = std::bind(&sigctl_impl::sigctl_callback, sig_impl.get());
             sig_impl->sch_impl = sch_impl;
-
-            sig_impl->m_f = std::move(f);
             sch_impl->add_event(sig_impl);
         }
 
@@ -505,13 +501,15 @@ namespace crx
         return obj;
     }
 
-    void sigctl_impl::sigctl_callback(scheduler *sch)
+    void sigctl_impl::sigctl_callback()
     {
         int st_size = sizeof(m_fd_info);
         while (true) {
             int64_t ret = read(fd, &m_fd_info, (size_t)st_size);
             if (ret == st_size) {
-                m_f(m_fd_info.ssi_signo, m_fd_info.ssi_ptr);
+                auto it = m_sig_cb.find(m_fd_info.ssi_signo);
+                if (m_sig_cb.end() != it)
+                    it->second(m_fd_info.ssi_ptr);
             } else {
                 if (-1 == ret && EAGAIN != errno)
                     perror("sigctl_callback");
@@ -523,17 +521,14 @@ namespace crx
     }
 
     //添加/删除信号文件描述符相关的信号掩码值时，要使新的信号集合生效，必须要重新添加该epoll上监听的signalfd
-    void sigctl_impl::handle_sigs(const std::vector<int>& sigset, bool add)
+    void sigctl_impl::handle_sig(int signo, bool add)
     {
         auto impl = sch_impl.lock();
         impl->handle_event(EPOLL_CTL_DEL, fd, EPOLLIN);
-        for (auto sig : sigset) {
-            if (add)
-                sigaddset(&m_mask, sig);
-            else
-                sigdelset(&m_mask, sig);
-        }
-
+        if (add)
+            sigaddset(&m_mask, signo);
+        else
+            sigdelset(&m_mask, signo);
         sigprocmask(SIG_SETMASK, &m_mask, nullptr);
         signalfd(fd, &m_mask, SFD_NONBLOCK);
         impl->handle_event(EPOLL_CTL_ADD, fd, EPOLLIN);
@@ -546,7 +541,7 @@ namespace crx
         if (__glibc_likely(-1 != tmr_impl->fd)) {
             auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
             tmr_impl->sch_impl = sch_impl;
-            tmr_impl->f = std::bind(&timer_impl::timer_callback, tmr_impl.get(), _1);
+            tmr_impl->f = std::bind(&timer_impl::timer_callback, tmr_impl.get());
 
             tmr_impl->m_f = std::move(f);
             sch_impl->add_event(tmr_impl);      //加入epoll监听事件
@@ -564,7 +559,7 @@ namespace crx
      * 触发定时器回调时首先读文件描述符 fd，读操作将定时器状态切换为已读，若不执行读操作，
      * 则由于epoll采用edge-trigger边沿触发模式，定时器事件再次触发时将不再回调该函数
      */
-    void timer_impl::timer_callback(scheduler *sch)
+    void timer_impl::timer_callback()
     {
         uint64_t cnt;
         read(fd, &cnt, sizeof(cnt));
@@ -574,7 +569,7 @@ namespace crx
     timer_wheel scheduler::get_timer_wheel(uint64_t interval, size_t slot)
     {
         auto tw_impl = std::make_shared<timer_wheel_impl>();
-        tw_impl->m_timer = get_timer(std::bind(&timer_wheel_impl::timer_callback, tw_impl.get()));
+        tw_impl->m_timer = get_timer(std::bind(&timer_wheel_impl::timer_wheel_callback, tw_impl.get()));
         if (tw_impl->m_timer.m_impl) {
             tw_impl->m_timer.start(interval, interval);
             tw_impl->m_slots.resize(slot);
@@ -588,11 +583,12 @@ namespace crx
         return tw;
     }
 
-    void timer_wheel_impl::timer_callback()
+    void timer_wheel_impl::timer_wheel_callback()
     {
         m_slot_idx = (m_slot_idx+1)%m_slots.size();
-        for (auto& elem : m_slots[m_slot_idx])
-            m_handlers[std::get<0>(elem)](std::get<1>(elem));
+        for (auto& f : m_slots[m_slot_idx])
+            f();
+        m_slots[m_slot_idx].clear();
     }
 
     event scheduler::get_event(std::function<void(int)> f)
@@ -601,8 +597,8 @@ namespace crx
         ev_impl->fd = eventfd(0, EFD_NONBLOCK);			//创建一个非阻塞的事件资源
         if (__glibc_likely(-1 != ev_impl->fd)) {
             auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+            ev_impl->f = std::bind(&event_impl::event_callback, ev_impl.get());
             ev_impl->sch_impl = sch_impl;
-            ev_impl->f = std::bind(&event_impl::event_callback, ev_impl.get(), _1);
 
             ev_impl->m_f = std::move(f);
             sch_impl->add_event(ev_impl);
@@ -616,7 +612,7 @@ namespace crx
         return ev;
     }
 
-    void event_impl::event_callback(scheduler *sch)
+    void event_impl::event_callback()
     {
         eventfd_t val;
         eventfd_read(fd, &val);       //读操作将事件重置
@@ -637,8 +633,8 @@ namespace crx
 
         if (__glibc_likely(-1 != ui_impl->fd)) {
             auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+            ui_impl->f = std::bind(&udp_ins_impl::udp_ins_callback, ui_impl.get());
             ui_impl->sch_impl = sch_impl;
-            ui_impl->f = std::bind(&udp_ins_impl::udp_ins_callback, ui_impl.get(), _1);
 
             ui_impl->m_f = std::move(f);
             sch_impl->add_event(ui_impl);
@@ -652,7 +648,7 @@ namespace crx
         return ui;
     }
 
-    void udp_ins_impl::udp_ins_callback(scheduler *sch)
+    void udp_ins_impl::udp_ins_callback()
     {
         bzero(&m_recv_addr, sizeof(m_recv_addr));
         m_recv_len = sizeof(m_recv_addr);
@@ -708,37 +704,37 @@ namespace crx
         return obj;
     }
 
-    void tcp_client_conn::tcp_client_callback(scheduler *sch)
+    void tcp_client_conn::tcp_client_callback()
     {
         if (!sock_error) {
-            if (!is_connect) {
+            if (!is_connect) {      //连接回调，触发可写事件
                 is_connect = true;
                 f_bk = std::move(f);
-                switch_write(sch);
-                return;
-            }
+                switch_write();
+            } else {        //触发可读事件
+                int sts = async_read(stream_buffer);        //读tcp响应流
+                handle_stream(fd, this);
 
-            int sts = async_read(stream_buffer);        //读tcp响应流
-            handle_stream(fd, this);
-
-            if (sts <= 0) {     //读文件描述符检测到异常或发现对端已关闭连接
+                if (sts <= 0) {     //读文件描述符检测到异常或发现对端已关闭连接
 //                if (sts < 0)
 //                    printf("[tcp_client_impl::tcp_client_callback] 读文件描述符 %d 异常\n", tcp_conn->fd);
 //                else
 //                    printf("[tcp_client_impl::tcp_client_callback] 连接 %d 对端正常关闭\n", tcp_conn->fd);
-                sock_error = true;
+                    sock_error = true;
+                }
             }
         }
 
         if (sock_error) {
-            if (-1 == retry || (retry > 0 && cnt < retry)) {
-//                tcp_impl->m_timer_wheel->
-                return;     //若不断尝试重连或重连次数还未满足要求，则不释放资源
+            if (-1 == retry || (retry > 0 && cnt < retry)) {        //若不断尝试重连或重连次数还未满足要求，则不释放资源
+                sock_error = is_connect = false;
+                f = std::move(f_bk);
+                tcp_impl->m_timer_wheel.add_handler((uint64_t)timeout*1000, std::bind(&tcp_client_conn::retry_connect, this));
+            } else {
+                //在因为异常或对端关闭需要释放该套接字资源时通知上层
+                tcp_impl->m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);
+                sch_impl.lock()->remove_event(fd);
             }
-
-            //在因为异常或对端关闭需要释放该套接字资源时通知上层
-            tcp_impl->m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);
-            sch_impl.lock()->remove_event(fd);
         }
     }
 
@@ -746,8 +742,9 @@ namespace crx
     {
         if (-1 == connect(conn_sock.m_sock_fd, (struct sockaddr*)&conn_sock.m_addr,
                 sizeof(conn_sock.m_addr)) && EINPROGRESS != errno)
-            perror("net_socket::create::connect");
+            perror("retry_connect");
         cnt = retry > 0 ? (cnt+1) : cnt;
+        printf("尝试重连 [%d] ip=%s, port=%d, timeout=%d\n", fd, ip_addr.c_str(), conn_sock.m_port, timeout);
     }
 
     tcp_server scheduler::get_tcp_server(uint16_t port,
@@ -765,7 +762,7 @@ namespace crx
             //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
             tcp_impl->fd = tcp_impl->m_net_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
             tcp_impl->sch_impl = sch_impl;
-            tcp_impl->f = std::bind(&tcp_server_impl::tcp_server_callback, tcp_impl.get(), _1);
+            tcp_impl->f = std::bind(&tcp_server_impl::tcp_server_callback, tcp_impl.get());
             sch_impl->add_event(tcp_impl);
         }
 
@@ -774,7 +771,7 @@ namespace crx
         return obj;
     }
 
-    void tcp_server_impl::tcp_server_callback(scheduler *sch)
+    void tcp_server_impl::tcp_server_callback()
     {
         bzero(&m_accept_addr, sizeof(struct sockaddr_in));
         m_addr_len = sizeof(struct sockaddr_in);
@@ -795,7 +792,8 @@ namespace crx
             }
 
             conn->fd = client_fd;
-            conn->f = std::bind(&tcp_server_conn::read_tcp_stream, conn.get(), _1);
+            conn->f = std::bind(&tcp_server_conn::read_tcp_stream, conn.get());
+            conn->sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
 
             conn->tcp_impl = this;
             conn->ip_addr = inet_ntoa(m_accept_addr.sin_addr);        //将地址转换为点分十进制格式的ip地址
@@ -810,12 +808,12 @@ namespace crx
              */
             conn->conn_sock.set_keep_alive(1, 60, 5, 3);
 
-            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(sch->m_impl);
+            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
             sch_impl->add_event(conn);        //将该连接加入监听事件
         }
     }
 
-    void tcp_server_conn::read_tcp_stream(scheduler *sch)
+    void tcp_server_conn::read_tcp_stream()
     {
         if (!sock_error) {
             int sts = async_read(stream_buffer);
@@ -850,8 +848,8 @@ namespace crx
             http_impl->m_f = std::bind(&http_client_impl::tcp_callback, http_impl.get(), _1, _2, _3, _4, _5);
             http_impl->m_http_f = std::move(f);		//保存回调函数
 
-            auto ctl = get_sigctl(std::bind(&http_client_impl::name_resolve_callback, http_impl.get(), _1, _2));
-            ctl.add_sigs({SIGRTMIN+14});
+            auto ctl = get_sigctl();
+            ctl.add_sig(SIGRTMIN+14, std::bind(&http_client_impl::name_resolve_callback, http_impl.get(), _1));
         }
 
         http_client obj;
@@ -983,7 +981,7 @@ namespace crx
             //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
             http_impl->fd = http_impl->m_net_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
             http_impl->sch_impl = sch_impl;
-            http_impl->f = std::bind(&http_server_impl::tcp_server_callback, http_impl.get(), _1);
+            http_impl->f = std::bind(&http_server_impl::tcp_server_callback, http_impl.get());
             sch_impl->add_event(http_impl);
         }
 
@@ -1159,7 +1157,11 @@ namespace crx
             //只有配置了名字才连接registry，否则作为单点应用
             if (!xutil->info.name.empty()) {
                 //若连接失败则每隔三秒尝试重连一次
-                int conn = simp_impl->m_client.connect(xutil->info.ip.c_str(), xutil->info.port, -1, 3*1000);
+                int conn = simp_impl->m_client.connect(xutil->info.ip.c_str(), xutil->info.port, -1, 3);
+                simp_impl->m_registry_conn = xutil->info.conn = conn;
+                sch_impl->m_ev_array[conn]->ext_data = xutil;
+
+
                 simp_impl->m_seria.insert("ip", xutil->info.ip.c_str(), xutil->info.ip.size());
                 uint16_t net_port = htons((uint16_t)xutil->listen);
                 simp_impl->m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
@@ -1434,6 +1436,7 @@ namespace crx
     void simpack_server_impl::say_goodbye(std::shared_ptr<simpack_xutil>& xutil)
     {
         //挥手
+        m_seria.insert("name", xutil->info.name.c_str(), xutil->info.name.size());
         auto ref = m_seria.get_string();
         bzero(&m_app_cmd, sizeof(m_app_cmd));
         m_app_cmd.cmd = CMD_GOODBYE;
@@ -1519,7 +1522,7 @@ namespace crx
 
             moni_impl->fd = inotify_init1(IN_NONBLOCK);
             moni_impl->sch_impl = sch_impl;
-            moni_impl->f = std::bind(&fs_monitor_impl::fs_monitory_callback, moni_impl.get(), _1);
+            moni_impl->f = std::bind(&fs_monitor_impl::fs_monitory_callback, moni_impl.get());
 
             moni_impl->m_monitor_f = std::move(f);
             sch_impl->add_event(moni_impl);
@@ -1530,7 +1533,7 @@ namespace crx
         return obj;
     }
 
-    void fs_monitor_impl::fs_monitory_callback(scheduler *sch)
+    void fs_monitor_impl::fs_monitory_callback()
     {
         char buf[1024] = {0};
         int filter = 0, offset = 0;
