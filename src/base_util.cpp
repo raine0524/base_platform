@@ -426,11 +426,11 @@ namespace crx
         return true;
     }
 
-    void depth_first_traverse_dir(const char *root_dir, std::function<void(const std::string&, void*)>f,
-                                  void *arg, bool with_path /*= true*/)
+    void depth_first_traverse_dir(const char *root_dir, std::function<void(std::string&)> f,
+                                  bool with_path /*= true*/, bool filter_dir /*= true*/)
     {
         DIR *dir = opendir(root_dir);
-        if (!dir) {
+        if (__glibc_unlikely(!dir)) {
             perror("depth_first_traverse_dir::opendir failed");
             return;
         }
@@ -448,13 +448,15 @@ namespace crx
                 return;
             }
 
-            if (S_ISDIR(st.st_mode)) {		//directory
-                depth_first_traverse_dir(file_name.c_str(), f, arg, with_path);
-            } else {
-                if (!with_path)
-                    file_name = ent->d_name;
-                f(file_name, arg);
+            if (S_ISDIR(st.st_mode)) {  //directory
+                depth_first_traverse_dir(file_name.c_str(), f, with_path);
+                if (filter_dir)     //若选择过滤目录则直接进行下一轮循环
+                    continue;
             }
+
+            if (!with_path)
+                file_name = ent->d_name;
+            f(file_name);
         }
         closedir(dir);
     }

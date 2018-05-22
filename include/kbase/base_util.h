@@ -67,9 +67,8 @@ namespace crx
     bool CRX_SHARE convert_ipaddr(const char *server, std::string& ip_addr);
 
     //对根目录进行深度优先遍历，对于所有取得的文件都执行f函数调用
-    void  CRX_SHARE depth_first_traverse_dir(const char *root_dir,
-                                             std::function<void(const std::string&, void*)>f, void *arg,
-                                             bool with_path = true);
+    void  CRX_SHARE depth_first_traverse_dir(const char *root_dir, std::function<void(std::string&)> f,
+                                             bool with_path = true, bool filter_dir = true);
 
     //执行shell命令，并返回shell输出
     std::string CRX_SHARE run_shell_cmd(const char *cmd_string);

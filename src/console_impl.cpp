@@ -62,10 +62,10 @@ namespace crx
         if (access(m_pipe_dir.c_str(), F_OK)) {
             mkdir_multi(m_pipe_dir.c_str());		//创建管道目录
         } else {
-            depth_first_traverse_dir(m_pipe_dir.c_str(), [&](const std::string& file, void *arg) {
+            depth_first_traverse_dir(m_pipe_dir.c_str(), [&](std::string& file) {
                 int idx = file.front()-'0';
                 m_pipe_name[idx] = m_pipe_dir+"/"+file;
-            }, nullptr, false);
+            }, false);
         }
     }
 

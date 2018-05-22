@@ -375,14 +375,14 @@ namespace crx
         mkdir_multi(log_path);
 
         sprintf(file_wh, "%s_%02d", m_prefix.c_str(), m_now.t->tm_hour);
-        depth_first_traverse_dir(log_path, [&](const std::string& fname, void *arg) {
+        depth_first_traverse_dir(log_path, [&](const std::string& fname) {
             if (std::string::npos != fname.find(file_wh)) {
                 auto pos = fname.rfind('[');
                 int split_idx = atoi(&fname[pos+1]);
                 if (split_idx > m_split_idx)
                     m_split_idx = split_idx;
             }
-        }, nullptr, false);
+        }, false);
         sprintf(log_path+ret, "%s[%03d].log", file_wh, m_split_idx);
 
         if (access(log_path, F_OK))     //file not exist
@@ -1420,42 +1420,29 @@ namespace crx
 
     void fs_monitor_impl::recursive_monitor(const std::string& root_dir, bool add, uint32_t mask)
     {
-        DIR *dir = opendir(root_dir.c_str());
-        if (__glibc_unlikely(!dir)) {
-            perror("recursive_monitor::opendir failed");
-            return;
-        }
+        depth_first_traverse_dir(root_dir.c_str(), [&](std::string& dir_name) {
+            struct stat st = {0};
+            stat(dir_name.c_str(), &st);
+            if (!S_ISDIR(st.st_mode))       //仅对目录做处理
+                return;
 
-        struct stat st;
-        struct dirent *ent = nullptr;
-        while ((ent = readdir(dir))) {
-            if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
-                continue;
-
-            std::string path = root_dir+ent->d_name;
-            stat(path.c_str(), &st);
-            if (!S_ISDIR(st.st_mode))       //不是目录则不做处理
-                continue;
-
-            if ('/' != path.back())
-                path.push_back('/');
+            if ('/' != dir_name.back())
+                dir_name.push_back('/');
 
             if (add) {
-                if (m_path_mev.end() == m_path_mev.find(path)) {
-                    int watch_id = inotify_add_watch(fd, path.c_str(), mask);
+                if (m_path_mev.end() == m_path_mev.find(dir_name)) {
+                    int watch_id = inotify_add_watch(fd, dir_name.c_str(), mask);
                     if (__glibc_unlikely(-1 == watch_id)) {
                         perror("recursive_monitor::inotify_add_watch");
-                        continue;
+                        return;
                     }
-                    trigger_event(true, watch_id, path, true, mask);
+                    trigger_event(true, watch_id, dir_name, true, mask);
                 }
             } else {    //remove
-                if (m_path_mev.end() != m_path_mev.find(path))
-                    trigger_event(false, m_path_mev[path]->watch_id, path, 0, 0);
+                if (m_path_mev.end() != m_path_mev.find(dir_name))
+                    trigger_event(false, m_path_mev[dir_name]->watch_id, dir_name, 0, 0);
             }
-            recursive_monitor(path, add, mask);
-        }
-        closedir(dir);
+        }, true, false);
     }
 
     void fs_monitor_impl::trigger_event(bool add, int watch_id, const std::string& path, bool recur_flag, uint32_t mask)
