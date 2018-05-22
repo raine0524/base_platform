@@ -124,8 +124,8 @@ namespace crx
         std::shared_ptr<tcp_client_conn> conn;
         switch (tcp_impl->m_app_prt) {
             case PRT_NONE:
-            case PRT_SIMP:  conn = std::make_shared<tcp_client_conn>();     break;
-            case PRT_HTTP:  conn = std::make_shared<http_client_conn>();    break;
+            case PRT_SIMP:  conn = std::make_shared<tcp_client_conn>();                 break;
+            case PRT_HTTP:  conn = std::make_shared<http_conn_t<tcp_client_conn>>();    break;
         }
 
         conn->tcp_impl = tcp_impl;
@@ -239,14 +239,14 @@ namespace crx
     void http_client::request(int conn, const char *method, const char *post_page, std::unordered_map<std::string, std::string> *extra_headers,
                               const char *ext_data, size_t ext_len, EXT_DST ed /*= DST_NONE*/)
     {
-        auto http_impl = std::dynamic_pointer_cast<http_client_impl>(m_impl);
+        auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(m_impl);
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(http_impl->m_sch->m_impl);
 
         //判断当前连接是否已经加入监听
         if (conn < 0 || conn >= sch_impl->m_ev_array.size())
             return;
 
-        auto http_conn = std::dynamic_pointer_cast<http_client_conn>(sch_impl->m_ev_array[conn]);
+        auto http_conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(sch_impl->m_ev_array[conn]);
         std::string http_request = std::string(method)+" "+std::string(post_page)+" HTTP/1.1\r\n";		//构造请求行
         http_request += "Host: "+http_conn->domain_name+"\r\n";		//构造请求头中的Host字段
 
@@ -284,7 +284,7 @@ namespace crx
     //当前的http_server只是一个基于http协议的用于和其他应用(主要是web后台)进行交互的简单模块
     void http_server::response(int conn, const char *ext_data, size_t ext_len, EXT_DST ed /*= DST_JSON*/)
     {
-        auto http_impl = std::dynamic_pointer_cast<http_server_impl>(m_impl);
+        auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(m_impl);
         auto sch_impl = http_impl->sch_impl.lock();
         //判断连接是否有效
         if (conn < 0 || conn >= sch_impl->m_ev_array.size())

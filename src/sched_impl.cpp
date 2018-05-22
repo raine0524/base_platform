@@ -787,8 +787,8 @@ namespace crx
             std::shared_ptr<tcp_server_conn> conn;
             switch (m_app_prt) {
                 case PRT_NONE:
-                case PRT_SIMP:      conn = std::make_shared<tcp_server_conn>();     break;
-                case PRT_HTTP:		conn = std::make_shared<http_server_conn>();    break;
+                case PRT_SIMP:      conn = std::make_shared<tcp_server_conn>();                 break;
+                case PRT_HTTP:		conn = std::make_shared<http_conn_t<tcp_server_conn>>();    break;
             }
 
             conn->fd = client_fd;
@@ -839,25 +839,26 @@ namespace crx
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto& impl = sch_impl->m_util_impls[HTTP_CLI];
         if (!impl) {
-            auto http_impl = std::make_shared<http_client_impl>();
+            auto http_impl = std::make_shared<http_impl_t<tcp_client_impl>>();
             impl = http_impl;
 
             http_impl->m_sch = this;
             http_impl->m_app_prt = PRT_HTTP;
             http_impl->m_protocol_hook = [this](int fd, char* data, size_t len) {
                 auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-                auto conn = std::dynamic_pointer_cast<http_client_conn>(sch_impl->m_ev_array[fd]);
+                auto conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(sch_impl->m_ev_array[fd]);
                 return http_parser(true, conn, data, len);
             };
             http_impl->m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
                 auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-                auto http_impl = std::dynamic_pointer_cast<http_client_impl>(sch_impl->m_util_impls[HTTP_CLI]);
-                tcp_callback_for_http<std::shared_ptr<http_client_impl>, http_client_conn>(true, http_impl, fd, data, len);
+                auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(sch_impl->m_util_impls[HTTP_CLI]);
+                tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_client_impl>>,
+                        http_conn_t<tcp_client_conn>>(true, http_impl, fd, data, len);
             };
-            http_impl->m_http_cli = std::move(f);		//保存回调函数
+            http_impl->funcs.m_http_cli = std::move(f);		//保存回调函数
 
             auto ctl = get_sigctl();
-            ctl.add_sig(SIGRTMIN+14, std::bind(&http_client_impl::name_resolve_callback, http_impl.get(), _1));
+            ctl.add_sig(SIGRTMIN+14, std::bind(&http_impl_t<tcp_client_impl>::name_resolve_callback, http_impl.get(), _1));
         }
 
         http_client obj;
@@ -871,27 +872,28 @@ namespace crx
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto& impl = sch_impl->m_util_impls[HTTP_SVR];
         if (!impl) {
-            auto http_impl = std::make_shared<http_server_impl>();
+            auto http_impl = std::make_shared<http_impl_t<tcp_server_impl>>();
             impl = http_impl;
 
             http_impl->m_app_prt = PRT_HTTP;
             http_impl->m_sch = this;
             http_impl->m_protocol_hook = [this](int fd, char* data, size_t len) {
                 auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-                auto conn = std::dynamic_pointer_cast<http_server_conn>(sch_impl->m_ev_array[fd]);
+                auto conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(sch_impl->m_ev_array[fd]);
                 return http_parser(false, conn, data, len);
             };
             http_impl->m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
                 auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-                auto http_impl = std::dynamic_pointer_cast<http_server_impl>(sch_impl->m_util_impls[HTTP_SVR]);
-                tcp_callback_for_http<std::shared_ptr<http_server_impl>, http_server_conn>(true, http_impl, fd, data, len);
+                auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(sch_impl->m_util_impls[HTTP_SVR]);
+                tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_server_impl>>,
+                        http_conn_t<tcp_server_conn>>(true, http_impl, fd, data, len);
             };
-            http_impl->m_http_svr = std::move(f);
+            http_impl->funcs.m_http_svr = std::move(f);
 
             //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
             http_impl->fd = http_impl->m_net_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
             http_impl->sch_impl = sch_impl;
-            http_impl->f = std::bind(&http_server_impl::tcp_server_callback, http_impl.get());
+            http_impl->f = std::bind(&http_impl_t<tcp_server_impl>::tcp_server_callback, http_impl.get());
             sch_impl->add_event(http_impl);
         }
 

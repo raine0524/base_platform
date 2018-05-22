@@ -288,26 +288,22 @@ namespace crx
         http_xutil() : content_len(-1) {}
     };
 
-    struct http_client_conn : public tcp_client_conn
-    {
-        http_xutil xutil;
-    };
-
-    struct http_client_impl : public tcp_client_impl
+    struct http_funcs
     {
         std::function<void(int, int, std::unordered_map<std::string, const char*>&, char*, size_t)> m_http_cli;
         std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&, char*, size_t)> m_http_svr;
     };
 
-    struct http_server_conn : public tcp_server_conn
+    template <typename CONN_TYPE>
+    struct http_conn_t : public CONN_TYPE
     {
         http_xutil xutil;
     };
 
-    struct http_server_impl : public tcp_server_impl
+    template <typename IMPL_TYPE>
+    struct http_impl_t : public IMPL_TYPE
     {
-        std::function<void(int, int, std::unordered_map<std::string, const char*>&, char*, size_t)> m_http_cli;
-        std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&, char*, size_t)> m_http_svr;
+        http_funcs funcs;
     };
 
     struct simpack_xutil : public impl
@@ -532,9 +528,9 @@ namespace crx
         }
 
         if (client)
-            impl->m_http_cli(fd, conn->xutil.status, conn->xutil.headers, cb_data, cb_len);
+            impl->funcs.m_http_cli(fd, conn->xutil.status, conn->xutil.headers, cb_data, cb_len);
         else
-            impl->m_http_svr(fd, conn->xutil.method, conn->xutil.url, conn->xutil.headers, cb_data, cb_len);
+            impl->funcs.m_http_svr(fd, conn->xutil.method, conn->xutil.url, conn->xutil.headers, cb_data, cb_len);
         if (sch_impl->m_ev_array[fd]) {
             conn->xutil.content_len = -1;
             conn->xutil.headers.clear();
