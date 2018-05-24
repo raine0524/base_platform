@@ -120,9 +120,9 @@ namespace crx
             return -1;
 
         auto tcp_impl = std::dynamic_pointer_cast<tcp_client_impl>(m_impl);
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(tcp_impl->m_sch->m_impl);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(tcp_impl->m_util.m_sch->m_impl);
         std::shared_ptr<tcp_client_conn> conn;
-        switch (tcp_impl->m_app_prt) {
+        switch (tcp_impl->m_util.m_app_prt) {
             case PRT_NONE:
             case PRT_SIMP:  conn = std::make_shared<tcp_client_conn>();                 break;
             case PRT_HTTP:  conn = std::make_shared<http_conn_t<tcp_client_conn>>();    break;
@@ -153,7 +153,7 @@ namespace crx
                 fprintf(stderr, "getaddrinfo_a failed: %s\n", gai_strerror(addr_ret));
                 return -1;
             }
-            tcp_impl->m_sch->co_yield(0);
+            tcp_impl->m_util.m_sch->co_yield(0);
 
             if (!req->ar_result) {
                 printf("name %s resolve failed\n", conn->domain_name.c_str());
@@ -168,8 +168,8 @@ namespace crx
             conn->ip_addr = server;
         }
 
-        if (conn->retry && !tcp_impl->m_timer_wheel.m_impl)     //创建一个秒盘
-            tcp_impl->m_timer_wheel = tcp_impl->m_sch->get_timer_wheel(1000, 60);
+        if (conn->retry && !tcp_impl->m_util.m_timer_wheel.m_impl)     //创建一个秒盘
+            tcp_impl->m_util.m_timer_wheel = tcp_impl->m_util.m_sch->get_timer_wheel(1000, 60);
 
         conn->fd = conn->conn_sock.create(PRT_TCP, USR_CLIENT, conn->ip_addr.c_str(), port);
         conn->conn_sock.set_keep_alive(1, 60, 5, 3);
@@ -183,14 +183,14 @@ namespace crx
     void tcp_client::release(int conn)
     {
         auto tcp_impl = std::dynamic_pointer_cast<tcp_client_impl>(m_impl);
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(tcp_impl->m_sch->m_impl);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(tcp_impl->m_util.m_sch->m_impl);
         sch_impl->remove_event(conn);
     }
 
     void tcp_client::send_data(int conn, const char *data, size_t len)
     {
         auto tcp_impl = std::dynamic_pointer_cast<tcp_client_impl>(m_impl);
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(tcp_impl->m_sch->m_impl);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(tcp_impl->m_util.m_sch->m_impl);
 
         //判断连接是否有效
         if (conn < 0 || conn >= sch_impl->m_ev_array.size())
@@ -241,7 +241,7 @@ namespace crx
                               const char *ext_data, size_t ext_len, EXT_DST ed /*= DST_NONE*/)
     {
         auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(m_impl);
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(http_impl->m_sch->m_impl);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(http_impl->m_util.m_sch->m_impl);
 
         //判断当前连接是否已经加入监听
         if (conn < 0 || conn >= sch_impl->m_ev_array.size())

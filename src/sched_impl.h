@@ -168,6 +168,19 @@ namespace crx
         std::string stream_buffer;      //tcp缓冲流
     };
 
+    class tcp_impl_xutil
+    {
+    public:
+        tcp_impl_xutil() : m_sch(nullptr), m_app_prt(PRT_NONE) {}
+
+        scheduler *m_sch;
+        APP_PRT m_app_prt;
+
+        timer_wheel m_timer_wheel;
+        std::function<int(int, char*, size_t)> m_protocol_hook;      //协议钩子
+        std::function<void(int, const std::string&, uint16_t, char*, size_t)> m_f;    //收到tcp数据流时触发的回调函数
+    };
+
     class tcp_client_impl;
     class tcp_client_conn : public tcp_event
     {
@@ -202,19 +215,12 @@ namespace crx
     class tcp_client_impl : public impl
     {
     public:
-        tcp_client_impl() :m_app_prt(PRT_NONE) {}
-
         void name_resolve_callback(uint64_t sigval)
         {
-            m_sch->co_yield(sigval);
+            m_util.m_sch->co_yield(sigval);
         }
 
-        scheduler *m_sch;
-        APP_PRT m_app_prt;
-
-        timer_wheel m_timer_wheel;
-        std::function<int(int, char*, size_t)> m_protocol_hook;      //协议钩子
-        std::function<void(int, const std::string&, uint16_t, char*, size_t)> m_f;    //收到tcp数据流时触发的回调函数
+        tcp_impl_xutil m_util;
     };
 
     class tcp_server_impl;
@@ -229,18 +235,13 @@ namespace crx
     class tcp_server_impl : public tcp_event
     {
     public:
-        tcp_server_impl() : m_addr_len(0), m_app_prt(PRT_NONE) {}
+        tcp_server_impl() : m_addr_len(0) {}
 
         void tcp_server_callback();
 
         struct sockaddr_in m_accept_addr;
         socklen_t m_addr_len;
-        APP_PRT m_app_prt;
-        scheduler *m_sch;
-
-        timer_wheel m_timer_wheel;
-        std::function<int(int, char*, size_t)> m_protocol_hook;      //协议钩子
-        std::function<void(int, const std::string&, uint16_t, char*, size_t)> m_f;      //收到tcp数据流时触发的回调函数
+        tcp_impl_xutil m_util;
     };
 
     extern std::unordered_map<int, std::string> g_ext_type;
@@ -500,13 +501,13 @@ namespace crx
             return;
 
         auto sch_impl = conn_ins->sch_impl.lock();
-        if (conn_ins->tcp_impl->m_protocol_hook) {
+        if (conn_ins->tcp_impl->m_util.m_protocol_hook) {
             conn_ins->stream_buffer.push_back(0);
             char *start = &conn_ins->stream_buffer[0];
             size_t buf_len = conn_ins->stream_buffer.size()-1, read_len = 0;
             while (read_len < buf_len) {
                 size_t remain_len = buf_len-read_len;
-                int ret = conn_ins->tcp_impl->m_protocol_hook(conn, start, remain_len);
+                int ret = conn_ins->tcp_impl->m_util.m_protocol_hook(conn, start, remain_len);
                 if (0 == ret) {
                     conn_ins->stream_buffer.pop_back();
                     break;
@@ -515,8 +516,8 @@ namespace crx
                 int abs_ret = std::abs(ret);
                 assert(abs_ret <= remain_len);
                 if (ret > 0)
-                    conn_ins->tcp_impl->m_f(conn_ins->fd, conn_ins->ip_addr,
-                                            conn_ins->conn_sock.m_port, start, ret);
+                    conn_ins->tcp_impl->m_util.m_f(conn_ins->fd, conn_ins->ip_addr,
+                                                   conn_ins->conn_sock.m_port, start, ret);
 
                 start += abs_ret;
                 read_len += abs_ret;
@@ -531,15 +532,18 @@ namespace crx
                 }
             }
         } else {
-            conn_ins->tcp_impl->m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port,
-                                    &conn_ins->stream_buffer[0], conn_ins->stream_buffer.size());
+            conn_ins->tcp_impl->m_util.m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port,
+                                           &conn_ins->stream_buffer[0], conn_ins->stream_buffer.size());
         }
     }
 
     template <typename IMPL_TYPE, typename CONN_TYPE>
     void tcp_callback_for_http(bool client, IMPL_TYPE impl, int fd, char *data, size_t len)
     {
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(impl->m_sch->m_impl);
+        if (!data)      //tcp连接开启/关闭时同样将调用回调函数，此时直接返回
+            return;
+
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(impl->m_util.m_sch->m_impl);
         auto conn = std::dynamic_pointer_cast<CONN_TYPE>(sch_impl->m_ev_array[fd]);
 
         char *cb_data = nullptr;

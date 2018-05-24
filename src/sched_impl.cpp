@@ -577,10 +577,10 @@ namespace crx
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         if (client) {
             auto tcp_impl = std::dynamic_pointer_cast<tcp_client_impl>(sch_impl->m_util_impls[TCP_CLI]);
-            tcp_impl->m_protocol_hook = std::move(f);
+            tcp_impl->m_util.m_protocol_hook = std::move(f);
         } else {        //server
             auto tcp_impl = std::dynamic_pointer_cast<tcp_server_impl>(sch_impl->m_util_impls[TCP_SVR]);
-            tcp_impl->m_protocol_hook = std::move(f);
+            tcp_impl->m_util.m_protocol_hook = std::move(f);
         }
     }
 
@@ -591,9 +591,8 @@ namespace crx
         if (!impl) {
             auto tcp_impl = std::make_shared<tcp_client_impl>();
             impl = tcp_impl;
-
-            tcp_impl->m_sch = this;
-            tcp_impl->m_f = std::move(f);			//记录回调函数及参数
+            tcp_impl->m_util.m_sch = this;
+            tcp_impl->m_util.m_f = std::move(f);			//记录回调函数及参数
         }
 
         tcp_client obj;
@@ -607,7 +606,7 @@ namespace crx
         if (!is_connect) {
             sts = async_read(stream_buffer);        //首次回调时先通过读获取当前套接字的状态
             if (sts > 0) {      //连接成功
-                tcp_impl->m_f(fd, ip_addr, conn_sock.m_port, nullptr, (size_t)last_conn);       //通知上层连接开启
+                tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, (size_t)last_conn);       //通知上层连接开启
                 is_connect = true;
                 sts = async_write(nullptr, 0);
             }
@@ -638,12 +637,13 @@ namespace crx
                     tcp_conn->ext_data = std::move(ext_data);
                     tcp_conn->last_conn = fd;
                 } else {
-                    tcp_impl->m_timer_wheel.add_handler((uint64_t)timeout*1000, std::bind(&tcp_client_conn::retry_connect, this));
+                    tcp_impl->m_util.m_timer_wheel.add_handler((uint64_t)timeout*1000,
+                                                               std::bind(&tcp_client_conn::retry_connect, this));
                 }
             }
 
             if (is_connect) {       //该套接字已经成功连接过对端，此时只能移除该套接字，无法复用
-                tcp_impl->m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);       //通知上层连接关闭
+                tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);       //通知上层连接关闭
                 sch_impl.lock()->remove_event(fd);
             }
         }
@@ -667,8 +667,8 @@ namespace crx
             auto tcp_impl = std::make_shared<tcp_server_impl>();
             impl = tcp_impl;
 
-            tcp_impl->m_sch = this;
-            tcp_impl->m_f = std::move(f);		//保存回调函数
+            tcp_impl->m_util.m_sch = this;
+            tcp_impl->m_util.m_f = std::move(f);		//保存回调函数
 
             //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
             tcp_impl->fd = tcp_impl->conn_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
@@ -696,7 +696,7 @@ namespace crx
 
             setnonblocking(client_fd);			//将客户端连接文件描述符设为非阻塞并加入监听事件
             std::shared_ptr<tcp_server_conn> conn;
-            switch (m_app_prt) {
+            switch (m_util.m_app_prt) {
                 case PRT_NONE:
                 case PRT_SIMP:      conn = std::make_shared<tcp_server_conn>();                 break;
                 case PRT_HTTP:		conn = std::make_shared<http_conn_t<tcp_server_conn>>();    break;
@@ -704,7 +704,7 @@ namespace crx
 
             conn->fd = client_fd;
             conn->f = std::bind(&tcp_server_conn::read_tcp_stream, conn.get());
-            conn->sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
+            conn->sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_util.m_sch->m_impl);
 
             conn->tcp_impl = this;
             conn->ip_addr = inet_ntoa(m_accept_addr.sin_addr);        //将地址转换为点分十进制格式的ip地址
@@ -719,7 +719,7 @@ namespace crx
              */
             conn->conn_sock.set_keep_alive(1, 60, 5, 3);
 
-            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
+            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_util.m_sch->m_impl);
             sch_impl->add_event(conn);        //将该连接加入监听事件
         }
     }
@@ -739,7 +739,7 @@ namespace crx
 //                printf("[tcp_server_impl::read_tcp_stream] 读文件描述符 %d 出现异常", fd);
 //            else
 //                printf("[tcp_server_impl::read_tcp_stream] 连接 %d 对端正常关闭\n", fd);
-            tcp_impl->m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);
+            tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);
             sch_impl.lock()->remove_event(fd);
         }
     }
@@ -752,14 +752,14 @@ namespace crx
             auto http_impl = std::make_shared<http_impl_t<tcp_client_impl>>();
             impl = http_impl;
 
-            http_impl->m_sch = this;
-            http_impl->m_app_prt = PRT_HTTP;
-            http_impl->m_protocol_hook = [this](int fd, char* data, size_t len) {
+            http_impl->m_util.m_sch = this;
+            http_impl->m_util.m_app_prt = PRT_HTTP;
+            http_impl->m_util.m_protocol_hook = [this](int fd, char* data, size_t len) {
                 auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
                 auto conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(sch_impl->m_ev_array[fd]);
                 return http_parser(true, conn, data, len);
             };
-            http_impl->m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
+            http_impl->m_util.m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
                 auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
                 auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(sch_impl->m_util_impls[HTTP_CLI]);
                 tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_client_impl>>,
@@ -785,14 +785,14 @@ namespace crx
             auto http_impl = std::make_shared<http_impl_t<tcp_server_impl>>();
             impl = http_impl;
 
-            http_impl->m_app_prt = PRT_HTTP;
-            http_impl->m_sch = this;
-            http_impl->m_protocol_hook = [this](int fd, char* data, size_t len) {
+            http_impl->m_util.m_app_prt = PRT_HTTP;
+            http_impl->m_util.m_sch = this;
+            http_impl->m_util.m_protocol_hook = [this](int fd, char* data, size_t len) {
                 auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
                 auto conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(sch_impl->m_ev_array[fd]);
                 return http_parser(false, conn, data, len);
             };
-            http_impl->m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
+            http_impl->m_util.m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
                 auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
                 auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(sch_impl->m_util_impls[HTTP_SVR]);
                 tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_server_impl>>,
@@ -858,7 +858,7 @@ namespace crx
             //创建tcp_client用于主动连接
             simp_impl->m_client = get_tcp_client(std::bind(&simpack_server_impl::simp_callback, simp_impl.get(), _1, _2, _3, _4, _5));
             auto cli_impl = std::dynamic_pointer_cast<tcp_client_impl>(simp_impl->m_client.m_impl);
-            cli_impl->m_app_prt = PRT_SIMP;
+            cli_impl->m_util.m_app_prt = PRT_SIMP;
             register_tcp_hook(true, [](int conn, char *data, size_t len) {
                 return simpack_protocol(data, len); });
             sch_impl->m_util_impls[TCP_CLI].reset();
@@ -867,7 +867,7 @@ namespace crx
             simp_impl->m_server = get_tcp_server((uint16_t)xutil->listen,
                     std::bind(&simpack_server_impl::simp_callback, simp_impl.get(), _1, _2, _3, _4, _5));
             auto svr_impl = std::dynamic_pointer_cast<tcp_server_impl>(simp_impl->m_server.m_impl);
-            svr_impl->m_app_prt = PRT_SIMP;
+            svr_impl->m_util.m_app_prt = PRT_SIMP;
             register_tcp_hook(false, [](int conn, char *data, size_t len) {
                 return simpack_protocol(data, len); });
             xutil->listen = simp_impl->m_server.get_port();
@@ -904,13 +904,16 @@ namespace crx
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
         for (auto conn : m_ordinary_conn) {
-            auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
-            auto xutil = std::dynamic_pointer_cast<simpack_xutil>(tcp_ev->ext_data);
-            m_on_disconnect(xutil->info);
-            say_goodbye(xutil);
+            if (conn < sch_impl->m_ev_array.size() && sch_impl->m_ev_array[conn]) {
+                auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
+                auto xutil = std::dynamic_pointer_cast<simpack_xutil>(tcp_ev->ext_data);
+                m_on_disconnect(xutil->info);
+                say_goodbye(xutil);
+            }
         }
 
-        if (-1 != m_registry_conn) {
+        if (-1 != m_registry_conn && m_registry_conn < sch_impl->m_ev_array.size() &&
+            sch_impl->m_ev_array[m_registry_conn]) {
             auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[m_registry_conn]);
             auto xutil = std::dynamic_pointer_cast<simpack_xutil>(tcp_ev->ext_data);
             say_goodbye(xutil);
