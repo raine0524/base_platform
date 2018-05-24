@@ -57,6 +57,7 @@ namespace crx
     {
         g_server_name = argv_0;
         g_server_name = g_server_name.substr(g_server_name.rfind("/")+1);
+        openlog(g_server_name.c_str(), LOG_PID | LOG_CONS, LOG_USER);
         m_pipe_dir = crx_tmp_dir+"daemon_pipe/"+g_server_name;
 
         if (access(m_pipe_dir.c_str(), F_OK)) {
@@ -154,7 +155,7 @@ namespace crx
             std::string input(256, 0);
             ssize_t ret = read(STDIN_FILENO, &input[0], input.size()-1);
             if (-1 == ret || 0 == ret) {
-                perror("console_impl::listen_keyboard_input");
+                syslog(LOG_ERR, "read keyboard failed: %s\n", strerror(errno));
                 return;
             }
 
@@ -301,8 +302,6 @@ namespace crx
         else        //若是停止后台daemon进程，则首先发送自定义的退出信号
             write(wr_fifo, service_quit_sig, strlen(service_quit_sig));
 
-        std::function<void(scheduler *sch)> stub;
-        sch_impl->co_create(stub, m_c, true, false, "main coroutine");        //创建主协程
         sch_impl->main_coroutine(m_c);      //进入主协程
 
         if (excep)
@@ -354,6 +353,11 @@ namespace crx
         sch_impl->m_util_impls[EXT_DATA] = std::make_shared<console_impl>(this);
     }
 
+    console::~console()
+    {
+        closelog();
+    }
+
     //添加控制台命令
     void console::add_cmd(const char *cmd, std::function<void(std::vector<std::string>&)> f,
                           const char *comment)
@@ -372,10 +376,10 @@ namespace crx
         CPU_SET(which, &mask);
         if (syscall(__NR_gettid) == getpid()) {     //main thread
             if (sched_setaffinity(0, sizeof(mask), &mask) < 0)
-                perror("thread_bind_core");
+                syslog(LOG_ERR, "bind core failed: %s\n", strerror(errno));
         } else {
             if (pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask) < 0)
-                perror("thread_bind_core");
+                syslog(LOG_ERR, "bind core failed: %s\n", strerror(errno));
         }
     }
 
@@ -384,29 +388,9 @@ namespace crx
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_util_impls[EXT_DATA]);
 
-        int cpu_num = get_nprocs();
-        if (-1 != bind_flag) {
-            if (INT_MAX == bind_flag) {
-                con_impl->bind_core(con_impl->m_random()%cpu_num);
-            } else {
-                assert(0 <= bind_flag && bind_flag < cpu_num);      //bind_flag的取值范围为0~cpu_num-1
-                con_impl->bind_core(bind_flag);
-            }
-        }
-
-        if (!access(conf, F_OK)) {
-            sch_impl->m_ini_file = conf;
-            ini ini_parser;
-            ini_parser.load(conf);
-            if (ini_parser.has_section("log")) {
-                ini_parser.set_section("log");
-                sch_impl->m_remote_log = ini_parser.get_int("remote") != 0;
-            }
-        }
-
         sch_impl->m_epoll_fd = epoll_create(EPOLL_SIZE);
         if (__glibc_unlikely(-1 == sch_impl->m_epoll_fd)) {
-            perror("run::epoll_create");
+            syslog(LOG_ERR, "epoll_create failed: %s\n", strerror(errno));
             return EXIT_FAILURE;
         }
 
@@ -417,8 +401,29 @@ namespace crx
         if (con_impl->preprocess(argc, argv))
             return EXIT_SUCCESS;
 
+        //处理绑核操作
+        int cpu_num = get_nprocs();
+        if (-1 != bind_flag) {
+            if (INT_MAX == bind_flag)
+                con_impl->bind_core(con_impl->m_random()%cpu_num);
+            else if (0 <= bind_flag && bind_flag < cpu_num)     //bind_flag的取值范围为0~cpu_num-1
+                con_impl->bind_core(bind_flag);
+        }
+
+        //解析日志配置
+        if (!access(conf, F_OK)) {
+            sch_impl->m_ini_file = conf;
+            ini ini_parser;
+            ini_parser.load(conf);
+            if (ini_parser.has_section("log")) {
+                ini_parser.set_section("log");
+                sch_impl->m_remote_log = ini_parser.get_int("remote") != 0;
+            }
+        }
+
+        //打印帮助信息
         std::vector<std::string> str_vec;
-        con_impl->print_help(str_vec);		//打印帮助信息
+        con_impl->print_help(str_vec);
 
         if (!init(argc, argv))		//执行初始化，若初始化返回失败，直接退出当前进程
             return EXIT_FAILURE;

@@ -8,5 +8,6 @@
     <conn>
         <test2-test3 cli="test2" svr="test3"/>
         <test1-test2 cli="test1" svr="test2"/>
+        <test2-log_server1 cli="test2" svr="log_server1"/>
     </conn>
 </config>

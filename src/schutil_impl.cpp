@@ -175,6 +175,7 @@ namespace crx
         conn->conn_sock.set_keep_alive(1, 60, 5, 3);
         conn->f = std::bind(&tcp_client_conn::tcp_client_callback, conn.get());
         conn->sch_impl = sch_impl;
+        conn->event = EPOLLOUT;
         sch_impl->add_event(conn, EPOLLOUT);        //套接字异步connect时其可写表明与对端server已经连接成功
         return conn->fd;
     }
@@ -205,7 +206,7 @@ namespace crx
     uint16_t tcp_server::get_port()
     {
         auto impl = std::dynamic_pointer_cast<tcp_server_impl>(m_impl);
-        return impl->m_net_sock.m_port;
+        return impl->conn_sock.m_port;
     }
 
     void tcp_server::release(int conn)
@@ -224,9 +225,9 @@ namespace crx
         if (conn < 0 || conn >= sch_impl->m_ev_array.size())
             return;
 
-        auto ev = sch_impl->m_ev_array[conn];
-        if (ev)
-            ev->async_write(data, len);
+        auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
+        if (tcp_ev)
+            tcp_ev->async_write(data, len);
     }
 
     std::unordered_map<int, std::string> g_ext_type =
@@ -290,15 +291,15 @@ namespace crx
         if (conn < 0 || conn >= sch_impl->m_ev_array.size())
             return;
 
-        auto ev = sch_impl->m_ev_array[conn];
-        if (!ev)
+        auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
+        if (!tcp_ev)
             return;
 
         std::string http_response = "HTTP/1.1 200 OK\r\n";
         http_response += "Content-Type: "+g_ext_type[ed]+"; charset=utf-8\r\n";
         http_response += "Content-Length: "+std::to_string(ext_len)+"\r\n\r\n";
         http_response += std::string(ext_data, ext_len);
-        ev->async_write(http_response.c_str(), http_response.size());
+        tcp_ev->async_write(http_response.c_str(), http_response.size());
     }
 
     void simpack_server::request(int conn, const server_cmd& cmd, const char *data, size_t len)

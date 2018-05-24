@@ -27,4 +27,7 @@ private:
 private:
     crx::seria m_seria;
     crx::simpack_server m_server;
+
+    crx::log m_local_log;
+    std::unordered_map<int64_t, crx::log> m_remote_logs;
 };

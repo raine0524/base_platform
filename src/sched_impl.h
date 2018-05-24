@@ -10,7 +10,7 @@ namespace crx
     class eth_event : public impl
     {
     public:
-        eth_event() :fd(-1), sock_error(false) {}
+        eth_event() :fd(-1) {}
         virtual ~eth_event()
         {
             if (-1 != fd && STDIN_FILENO != fd)
@@ -26,49 +26,9 @@ namespace crx
          */
         int async_read(std::string& read_str);
 
-        void async_write(const char *data, size_t len);
-
-        void switch_write();
-
         int fd;      //与epoll事件关联的文件描述符
-        std::function<void()> f, f_bk;     //回调函数
+        std::function<void()> f;     //回调函数
         std::weak_ptr<scheduler_impl> sch_impl;
-
-        bool sock_error;                        //指示套接字文件是否出错
-        std::list<std::string> cache_data;      //缓存队列，等待可写事件
-        std::shared_ptr<impl> ext_data;         //扩展数据
-    };
-
-    class log_impl : public impl
-    {
-    public:
-        log_impl()
-                :m_split_idx(0)
-                ,m_last_sec(-1)
-                ,m_log_buffer(1024, 0)
-                ,m_seria(true)
-        {
-            bzero(&m_cmd, sizeof(m_cmd));
-        }
-
-        bool get_local_log();
-
-        bool get_remote_log(std::shared_ptr<scheduler_impl>& sch_impl);
-
-        std::string m_prefix;
-        std::string m_root_dir;
-
-        int m_max_size, m_curr_size;
-        int m_split_idx;
-
-        datetime m_now;
-        int64_t m_last_sec;
-        std::string m_log_buffer, m_temp;
-        int m_fd;
-
-        server_cmd m_cmd;
-        seria m_seria;
-        int m_log_idx;
     };
 
 #define GET_BIT(field, n)   (field & 1<<n)
@@ -188,13 +148,32 @@ namespace crx
         PRT_SIMP,           //SIMP协议(私有)
     };
 
-    class tcp_client_impl;
-    class tcp_client_conn : public eth_event
+    //只有tcp套接字才需要异步写操作
+    class tcp_event : public eth_event
     {
     public:
-        tcp_client_conn() :is_connect(false), cnt(0)
+        tcp_event() : event(EPOLLIN)
         {
-            stream_buffer.reserve(4096);
+            stream_buffer.reserve(8192);
+        }
+
+        int async_write(const char *data, size_t len);
+
+        uint32_t event;
+        std::list<std::string> cache_data;      //缓存队列，等待可写事件
+        std::shared_ptr<impl> ext_data;         //扩展数据
+
+        std::string ip_addr;            //转换之后的ip地址
+        net_socket conn_sock;
+        std::string stream_buffer;      //tcp缓冲流
+    };
+
+    class tcp_client_impl;
+    class tcp_client_conn : public tcp_event
+    {
+    public:
+        tcp_client_conn() :is_connect(false), cnt(0), last_conn(1)
+        {
             name_reqs[0] = new gaicb;
             bzero(name_reqs[0], sizeof(gaicb));
         }
@@ -209,18 +188,15 @@ namespace crx
 
         void retry_connect();
 
+        //解析域名时需要用到的相关设施
         gaicb *name_reqs[1];
         addrinfo req_spec;
         sigevent sigev;
 
         std::shared_ptr<tcp_client_impl> tcp_impl;
         std::string domain_name;        //连接对端使用的主机地址
-        std::string ip_addr;            //转换之后的ip地址
-
         bool is_connect;
-        int retry, timeout, cnt;
-        net_socket conn_sock;
-        std::string stream_buffer;      //tcp缓冲流
+        int retry, timeout, cnt, last_conn;
     };
 
     class tcp_client_impl : public impl
@@ -242,23 +218,15 @@ namespace crx
     };
 
     class tcp_server_impl;
-    class tcp_server_conn : public eth_event
+    class tcp_server_conn : public tcp_event
     {
     public:
-        tcp_server_conn()
-        {
-            stream_buffer.reserve(8192);        //预留8k字节
-        }
-
         void read_tcp_stream();
 
         tcp_server_impl *tcp_impl;
-        std::string ip_addr;        //连接对端的ip地址
-        net_socket conn_sock;       //保存对端端口
-        std::string stream_buffer;  //tcp缓冲流
     };
 
-    class tcp_server_impl : public eth_event
+    class tcp_server_impl : public tcp_event
     {
     public:
         tcp_server_impl() : m_addr_len(0), m_app_prt(PRT_NONE) {}
@@ -267,8 +235,6 @@ namespace crx
 
         struct sockaddr_in m_accept_addr;
         socklen_t m_addr_len;
-
-        net_socket m_net_sock;			//tcp服务端监听套接字
         APP_PRT m_app_prt;
         scheduler *m_sch;
 
@@ -319,7 +285,10 @@ namespace crx
     class simpack_server_impl : public impl
     {
     public:
-        simpack_server_impl() : m_registry_conn(-1), m_seria(true)
+        simpack_server_impl()
+                :m_registry_conn(-1)
+                ,m_log_conn(-1)
+                ,m_seria(true)
         {
             simp_header stub_header;
             m_simp_buf = std::string((const char*)&stub_header, sizeof(simp_header));
@@ -351,7 +320,11 @@ namespace crx
 
         scheduler *m_sch;
         int m_registry_conn;
+        std::string m_reg_str;
         std::unordered_set<int> m_ordinary_conn;
+
+        int m_log_conn;
+        std::list<std::string> m_cache_logs;
 
         seria m_seria;
         server_cmd m_app_cmd;
@@ -365,6 +338,55 @@ namespace crx
         std::function<void(const server_info&, const server_cmd&, char*, size_t)> m_on_request;
         std::function<void(const server_info&, const server_cmd&, char*, size_t)> m_on_response;
         std::function<void(const server_info&, const server_cmd&, char*, size_t)> m_on_notify;
+    };
+
+    class log_impl : public impl
+    {
+    public:
+        log_impl()
+                :m_split_idx(0)
+                ,m_last_sec(-1)
+                ,m_fmt_buf(1024, 0)
+                ,m_log_buf(65536, 0)
+                ,m_fp(nullptr)
+                ,m_seria(true)
+                ,m_log_idx(0)
+        {
+            bzero(&m_cmd, sizeof(m_cmd));
+        }
+
+        virtual ~log_impl()
+        {
+            if (m_fp)
+                fclose(m_fp);
+        }
+
+        std::string get_log_path(bool create);
+
+        void create_log_file(const char *log_file);
+
+        void rotate_log(bool create_dir);
+
+        bool get_local_log(scheduler *sch, std::shared_ptr<scheduler_impl>& sch_impl);
+
+        void write_local_log(const char *data, size_t len);
+
+        bool get_remote_log(std::shared_ptr<scheduler_impl>& sch_impl);
+
+        std::string m_prefix;
+        std::string m_root_dir;
+        int m_max_size, m_curr_size;
+        int m_split_idx;
+        std::shared_ptr<simpack_server_impl> m_simp_impl;
+
+        datetime m_now;
+        int64_t m_last_sec, m_last_hour, m_last_day;
+        std::string m_fmt_buf, m_fmt_tmp, m_log_buf;
+        FILE *m_fp;
+
+        server_cmd m_cmd;
+        seria m_seria;
+        size_t m_log_idx;
     };
 
     struct monitor_ev
@@ -428,8 +450,6 @@ namespace crx
                 ,m_next_co(-1)
                 ,m_epoll_fd(-1)
                 ,m_remote_log(false)
-                ,m_log_idx(0)
-                ,m_log_conn(-1)
         {
             m_util_impls.resize(IDX_MAX);
         }
@@ -456,6 +476,8 @@ namespace crx
          */
         void handle_event(int op, int fd, uint32_t event);
 
+        void flush_log_buffer();
+
     public:
         std::string m_ini_file;
         int m_running_co, m_next_co;
@@ -467,7 +489,7 @@ namespace crx
         std::vector<std::shared_ptr<eth_event>> m_ev_array;
 
         bool m_remote_log;
-        int m_log_idx, m_log_conn;
+        timer m_log_timer;
         std::vector<std::shared_ptr<impl>> m_util_impls;
     };
 
