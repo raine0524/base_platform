@@ -401,7 +401,6 @@ namespace crx
         if (!impl) {
             auto sig_impl = std::make_shared<sigctl_impl>();
             impl = sig_impl;
-
             sig_impl->fd = signalfd(-1, &sig_impl->m_mask, SFD_NONBLOCK);
             sig_impl->f = std::bind(&sigctl_impl::sigctl_callback, sig_impl.get());
             sig_impl->sch_impl = sch_impl;
@@ -454,7 +453,6 @@ namespace crx
             auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
             tmr_impl->sch_impl = sch_impl;
             tmr_impl->f = std::bind(&timer_impl::timer_callback, tmr_impl.get());
-
             tmr_impl->m_f = std::move(f);
             sch_impl->add_event(tmr_impl);      //加入epoll监听事件
         } else {
@@ -511,7 +509,6 @@ namespace crx
             auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
             ev_impl->f = std::bind(&event_impl::event_callback, ev_impl.get());
             ev_impl->sch_impl = sch_impl;
-
             ev_impl->m_f = std::move(f);
             sch_impl->add_event(ev_impl);
         } else {
@@ -528,7 +525,6 @@ namespace crx
     {
         eventfd_t val;
         eventfd_read(fd, &val);       //读操作将事件重置
-
         for (auto signal : m_signals)
             m_f(signal);			//执行事件回调函数
     }
@@ -547,7 +543,6 @@ namespace crx
             auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
             ui_impl->f = std::bind(&udp_ins_impl::udp_ins_callback, ui_impl.get());
             ui_impl->sch_impl = sch_impl;
-
             ui_impl->m_f = std::move(f);
             sch_impl->add_event(ui_impl);
         } else {
@@ -681,7 +676,6 @@ namespace crx
         if (!impl) {
             auto tcp_impl = std::make_shared<tcp_server_impl>();
             impl = tcp_impl;
-
             tcp_impl->m_util.m_sch = this;
             tcp_impl->m_util.m_f = std::move(f);		//保存回调函数
 
@@ -767,24 +761,24 @@ namespace crx
         if (!impl) {
             auto http_impl = std::make_shared<http_impl_t<tcp_client_impl>>();
             impl = http_impl;
-
             http_impl->m_util.m_sch = this;
             http_impl->m_util.m_app_prt = PRT_HTTP;
             http_impl->m_util.m_protocol_hook = [this](int fd, char* data, size_t len) {
-                auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-                auto conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(sch_impl->m_ev_array[fd]);
+                auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                auto conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(this_sch_impl->m_ev_array[fd]);
                 return http_parser(true, conn, data, len);
             };
             http_impl->m_util.m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
-                auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-                auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(sch_impl->m_util_impls[HTTP_CLI]);
+                auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                auto this_http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(this_sch_impl->m_util_impls[HTTP_CLI]);
                 tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_client_impl>>,
-                        http_conn_t<tcp_client_conn>>(true, http_impl, fd, data, len);
+                        http_conn_t<tcp_client_conn>>(true, this_http_impl, fd, data, len);
             };
             http_impl->funcs.m_http_cli = std::move(f);		//保存回调函数
 
             auto ctl = get_sigctl();
-            ctl.add_sig(SIGRTMIN+14, std::bind(&http_impl_t<tcp_client_impl>::name_resolve_callback, http_impl.get(), _1));
+            ctl.add_sig(SIGRTMIN+14, std::bind(&http_impl_t<tcp_client_impl>::name_resolve_callback,
+                                               http_impl.get(), _1));
         }
 
         http_client obj;
@@ -800,19 +794,18 @@ namespace crx
         if (!impl) {
             auto http_impl = std::make_shared<http_impl_t<tcp_server_impl>>();
             impl = http_impl;
-
             http_impl->m_util.m_app_prt = PRT_HTTP;
             http_impl->m_util.m_sch = this;
             http_impl->m_util.m_protocol_hook = [this](int fd, char* data, size_t len) {
-                auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-                auto conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(sch_impl->m_ev_array[fd]);
+                auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                auto conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(this_sch_impl->m_ev_array[fd]);
                 return http_parser(false, conn, data, len);
             };
             http_impl->m_util.m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
-                auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-                auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(sch_impl->m_util_impls[HTTP_SVR]);
+                auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                auto this_http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(this_sch_impl->m_util_impls[HTTP_SVR]);
                 tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_server_impl>>,
-                        http_conn_t<tcp_server_conn>>(true, http_impl, fd, data, len);
+                        http_conn_t<tcp_server_conn>>(true, this_http_impl, fd, data, len);
             };
             http_impl->funcs.m_http_svr = std::move(f);
 
@@ -1164,10 +1157,10 @@ namespace crx
             m_seria.insert("client", ord_xutil->info.name.c_str(), ord_xutil->info.name.size());
             m_seria.insert("server", reg_xutil->info.name.c_str(), reg_xutil->info.name.size());
 
-            auto ref = m_seria.get_string();
+            auto nfy_ref = m_seria.get_string();
             bzero(&m_app_cmd, sizeof(m_app_cmd));
             m_app_cmd.cmd = CMD_CONN_CON;
-            send_package(1, reg_xutil->info.conn, m_app_cmd, true, reg_xutil->token, ref.data, ref.len);
+            send_package(1, reg_xutil->info.conn, m_app_cmd, true, reg_xutil->token, nfy_ref.data, nfy_ref.len);
             m_seria.reset();
         }
     }
@@ -1180,7 +1173,6 @@ namespace crx
         auto xutil = std::dynamic_pointer_cast<simpack_xutil>(tcp_ev->ext_data);
         if (result) {
             printf("say hello response error: %s\n", kvs["error_info"].data);
-            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
             sch_impl->remove_event(conn);
             return;
         }
@@ -1192,7 +1184,6 @@ namespace crx
         xutil->info.role = std::string(role_it->second.data, role_it->second.len);
         memcpy(xutil->token, token, 16);
         if ("__log_server__" == xutil->info.role) {
-            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
             m_log_conn = conn;
             for (auto& data : m_cache_logs) {
                 auto header = (simp_header*)data.c_str();
@@ -1286,7 +1277,7 @@ namespace crx
         tcp_ev->async_write((const char*)header, total_len);
     }
 
-    log scheduler::get_log(const char *prefix, const char *root_dir /*= "log_files"*/, int max_size /*= 10*/)
+    log scheduler::get_log(const char *prefix, const char *root_dir /*= "log_files"*/, int64_t max_size /*= 10*/)
     {
         crx::log ins;
         auto impl = std::make_shared<log_impl>();
@@ -1362,7 +1353,7 @@ namespace crx
                     m_split_idx = split_idx;
             }
         }, false);
-        sprintf(&log_path[0]+path_size, "%s-%d.log", file_wh, m_split_idx);
+        sprintf(&log_path[0]+path_size, "%s-%ld.log", file_wh, m_split_idx);
         create_log_file(log_path.c_str());
         if (!m_fp)
             return false;
@@ -1466,7 +1457,7 @@ namespace crx
         std::string log_path = get_log_path(create_dir);
         size_t path_size = log_path.size();
         log_path.resize(256, 0);
-        sprintf(&log_path[0]+path_size, "%s_%02ld-%d.log", m_prefix.c_str(), m_last_hour, m_split_idx);
+        sprintf(&log_path[0]+path_size, "%s_%02ld-%ld.log", m_prefix.c_str(), m_last_hour, m_split_idx);
         create_log_file(log_path.c_str());
     }
 

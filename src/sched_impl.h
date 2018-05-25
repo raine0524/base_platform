@@ -377,8 +377,7 @@ namespace crx
 
         std::string m_prefix;
         std::string m_root_dir;
-        int64_t m_max_size, m_curr_size;
-        int m_split_idx;
+        int64_t m_max_size, m_curr_size, m_split_idx;
         std::shared_ptr<simpack_server_impl> m_simp_impl;
 
         datetime m_now;

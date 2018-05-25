@@ -163,7 +163,7 @@ namespace crx
             char host[64] = {0};
             auto addr = &((sockaddr_in*)req->ar_result->ai_addr)->sin_addr;
             inet_ntop(req->ar_result->ai_family, addr, host, sizeof(host)-1);
-            conn->ip_addr = host;
+            conn->ip_addr = std::string(host);
         } else {        //已经是ip地址
             conn->ip_addr = server;
         }
