@@ -152,7 +152,7 @@ namespace crx
     class tcp_event : public eth_event
     {
     public:
-        tcp_event() : event(EPOLLIN)
+        tcp_event() :is_connect(false), event(EPOLLIN)
         {
             stream_buffer.reserve(8192);
         }
@@ -163,6 +163,7 @@ namespace crx
         std::list<std::string> cache_data;      //缓存队列，等待可写事件
         std::shared_ptr<impl> ext_data;         //扩展数据
 
+        bool is_connect;
         std::string ip_addr;            //转换之后的ip地址
         net_socket conn_sock;
         std::string stream_buffer;      //tcp缓冲流
@@ -176,6 +177,7 @@ namespace crx
         scheduler *m_sch;
         APP_PRT m_app_prt;
 
+        //tcp_client需要一个秒盘做重连，tcp_server需要一个分钟盘做会话管理
         timer_wheel m_timer_wheel;
         std::function<int(int, char*, size_t)> m_protocol_hook;      //协议钩子
         std::function<void(int, const std::string&, uint16_t, char*, size_t)> m_f;    //收到tcp数据流时触发的回调函数
@@ -185,7 +187,7 @@ namespace crx
     class tcp_client_conn : public tcp_event
     {
     public:
-        tcp_client_conn() :is_connect(false), cnt(0), last_conn(1)
+        tcp_client_conn() :cnt(0), last_conn(1)
         {
             name_reqs[0] = new gaicb;
             bzero(name_reqs[0], sizeof(gaicb));
@@ -208,7 +210,6 @@ namespace crx
 
         std::shared_ptr<tcp_client_impl> tcp_impl;
         std::string domain_name;        //连接对端使用的主机地址
-        bool is_connect;
         int retry, timeout, cnt, last_conn;
     };
 
@@ -376,7 +377,7 @@ namespace crx
 
         std::string m_prefix;
         std::string m_root_dir;
-        int m_max_size, m_curr_size;
+        int64_t m_max_size, m_curr_size;
         int m_split_idx;
         std::shared_ptr<simpack_server_impl> m_simp_impl;
 
@@ -490,7 +491,7 @@ namespace crx
         std::vector<std::shared_ptr<eth_event>> m_ev_array;
 
         bool m_remote_log;
-        timer m_log_timer;
+        timer_wheel m_sec_wheel;
         std::vector<std::shared_ptr<impl>> m_util_impls;
     };
 

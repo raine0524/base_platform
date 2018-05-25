@@ -35,6 +35,8 @@ void log_server::on_request(const crx::server_info &info, const crx::server_cmd 
         log_error(m_local_log, "log_id=%ld[%d:%u] exist, create remote log failed\n", log_id, info.conn, log_idx);
         return;
     }
+    log_info(m_local_log, "create remote log: prefix=%s, root_dir=%s, max_size=%u, log_id=%ld\n",
+             prefix.c_str(), root_dir.c_str(), max_size, log_id);
     m_remote_logs[log_id] = get_log(prefix.c_str(), root_dir.c_str(), max_size);
 }
 

@@ -226,6 +226,9 @@ namespace crx
             auto impl = std::dynamic_pointer_cast<log_impl>(m_util_impls[i]);
             fflush(impl->m_fp);
         }
+
+        //周期性的刷日志
+        m_sec_wheel.add_handler(3*1000, std::bind(&scheduler_impl::flush_log_buffer, this));
     }
 
     void scheduler_impl::add_event(std::shared_ptr<eth_event> ev, uint32_t event /*= EPOLLIN*/)
@@ -288,9 +291,14 @@ namespace crx
         }
     }
 
-    //[注：只有tcp套接字才需要异步写操作] 对端关闭或发生异常的情况下，待写数据不需要缓存，因为该套接字文件此时已处于不可用状态，只能关闭
+    //[注：只有tcp套接字才需要异步写操作] 对端关闭或发生异常的情况下，待写数据仍然缓存，因为可能尝试重连
     int tcp_event::async_write(const char *data, size_t len)
     {
+        if (!is_connect) {
+            cache_data.push_back(std::string(data, len));
+            return 1;
+        }
+
         int sts = INT_MAX;      //正常写入且缓冲未满
         if (!cache_data.empty()) {      //先写所有的缓存数据
             for (auto it = cache_data.begin(); it != cache_data.end(); ) {
@@ -300,11 +308,15 @@ namespace crx
                         sts = 1;
                         break;
                     } else if (EPIPE == errno) {        //对端关闭
-                        return 0;
+                        sts = 0;
                     } else {        //发生异常
                         perror("tcp_event::async_write");
-                        return -1;
+                        sts = -1;
                     }
+
+                    if (data && len)
+                        cache_data.push_back(std::string(data, len));
+                    return sts;
                 } else if (ret < it->size()) {      //写了一部分，等待缓冲区可写
                     if (ret > 0)
                         it->erase(0, (size_t)ret);
@@ -322,13 +334,16 @@ namespace crx
                 if (-1 == ret) {
                     if (EAGAIN == errno) {      //等待缓冲区可写，此时缓存待写所有数据
                         sts = 1;
-                        cache_data.push_back(std::string(data, len));
                     } else if (EPIPE == errno) {        //对端关闭
-                        return 0;
+                        sts = 0;
                     } else {        //发生异常
                         perror("tcp_event::async_write");
-                        return -1;
+                        sts = -1;
                     }
+
+                    cache_data.push_back(std::string(data, len));
+                    if (sts <= 0)
+                        return sts;
                 } else if (ret < len) {     //缓存未写入部分
                     cache_data.push_back(std::string(data+ret, len-ret));
                     sts = 1;
@@ -707,6 +722,7 @@ namespace crx
             conn->sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_util.m_sch->m_impl);
 
             conn->tcp_impl = this;
+            conn->is_connect = true;
             conn->ip_addr = inet_ntoa(m_accept_addr.sin_addr);        //将地址转换为点分十进制格式的ip地址
             conn->conn_sock.m_port = ntohs(m_accept_addr.sin_port);   //将端口由网络字节序转换为主机字节序
             conn->conn_sock.m_sock_fd = client_fd;
@@ -907,7 +923,8 @@ namespace crx
             if (conn < sch_impl->m_ev_array.size() && sch_impl->m_ev_array[conn]) {
                 auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
                 auto xutil = std::dynamic_pointer_cast<simpack_xutil>(tcp_ev->ext_data);
-                m_on_disconnect(xutil->info);
+                if ("__log_server__" != xutil->info.role)
+                    m_on_disconnect(xutil->info);
                 say_goodbye(xutil);
             }
         }
@@ -1062,7 +1079,7 @@ namespace crx
         uint16_t port = ntohs(*(uint16_t*)kvs["port"].data);
 
         //握手
-        int conn = m_client.connect(ip.c_str(), port, -1, 3);
+        int conn = m_client.connect(ip.c_str(), port);
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
         auto xutil = std::make_shared<simpack_xutil>();
         auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
@@ -1112,6 +1129,7 @@ namespace crx
             ord_xutil = std::make_shared<simpack_xutil>();
             auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
             tcp_ev->ext_data = ord_xutil;
+            m_ordinary_conn.insert(conn);
 
             ord_xutil->info.conn = conn;
             ord_xutil->info.ip = std::move(ip);
@@ -1167,6 +1185,7 @@ namespace crx
             return;
         }
 
+        m_ordinary_conn.insert(conn);
         auto name_it = kvs.find("name");
         xutil->info.name = std::string(name_it->second.data, name_it->second.len);
         auto role_it = kvs.find("role");
@@ -1205,7 +1224,8 @@ namespace crx
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
         auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
         auto xutil = std::dynamic_pointer_cast<simpack_xutil>(tcp_ev->ext_data);
-        m_on_disconnect(xutil->info);
+        if ("__log_server__" != xutil->info.role)
+            m_on_disconnect(xutil->info);
         sch_impl->remove_event(conn);
     }
 
@@ -1347,10 +1367,11 @@ namespace crx
         if (!m_fp)
             return false;
 
-        if (!sch_impl->m_log_timer.m_impl) {
-            sch_impl->m_log_timer = sch->get_timer(std::bind(&scheduler_impl::flush_log_buffer, sch_impl.get()));
-            sch_impl->m_log_timer.start(3*1000, 3*1000);        //每隔3秒刷一次缓冲
-        }
+        if (!sch_impl->m_sec_wheel.m_impl)       //创建一个秒盘
+            sch_impl->m_sec_wheel = sch->get_timer_wheel(1000, 60);
+
+        //每隔3秒刷一次缓冲
+        sch_impl->m_sec_wheel.add_handler(3*1000, std::bind(&scheduler_impl::flush_log_buffer, sch_impl.get()));
         return true;
     }
 
@@ -1419,6 +1440,7 @@ namespace crx
         va_end(var2);
         va_end(var1);
 
+        ret += 29;
         if (impl->m_log_idx) {      //写远程日志
             uint32_t net_idx = htonl((uint32_t)impl->m_log_idx);
             impl->m_seria.insert("log_idx", (const char*)&net_idx, sizeof(net_idx));

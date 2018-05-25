@@ -35,7 +35,7 @@ bool simple_simps::init(int argc, char **argv)
             std::bind(&simple_simps::on_request, this, _1, _2, _3, _4),
             std::bind(&simple_simps::on_response, this, _1, _2, _3, _4),
             std::bind(&simple_simps::on_notify, this, _1, _2, _3, _4));
-    m_log = get_log("simps", "~/workspace/base_platform/tools/log_files");
+    m_log = get_log("simps");
     return true;
 }
 
