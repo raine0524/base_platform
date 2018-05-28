@@ -342,11 +342,13 @@ namespace crx
         std::function<void(const server_info&, const server_cmd&, char*, size_t)> m_on_notify;
     };
 
-    class log_impl : public impl
+    //log_impl继承于eth_event使得这个实例可以存放在m_ev_array数组中，但不会添加该文件描述符上的监听事件
+    class log_impl : public eth_event
     {
     public:
         log_impl()
                 :m_split_idx(0)
+                ,m_detach(false)
                 ,m_last_sec(-1)
                 ,m_fmt_buf(1024, 0)
                 ,m_log_buf(65536, 0)
@@ -375,11 +377,13 @@ namespace crx
 
         bool get_remote_log(std::shared_ptr<scheduler_impl>& sch_impl);
 
-        std::string m_prefix;
-        std::string m_root_dir;
+        void flush_log_buffer();
+
+        std::string m_prefix, m_root_dir;
         int64_t m_max_size, m_curr_size, m_split_idx;
         std::shared_ptr<simpack_server_impl> m_simp_impl;
 
+        bool m_detach;
         datetime m_now;
         int64_t m_last_sec, m_last_hour, m_last_day;
         std::string m_fmt_buf, m_fmt_tmp, m_log_buf;
@@ -387,7 +391,8 @@ namespace crx
 
         server_cmd m_cmd;
         seria m_seria;
-        size_t m_log_idx;
+        uint32_t m_log_idx;
+        timer_wheel m_sec_wheel;
     };
 
     struct monitor_ev
@@ -450,6 +455,7 @@ namespace crx
                 :m_running_co(0)
                 ,m_next_co(-1)
                 ,m_epoll_fd(-1)
+                ,m_log_idx(0)
                 ,m_remote_log(false)
         {
             m_util_impls.resize(IDX_MAX);
@@ -477,8 +483,6 @@ namespace crx
          */
         void handle_event(int op, int fd, uint32_t event);
 
-        void flush_log_buffer();
-
     public:
         std::string m_ini_file;
         int m_running_co, m_next_co;
@@ -489,6 +493,7 @@ namespace crx
         int m_epoll_fd;		//epoll线程描述符及等待线程终止信号的事件描述符
         std::vector<std::shared_ptr<eth_event>> m_ev_array;
 
+        uint32_t m_log_idx;
         bool m_remote_log;
         timer_wheel m_sec_wheel;
         std::vector<std::shared_ptr<impl>> m_util_impls;

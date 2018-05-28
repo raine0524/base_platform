@@ -43,7 +43,7 @@ namespace crx
         std::vector<std::shared_ptr<coroutine>> get_avail_cos();
 
         /*
-         * 获取日志实例(自动释放，但多次申请将返回多个不同的实例)
+         * 获取日志实例(手动释放，但多次申请将返回多个不同的实例)
          * @prefix 日志文件的前缀
          * @root_dir 设置日志的根目录，将在根目录基础上按照年/月/日逐级构造子目录
          * @max_size 文件切割大小(单位为MB)

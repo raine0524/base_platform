@@ -46,8 +46,12 @@ void simple_simps::test_remote_log(std::vector<std::string>& args)
         return;
     }
 
-    for (int i = 0; i < std::stoi(args.front()); ++i)
-        log_info(m_log, "Hello 0123456789 abcdefghijklmnopqrstuvwxyz %d\n", i);
+    int cnt = std::stoi(args.front());
+    int64_t time_consume = crx::measure_time([&]() {
+        for (int i = 0; i < cnt; ++i)
+            log_info(m_log, "Hello 0123456789 abcdefghijklmnopqrstuvwxyz %d\n", i);
+    });
+    printf("每条日志平均耗时 %lf us\n", time_consume*1.0/cnt);
 }
 
 int main(int argc, char *argv[])

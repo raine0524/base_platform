@@ -220,22 +220,11 @@ namespace crx
             perror("handle_event::epoll_ctl");
     }
 
-    void scheduler_impl::flush_log_buffer()
-    {
-        for (size_t i = IDX_MAX; i < m_util_impls.size(); ++i) {
-            auto impl = std::dynamic_pointer_cast<log_impl>(m_util_impls[i]);
-            fflush(impl->m_fp);
-        }
-
-        //周期性的刷日志
-        m_sec_wheel.add_handler(3*1000, std::bind(&scheduler_impl::flush_log_buffer, this));
-    }
-
     void scheduler_impl::add_event(std::shared_ptr<eth_event> ev, uint32_t event /*= EPOLLIN*/)
     {
         if (ev) {
             if (ev->fd >= m_ev_array.size())
-                m_ev_array.resize((size_t)ev->fd+1, nullptr);
+                m_ev_array.resize((size_t)ev->fd+1);
 
             handle_event(EPOLL_CTL_ADD, ev->fd, event);
             m_ev_array[ev->fd] = std::move(ev);
@@ -1285,19 +1274,27 @@ namespace crx
 
         impl->m_prefix = prefix;
         impl->m_root_dir = root_dir;
-        impl->m_max_size = max_size*1024*1024;
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        impl->sch_impl = sch_impl;
+        if (!sch_impl->m_remote_log)
+            impl->m_max_size = max_size*1024*1024;
+        else
+            impl->m_max_size = max_size;
 
         bool res = false;
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         if (sch_impl->m_remote_log)
             res = impl->get_remote_log(sch_impl);
         else
             res = impl->get_local_log(this, sch_impl);
 
-        if (!res)
+        if (!res) {
             ins.m_impl.reset();
-        else
-            sch_impl->m_util_impls.push_back(std::move(impl));
+        } else if (!sch_impl->m_remote_log && impl->m_fp) {
+            int fd = fileno(impl->m_fp);        //使用本地日志时需要周期性的刷新缓冲，因此在内部需要保存一个该实例的指针
+            if (fd >= sch_impl->m_ev_array.size())
+                sch_impl->m_ev_array.resize((size_t)fd+1);
+            sch_impl->m_ev_array[fd] = std::move(impl);
+        }
         return ins;
     }
 
@@ -1311,11 +1308,11 @@ namespace crx
         std::string log_path(256, 0);
         auto pos = m_root_dir.find('@');        //a trick for local log & remote log
         if (std::string::npos != pos)
-            ret = sprintf(&log_path[0], "%s/%d/%02d/%02d/%s/", m_root_dir.c_str(), m_now.t->tm_year+1900,
-                          m_now.t->tm_mon+1, m_now.t->tm_mday, &m_root_dir[pos+1]);
+            ret = sprintf(&log_path[0], "%s/%d/%02d/%02d/%s/", m_root_dir.substr(0, pos).c_str(),
+                    m_now.t->tm_year+1900, m_now.t->tm_mon+1, m_now.t->tm_mday, &m_root_dir[pos+1]);
         else
             ret = sprintf(&log_path[0], "%s/%d/%02d/%02d/", m_root_dir.c_str(), m_now.t->tm_year+1900,
-                          m_now.t->tm_mon+1, m_now.t->tm_mday);
+                    m_now.t->tm_mon+1, m_now.t->tm_mday);
         log_path.resize((size_t)ret);
         if (create)
             mkdir_multi(log_path.c_str());
@@ -1347,7 +1344,7 @@ namespace crx
         sprintf(file_wh, "%s_%02d", m_prefix.c_str(), m_now.t->tm_hour);
         depth_first_traverse_dir(log_path.c_str(), [&](const std::string& fname) {
             if (std::string::npos != fname.find(file_wh)) {
-                auto pos = fname.rfind('[');
+                auto pos = fname.rfind('-');
                 int split_idx = atoi(&fname[pos+1]);
                 if (split_idx > m_split_idx)
                     m_split_idx = split_idx;
@@ -1361,8 +1358,11 @@ namespace crx
         if (!sch_impl->m_sec_wheel.m_impl)       //创建一个秒盘
             sch_impl->m_sec_wheel = sch->get_timer_wheel(1000, 60);
 
+        if (!m_sec_wheel.m_impl)
+            m_sec_wheel = sch_impl->m_sec_wheel;
+
         //每隔3秒刷一次缓冲
-        sch_impl->m_sec_wheel.add_handler(3*1000, std::bind(&scheduler_impl::flush_log_buffer, sch_impl.get()));
+        m_sec_wheel.add_handler(3*1000, std::bind(&log_impl::flush_log_buffer, this));
         return true;
     }
 
@@ -1375,9 +1375,8 @@ namespace crx
         }
 
         m_seria.insert("prefix", m_prefix.c_str(), m_prefix.size());
-        m_seria.insert("root_dir", m_root_dir.c_str(), m_root_dir.size());
-        m_log_idx = sch_impl->m_util_impls.size();
-        uint32_t net_idx = htonl((uint32_t)m_log_idx);
+        m_log_idx = ++sch_impl->m_log_idx;
+        uint32_t net_idx = htonl(m_log_idx);
         m_seria.insert("log_idx", (const char*)&net_idx, sizeof(net_idx));
         uint32_t net_size = htonl((uint32_t)m_max_size);
         m_seria.insert("max_size", (const char*)&net_size, sizeof(net_size));
@@ -1433,7 +1432,7 @@ namespace crx
 
         ret += 29;
         if (impl->m_log_idx) {      //写远程日志
-            uint32_t net_idx = htonl((uint32_t)impl->m_log_idx);
+            uint32_t net_idx = htonl(impl->m_log_idx);
             impl->m_seria.insert("log_idx", (const char*)&net_idx, sizeof(net_idx));
             impl->m_seria.insert("data", data, ret);
 
@@ -1458,7 +1457,14 @@ namespace crx
         size_t path_size = log_path.size();
         log_path.resize(256, 0);
         sprintf(&log_path[0]+path_size, "%s_%02ld-%ld.log", m_prefix.c_str(), m_last_hour, m_split_idx);
+
+        int old_fd = fileno(m_fp);
         create_log_file(log_path.c_str());
+        int new_fd = fileno(m_fp);
+        if (old_fd != new_fd) {
+            auto impl = sch_impl.lock();
+            impl->m_ev_array[new_fd] = std::move(impl->m_ev_array[old_fd]);
+        }
     }
 
     void log_impl::write_local_log(const char *data, size_t len)
@@ -1485,6 +1491,30 @@ namespace crx
         if (m_curr_size >= m_max_size) {    //当前日志文件已超过最大尺寸，创建新的日志文件
             m_split_idx++;
             rotate_log(false);
+        }
+    }
+
+    void log_impl::flush_log_buffer()
+    {
+        if (!m_fp) return;
+        if (m_detach) {
+            auto impl = sch_impl.lock();
+            int fd = fileno(m_fp);
+            if (0 <= fd && fd < impl->m_ev_array.size() && impl->m_ev_array[fd])
+                impl->m_ev_array[fd].reset();
+        } else {
+            fflush(m_fp);       //周期性的刷日志
+            m_sec_wheel.add_handler(3*1000, std::bind(&log_impl::flush_log_buffer, this));
+        }
+    }
+
+    void log::detach()
+    {
+        auto impl = std::dynamic_pointer_cast<log_impl>(m_impl);
+        auto sch_impl = impl->sch_impl.lock();
+        if (!sch_impl->m_remote_log && impl->m_fp) {      //本地日志才会定时刷缓冲并且在内部保留一份实例
+            fflush(impl->m_fp);     //首先刷新缓存
+            impl->m_detach = true;
         }
     }
 

@@ -161,6 +161,9 @@ namespace crx
     {
     public:
         void printf(const char *fmt, ...);
+
+        //分离日志
+        void detach();
     };
 
 #define log_error(log_ins, fmt, args...)    log_ins.printf("[%s|%s|%d] [ERROR] " fmt, __FILENAME__, __func__, __LINE__, ##args)
