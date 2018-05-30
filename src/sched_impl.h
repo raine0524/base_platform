@@ -483,6 +483,8 @@ namespace crx
          */
         void handle_event(int op, int fd, uint32_t event);
 
+        void periodic_trim_memory();
+
     public:
         std::string m_ini_file;
         int m_running_co, m_next_co;
@@ -533,7 +535,6 @@ namespace crx
                     conn_ins->stream_buffer.clear();
                 } else {
                     conn_ins->stream_buffer.erase(0, read_len);
-                    conn_ins->stream_buffer.pop_back();
                 }
             }
         } else {
@@ -667,9 +668,9 @@ namespace crx
             return -(int)(valid_header_len+4);
         }
 
-        if (len < conn->xutil.content_len-1)      //请求/响应体中不包含足够的数据，等待该连接上更多的数据到来
+        if (len < conn->xutil.content_len)      //请求/响应体中不包含足够的数据，等待该连接上更多的数据到来
             return 0;
         else        //已取到请求/响应体，通知上层执行m_f回调
-            return (len > conn->xutil.content_len) ? conn->xutil.content_len : (int)len;
+            return conn->xutil.content_len;
     }
 }

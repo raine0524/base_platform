@@ -220,6 +220,12 @@ namespace crx
             perror("handle_event::epoll_ctl");
     }
 
+    void scheduler_impl::periodic_trim_memory()
+    {
+        malloc_trim(0);
+        m_sec_wheel.add_handler(5*1000, std::bind(&scheduler_impl::periodic_trim_memory, this));
+    }
+
     void scheduler_impl::add_event(std::shared_ptr<eth_event> ev, uint32_t event /*= EPOLLIN*/)
     {
         if (ev) {
@@ -516,6 +522,7 @@ namespace crx
         eventfd_read(fd, &val);       //读操作将事件重置
         for (auto signal : m_signals)
             m_f(signal);			//执行事件回调函数
+        m_signals.clear();
     }
 
     udp_ins scheduler::get_udp_ins(bool is_server, uint16_t port,
@@ -879,7 +886,6 @@ namespace crx
                 auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
                 tcp_ev->ext_data = xutil;
 
-                simp_impl->m_seria.insert("ip", xutil->info.ip.c_str(), xutil->info.ip.size());
                 uint16_t net_port = htons((uint16_t)xutil->listen);
                 simp_impl->m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
                 simp_impl->m_seria.insert("name", xutil->info.name.c_str(), xutil->info.name.size());
@@ -1179,6 +1185,7 @@ namespace crx
                 m_app_cmd.cmd = header->cmd;
                 send_data(header->type, m_log_conn, m_app_cmd, data.c_str(), data.size());
             }
+            m_cache_logs.clear();
         } else {
             m_on_connect(xutil->info);
         }
@@ -1354,9 +1361,6 @@ namespace crx
         create_log_file(log_path.c_str());
         if (!m_fp)
             return false;
-
-        if (!sch_impl->m_sec_wheel.m_impl)       //创建一个秒盘
-            sch_impl->m_sec_wheel = sch->get_timer_wheel(1000, 60);
 
         if (!m_sec_wheel.m_impl)
             m_sec_wheel = sch_impl->m_sec_wheel;

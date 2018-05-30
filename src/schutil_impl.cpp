@@ -168,9 +168,6 @@ namespace crx
             conn->ip_addr = server;
         }
 
-        if (conn->retry && !sch_impl->m_sec_wheel.m_impl)       //创建一个秒盘
-            sch_impl->m_sec_wheel = tcp_impl->m_util.m_sch->get_timer_wheel(1000, 60);
-
         if (!tcp_impl->m_util.m_timer_wheel.m_impl)             //复用该秒盘
             tcp_impl->m_util.m_timer_wheel = sch_impl->m_sec_wheel;
 

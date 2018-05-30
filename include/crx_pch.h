@@ -27,6 +27,7 @@
 #include <stdint-gcc.h>
 #include <time.h>
 #include <wchar.h>
+#include <malloc.h>
 
 //////////////////////////////////////////////////////////////////////////
 //c++ standard library (mainly include the template library)

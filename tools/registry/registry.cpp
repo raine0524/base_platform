@@ -69,13 +69,6 @@ void registry::setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_
 void registry::register_server(int conn, const std::string& ip, uint16_t port,
                                std::unordered_map<std::string, crx::mem_ref>& kvs)
 {
-    auto ip_it = kvs.find("ip");
-    if (kvs.end() == ip_it) {
-        printf("pronounce without ip\n");
-        return;
-    }
-    std::string node_ip(ip_it->second.data, ip_it->second.len);
-
     auto port_it = kvs.find("port");
     if (kvs.end() == port_it) {
         printf("pronounce without port\n");
@@ -89,7 +82,7 @@ void registry::register_server(int conn, const std::string& ip, uint16_t port,
         return;
     }
     std::string node_name(name_it->second.data, name_it->second.len);
-    printf("ip=%s, listen=%u, name=%s\n", node_ip.c_str(), listen, node_name.c_str());
+    printf("ip=%s, listen=%u, name=%s\n", ip.c_str(), listen, node_name.c_str());
 
     auto node_it = m_node_idx.find(node_name);
     uint16_t result = 0;
@@ -106,7 +99,7 @@ void registry::register_server(int conn, const std::string& ip, uint16_t port,
         if (-1 == node->info.conn) {
             node_legal = true;
             node->info.conn = conn;
-            node->info.ip = std::move(node_ip);
+            node->info.ip = std::move(ip);
             node->info.port = listen;
             m_conn_node[conn] = node_it->second;        //建立连接与节点信息的对应关系
             m_seria.insert("role", node->info.role.c_str(), node->info.role.size());

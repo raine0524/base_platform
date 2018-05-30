@@ -1,4 +1,4 @@
-#include "crx_pch.h"
+#include "stdafx.h"
 
 class simple_simps : public crx::console
 {

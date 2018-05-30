@@ -58,5 +58,16 @@ int main(int argc, char *argv[])
 {
     simple_simps ss;
     ss.add_cmd("trl", std::bind(&simple_simps::test_remote_log, &ss, _1), "测试写远程日志 usage@ trl {cnt}");
+    ss.add_cmd("ca", [&](std::vector<std::string>& args) {
+        int fd = std::stoi(args[0]);
+        auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(ss.m_impl);
+        auto tcp_ev = std::dynamic_pointer_cast<crx::tcp_event>(impl->m_ev_array[fd]);
+        std::cout<<"指定描述符 "<<fd<<" 中的cache_data数量为"<<tcp_ev->cache_data.size()<<std::endl;
+    }, "查看指定文件描述符中的cache_data数量");
+    ss.add_cmd("bom", [](std::vector<std::string>& args) {
+        malloc_stats();
+        malloc_trim(0);
+        malloc_stats();
+    }, "强制glibc中的内存返回给操作系统");
     return ss.run(argc, argv);
 }

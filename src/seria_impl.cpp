@@ -50,8 +50,8 @@ namespace crx
     void seria::insert(const char *key, const char *data, size_t len)
     {
         auto impl = std::dynamic_pointer_cast<seria_impl>(m_impl);
-        raw_ref rkey(key, strlen(key));
-        raw_ref rval(data, len);
+        raw_ref rkey(key, (uint32_t)strlen(key));
+        raw_ref rval(data, (uint32_t)len);
         std::pair<raw_ref, raw_ref> pair(rkey, rval);
         impl->m_packer.pack(pair);		//将键值对加入序列化串中
 

@@ -397,18 +397,13 @@ namespace crx
         std::function<void(scheduler *sch)> stub;
         sch_impl->co_create(stub, this, true, false, "main coroutine");        //创建主协程
 
-        //首先执行预处理操作，预处理主要和当前运行环境以及运行时所带参数有关
+        /*
+         * 首先执行预处理操作，预处理主要和当前运行环境以及运行时所带参数有关，在预处理操作中可能只是简单的停止后台服务，或连接后台服务
+         * 执行一些命令，此时只需要有一个主协程，并进入主协程进行简单的读写操作即可，在这种使用场景下当前进程仅仅只是真实服务的一个shell，
+         * 不需要使用日志或者创建其他运行时需要用到的资源
+         */
         if (con_impl->preprocess(argc, argv))
             return EXIT_SUCCESS;
-
-        //处理绑核操作
-        int cpu_num = get_nprocs();
-        if (-1 != bind_flag) {
-            if (INT_MAX == bind_flag)
-                con_impl->bind_core(con_impl->m_random()%cpu_num);
-            else if (0 <= bind_flag && bind_flag < cpu_num)     //bind_flag的取值范围为0~cpu_num-1
-                con_impl->bind_core(bind_flag);
-        }
 
         //解析日志配置
         if (!access(conf, F_OK)) {
@@ -419,6 +414,19 @@ namespace crx
                 ini_parser.set_section("log");
                 sch_impl->m_remote_log = ini_parser.get_int("remote") != 0;
             }
+        }
+
+        if (!sch_impl->m_sec_wheel.m_impl)       //创建一个秒盘
+            sch_impl->m_sec_wheel = get_timer_wheel(1000, 60);
+        sch_impl->m_sec_wheel.add_handler(5*1000, std::bind(&scheduler_impl::periodic_trim_memory, sch_impl.get()));
+
+        //处理绑核操作
+        int cpu_num = get_nprocs();
+        if (-1 != bind_flag) {
+            if (INT_MAX == bind_flag)
+                con_impl->bind_core(con_impl->m_random()%cpu_num);
+            else if (0 <= bind_flag && bind_flag < cpu_num)     //bind_flag的取值范围为0~cpu_num-1
+                con_impl->bind_core(bind_flag);
         }
 
         //打印帮助信息
