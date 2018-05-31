@@ -531,11 +531,10 @@ namespace crx
             }
 
             if (read_len && sch_impl->m_ev_array[conn]) {
-                if (read_len == buf_len) {
+                if (read_len == buf_len)
                     conn_ins->stream_buffer.clear();
-                } else {
+                else
                     conn_ins->stream_buffer.erase(0, read_len);
-                }
             }
         } else {
             conn_ins->tcp_impl->m_util.m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port,
