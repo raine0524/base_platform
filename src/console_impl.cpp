@@ -405,8 +405,6 @@ namespace crx
         if (con_impl->preprocess(argc, argv))
             return EXIT_SUCCESS;
 
-        syslog(LOG_INFO, "test travis ci\n");
-
         //解析日志配置
         if (!access(conf, F_OK)) {
             sch_impl->m_ini_file = conf;

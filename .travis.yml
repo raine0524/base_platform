@@ -1,17 +1,34 @@
 language: cpp
 sudo: required
 dist: trusty    #ubuntu 14.04
+
 compiler:
   - gcc
 os:
   - linux
+
+matrix:
+  include:
+    - os: linux
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - g++-5
+      env:
+        - MATRIX_EVAL="CC=gcc-5 && CXX=g++-5"
+
 before_install:
-  - sudo add-apt-repository ppa:deadsnakes/ppa
+  - eval "${MATRIX_EVAL}"
+  - sudo add-apt-repository -y ppa:deadsnakes/ppa
   - sudo apt-get update
+
 install:
   - sudo apt-get -y install zlib1g-dev
   - sudo apt-get -y install libssl-dev
   - sudo apt-get -y install libpython3.5-dev
   - sudo apt-get -y install libmysqlcppconn-dev
+
 script:
   - ./build.sh
