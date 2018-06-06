@@ -6,6 +6,8 @@ compiler:
   - gcc
 os:
   - linux
+notifications:
+  - email: false
 
 matrix:
   include:
