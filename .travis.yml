@@ -6,7 +6,7 @@ compiler:
 os:
   - linux
 before_install:
-  - sudo add-apt-repository ppa:fkrull/deadsnakes
+  - sudo add-apt-repository ppa:deadsnakes/ppa
   - sudo apt-get update
 install:
   - sudo apt-get -y install zlib1g-dev
