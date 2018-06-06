@@ -1,0 +1,17 @@
+language: cpp
+sudo: required
+dist: trusty    #ubuntu 14.04
+compiler:
+  - gcc
+os:
+  - linux
+before_install:
+  - sudo add-apt-repository ppa:fkrull/deadsnakes
+  - sudo apt-get update
+install:
+  - sudo apt-get -y install zlib1g-dev
+  - sudo apt-get -y install libssl-dev
+  - sudo apt-get -y install libpython3.5-dev
+  - sudo apt-get -y install libmysqlcppconn-dev
+script:
+  - ./build.sh
