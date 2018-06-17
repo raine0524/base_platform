@@ -67,4 +67,5 @@ private:
 
     crx::seria m_seria;
     crx::tcp_server m_tcp_server;
+    std::string m_local_ip;
 };

@@ -154,30 +154,45 @@ void registry::notify_server_online(int conn, std::unordered_map<std::string, cr
 
     auto& node = m_nodes[node_it->second];
     uint16_t net_port = htons(node->info.port);
-    m_seria.insert("name", node->info.name.c_str(), node->info.name.size());
-    m_seria.insert("ip", node->info.ip.c_str(), node->info.ip.size());
-    m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
-
-    auto ref = m_seria.get_string();
-    auto header = (crx::simp_header*)ref.data;
-    setup_header(ref, header, CMD_SVR_ONLINE, nullptr);
-    memcpy(header->token, node->token, 16);
-
+    const char *lo_ip = "127.0.0.1";            //环回地址
     for (auto& client : node->clients) {        //通知所有已在线的主动连接方发起连接
         auto& cli_node = m_nodes[client];
-        if (cli_node && -1 != cli_node->info.conn)
+        if (cli_node && -1 != cli_node->info.conn) {
+            m_seria.insert("name", node->info.name.c_str(), node->info.name.size());
+            if (node->info.ip == cli_node->info.ip) {
+                m_seria.insert("ip", lo_ip, strlen(lo_ip));
+            } else {        //两个节点在不同的物理主机上
+                if (lo_ip == node->info.ip)
+                    m_seria.insert("ip", m_local_ip.c_str(), m_local_ip.size());
+                else        //当前被动节点与registry处于不同的物理主机上
+                    m_seria.insert("ip", node->info.ip.c_str(), node->info.ip.size());
+            }
+            m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
+
+            auto ref = m_seria.get_string();
+            auto header = (crx::simp_header*)ref.data;
+            setup_header(ref, header, CMD_SVR_ONLINE, nullptr);
+            memcpy(header->token, node->token, 16);
             m_tcp_server.send_data(cli_node->info.conn, ref.data, ref.len);
+            m_seria.reset();
+        }
     }
-    m_seria.reset();
 
     for (auto& server : node->servers) {        //通知该服务连接所有已在线的被动方
         auto& svr_node = m_nodes[server];
         if (!svr_node || -1 == svr_node->info.conn)
             continue;
 
-        uint16_t net_port = htons(svr_node->info.port);
         m_seria.insert("name", svr_node->info.name.c_str(), svr_node->info.name.size());
-        m_seria.insert("ip", svr_node->info.ip.c_str(), svr_node->info.ip.size());
+        if (node->info.ip == svr_node->info.ip) {
+            m_seria.insert("ip", lo_ip, strlen(lo_ip));
+        } else {        //两个节点在不同的物理主机上
+            if (lo_ip == svr_node->info.ip)
+                m_seria.insert("ip", m_local_ip.c_str(), m_local_ip.size());
+            else        //当前被动节点与registry处于不同的物理主机上
+                m_seria.insert("ip", svr_node->info.ip.c_str(), svr_node->info.ip.size());
+        }
+        uint16_t net_port = htons(svr_node->info.port);
         m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
 
         auto ref = m_seria.get_string();
@@ -259,6 +274,7 @@ bool registry::init(int argc, char *argv[])
     ini.load("ini/server.ini");
     ini.set_section("registry");
     int listen = ini.get_int("listen");
+    m_local_ip = ini.get_str("ip");
     m_tcp_server = get_tcp_server((uint16_t)listen, std::bind(&registry::tcp_server_callback, this, _1, _2, _3, _4, _5));
     register_tcp_hook(false, [](int conn, char *data, size_t len) { return crx::simpack_protocol(data, len); });
 
