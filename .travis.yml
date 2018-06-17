@@ -31,6 +31,8 @@ install:
   - sudo apt-get -y install libssl-dev
   - sudo apt-get -y install libpython3.5-dev
   - sudo apt-get -y install libmysqlcppconn-dev
+  - sudo apt-get -y install expect
+  - sudo apt-get -y install openssh-client
 
 script:
   - ./build.sh
