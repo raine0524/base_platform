@@ -1,3 +1,5 @@
 .idea/
 cmake-build-debug/
 deploy*
+login_aliyun
+release.tar.gz

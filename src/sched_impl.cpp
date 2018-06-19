@@ -171,9 +171,7 @@ namespace crx
             size_t i = 0;
             for (; i < cnt; ++i) {      //处理已触发的事件
                 int fd = events[i].data.fd;
-                auto ev = m_ev_array[fd];
-                if (ev)
-                    ev->f();
+                m_ev_array[fd]->f();
             }
 
             i = 1;
@@ -286,7 +284,7 @@ namespace crx
         }
     }
 
-    //[注：只有tcp套接字才需要异步写操作] 对端关闭或发生异常的情况下，待写数据仍然缓存，因为可能尝试重连
+    //对端关闭或发生异常的情况下，待写数据仍然缓存，因为可能尝试重连
     int tcp_event::async_write(const char *data, size_t len)
     {
         if (!is_connect) {
@@ -342,9 +340,7 @@ namespace crx
                 } else if (ret < len) {     //缓存未写入部分
                     cache_data.push_back(std::string(data+ret, len-ret));
                     sts = 1;
-                } else {
-                    //全部写完
-                }
+                } //else 全部写完
             } else {        //缓冲已满
                 cache_data.push_back(std::string(data, len));
             }
@@ -1520,6 +1516,11 @@ namespace crx
             fflush(impl->m_fp);     //首先刷新缓存
             impl->m_detach = true;
         }
+    }
+
+    ipc_fifo scheduler::get_fifo(bool passive, const char *prefix, int fifo_id, std::function<void(int, char*, size_t)> f)
+    {
+
     }
 
     fs_monitor scheduler::get_fs_monitor(std::function<void(const char*, uint32_t)> f)

@@ -36,3 +36,12 @@ install:
 
 script:
   - ./build.sh
+
+deploy:
+  provider: releases
+  api_key:
+    secure: e7457e3a334d9a1e1dc99cdd13669306f0bb61d2
+  file: release.tar.gz
+  skip_clean: true
+  on:
+    tags: true

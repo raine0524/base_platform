@@ -21,6 +21,7 @@ if [ -f $deploy_pkg ] ; then
 	rm $deploy_pkg
 fi
 tar -czf $deploy_pkg deploy/
+exit
 
 # deploy & run
 /usr/bin/expect << EOF

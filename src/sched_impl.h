@@ -148,7 +148,7 @@ namespace crx
         PRT_SIMP,           //SIMP协议(私有)
     };
 
-    //只有tcp套接字才需要异步写操作
+    //tcp套接字需要异步写操作
     class tcp_event : public eth_event
     {
     public:

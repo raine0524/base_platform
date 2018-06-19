@@ -138,6 +138,11 @@ namespace crx
         void response(int conn, const char *ext_data, size_t ext_len, EXT_DST ed = DST_JSON);
     };
 
+    class CRX_SHARE ipc_fifo : public kobj
+    {
+
+    };
+
     class CRX_SHARE fs_monitor : public kobj
     {
     public:

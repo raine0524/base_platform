@@ -134,6 +134,15 @@ namespace crx
                            std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t)> on_notify);
 
         /*
+         * 获取fifo实例(主动释放)，主要用于同一物理主机上的两个非亲缘进程之间的通信，注意若有超过2个进程主动连接该fifo则该行为未定义
+         * @param passive 若为true，表示当前进程将主动创建fifo，并且等待其他进程的后续连接请求
+         * @param prefix 表示存放fifo文件的目录
+         * @param fifo_id 标识当前ipc_fifo的实例
+         * @param f 回调函数，函数中的三个参数分别是id，当前可用于解析的fifo流的首地址及长度
+         */
+        ipc_fifo get_fifo(bool passive, const char *prefix, int fifo_id, std::function<void(int, char*, size_t)> f);
+
+        /*
          * [单例] 获取文件系统监控实例(自动释放)，回调函数中的6个参数依次为
          * ①触发监控事件的文件
          * ②监控文件的掩码，用于确定触发事件的类型

@@ -5,37 +5,20 @@ namespace crx
     const char *heart_beat = "just a heart beat";
     const char *service_quit_sig = "user_def_quit";
 
+    int g_wr_fifo = -1;
+
     const char *unknown_cmd = "未知命令或参数！「请输入help(h)显示帮助」\n\n";
     const char *crash_info = "后台服务已崩溃，请检查当前目录下的core文件查看崩溃时的调用堆栈\n";
 
     std::string crx_tmp_dir = ".crx_tmp/";		//kbase库的临时目录，用于存放一系列在服务运行过程中需要用到的临时文件
     std::string g_server_name;		//当前服务的名称
 
-    console_impl::console_impl(console *c)
-            :m_c(c)
-            ,m_is_service(false)
-            ,m_as_shell(false)
-            ,m_pipe_conn(false)
-            ,m_rd_fifo(-1)
-            ,m_wr_fifo(-1)
-            ,m_stdout_backup(-1)
+    console_impl::console_impl(console *c) : m_c(c), m_is_service(false), m_as_shell(false)
     {
         m_cmd_idx["h"] = m_cmd_vec.size();
         m_cmd_vec.push_back({"h", std::bind(&console_impl::print_help, this, _1), "显示帮助"});
         m_cmd_idx["q"] = m_cmd_vec.size();
         m_cmd_vec.push_back({"q", std::bind(&console_impl::quit_loop, this, _1), "退出程序"});
-    }
-
-    console_impl::~console_impl()
-    {
-        if (-1 != m_rd_fifo)
-            close(m_rd_fifo);
-
-        if (-1 != m_wr_fifo)
-            close(m_wr_fifo);
-
-        if (-1 != m_stdout_backup)
-            close(m_stdout_backup);
     }
 
     //检查当前服务是否存在，若/proc/{%pid%}文件不存在，则说明后台进程已崩溃
@@ -140,18 +123,16 @@ namespace crx
      * @当前程序以普通进程运行时将调用该例程等待命令行输入
      * @当前程序以shell方式运行时将调用该例程将命令行输入参数传给后台运行的服务
      */
-    void console_impl::listen_keyboard_input(int wr_fifo)
+    void console_impl::listen_keyboard_input()
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
         std::cout<<g_server_name<<":\\>"<<std::flush;
 
-        m_wr_fifo = wr_fifo;
-        setnonblocking(STDIN_FILENO);       //将标准输入设为非阻塞
-
-        m_console_ev = std::make_shared<eth_event>();
-        m_console_ev->fd = STDIN_FILENO;
-        m_console_ev->sch_impl = sch_impl;
-        m_console_ev->f = [this]() {
+        auto ev = std::make_shared<eth_event>();
+        ev->fd = STDIN_FILENO;
+        setnonblocking(STDIN_FILENO);
+        ev->sch_impl = sch_impl;
+        ev->f = [this]() {
             std::string input(256, 0);
             ssize_t ret = read(STDIN_FILENO, &input[0], input.size()-1);
             if (-1 == ret || 0 == ret) {
@@ -180,7 +161,7 @@ namespace crx
             }
 
             if (!str_vec.empty()) {
-                if (-1 == m_wr_fifo) {		//m_wr_fifo等于-1表示当前程序是以普通进程方式运行的
+                if (-1 == g_wr_fifo) {		//m_wr_fifo等于-1表示当前程序是以普通进程方式运行的
                     if (execute_cmd(cmd, args)) {
                         if ("q" != input)
                             std::cout<<g_server_name<<":\\>"<<std::flush;
@@ -193,43 +174,36 @@ namespace crx
                         if ("h" == input)
                             std::cout<<g_server_name<<":\\>"<<std::flush;
                     } else {        //否则将命令行参数传给后台daemon进程
-                        write(m_wr_fifo, input.data(), input.size());
+                        write(g_wr_fifo, input.data(), input.size());
                     }
                 }
             }
         };
-        sch_impl->add_event(m_console_ev);
+        sch_impl->add_event(ev);
     }
 
     //当前程序以daemon进程在后台运行时，该进程通过管道接收命令行的输入参数
     void console_impl::listen_pipe_input()
     {
-        //以非阻塞方式创建管道时，被动方首先打开非阻塞的读管道并在epoll上监听之
-        //open函数带O_NONBLOCK标志调用时只表明不阻塞open函数，而并不表示对rd_fifo的读写同样也是非阻塞的
-        m_rd_fifo = open(m_pipe_name[0].c_str(), O_RDONLY | O_NONBLOCK);
-        crx::setnonblocking(m_rd_fifo);		//因此调用setnonblocking将该文件描述符设置为非阻塞的
-
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
         m_console_ev = std::make_shared<eth_event>();
-        m_console_ev->fd = m_rd_fifo;
-        m_console_ev->sch_impl = sch_impl;
 
+        //open函数带O_NONBLOCK标志调用时只表明不阻塞open函数，而并不表示对rd_fifo的读写同样也是非阻塞的
+        m_console_ev->fd = open(m_pipe_name[0].c_str(), O_RDONLY | O_NONBLOCK);
+        crx::setnonblocking(m_console_ev->fd);
+
+        m_console_ev->sch_impl = sch_impl;
         m_console_ev->f = [this]() {
             //当读管道可读时，说明有其他进程的读写管道已经创建，并且写管道已经与本进程的读管道完成连接，
-            //此时在本进程中创建写管道并与其他进程的读管道完成连接
-            if (!m_pipe_conn) {
-                m_wr_fifo = open(m_pipe_name[1].c_str(), O_WRONLY);
-                //将写管道重定向至标准输出文件描述符，shell进程通过管道接收后台进程的一系列运行时输出信息
-                dup2(m_wr_fifo, STDOUT_FILENO);
-                m_pipe_conn = true;
-            }
+            //此时在本进程中打开写管道并与其他进程的读管道完成连接
+            if (-1 == g_wr_fifo)
+                g_wr_fifo = open(m_pipe_name[1].c_str(), O_WRONLY | O_NONBLOCK);
 
             std::string cmd_buf;
             int sts = m_console_ev->async_read(cmd_buf);
             if (sts <= 0) {			//读管道输入异常，将标准输出恢复成原先的值，并关闭已经打开的写管道
-                dup2(m_stdout_backup, STDOUT_FILENO);
-                close(m_wr_fifo);
-                m_pipe_conn = false;
+                close(g_wr_fifo);
+                g_wr_fifo = -1;
             } else {
                 //用来建立连接的心跳包有可能会与控制台输入产生粘包问题，因此首先需要将心跳包部分截除
                 if (!strncmp(cmd_buf.data(), heart_beat, strlen(heart_beat)))
@@ -267,12 +241,14 @@ namespace crx
      */
     void console_impl::connect_service(bool stop_service)
     {
-        int wr_fifo = open(m_pipe_name[0].c_str(), O_WRONLY | O_NONBLOCK);
         int rd_fifo = open(m_pipe_name[1].c_str(), O_RDONLY | O_NONBLOCK);
         crx::setnonblocking(rd_fifo);
 
+        g_wr_fifo = open(m_pipe_name[0].c_str(), O_WRONLY | O_NONBLOCK);
+        crx::setnonblocking(g_wr_fifo);
+
         if (!stop_service)
-            write(wr_fifo, heart_beat, strlen(heart_beat));			//发送心跳包建立实际的连接过程
+            write(g_wr_fifo, heart_beat, strlen(heart_beat));			//发送心跳包建立实际的连接过程
 
         bool excep = false;
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
@@ -298,17 +274,19 @@ namespace crx
         sch_impl->add_event(eth_ev);
 
         if (!stop_service)      //此时以shell方式运行当前进程，则等待控制台输入后执行相应操作
-            listen_keyboard_input(wr_fifo);
+            listen_keyboard_input();
         else        //若是停止后台daemon进程，则首先发送自定义的退出信号
-            write(wr_fifo, service_quit_sig, strlen(service_quit_sig));
+            write(g_wr_fifo, service_quit_sig, strlen(service_quit_sig));
 
         sch_impl->main_coroutine(m_c);      //进入主协程
-
-        if (excep)
-            printf("后台服务已关闭，退出当前shell！\n");
-
-        close(wr_fifo);
+        close(g_wr_fifo);
         close(rd_fifo);
+
+        if (stop_service) {     //移除daemon进程创建的fifo
+            remove(m_pipe_name[0].c_str());
+            remove(m_pipe_name[1].c_str());
+            printf("后台服务已关闭，退出当前shell！\n");
+        }
     }
 
     void console_impl::start_daemon()
@@ -441,19 +419,12 @@ namespace crx
             mkfifo(con_impl->m_pipe_name[1].c_str(), 0777);
         }
 
-        if (!con_impl->m_is_service) {			//前台运行时在控制台输入接收命令
-            con_impl->listen_keyboard_input(-1);
-        } else {			//后台运行时从管道文件中接收命令
-            con_impl->m_stdout_backup = dup(STDOUT_FILENO);
+        if (!con_impl->m_is_service)        //前台运行时在控制台输入接收命令
+            con_impl->listen_keyboard_input();
+        else        //后台运行时从管道文件中接收命令
             con_impl->listen_pipe_input();
-        }
 
         sch_impl->main_coroutine(this);     //进入主协程
-
-        if (con_impl->m_is_service) {			//退出时移除所创建的读写fifo
-            remove(con_impl->m_pipe_name[0].c_str());
-            remove(con_impl->m_pipe_name[1].c_str());
-        }
         return EXIT_SUCCESS;
     }
 }
