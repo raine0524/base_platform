@@ -40,7 +40,7 @@ script:
 deploy:
   provider: releases
   api_key:
-    secure: e7457e3a334d9a1e1dc99cdd13669306f0bb61d2
+    secure: 7d44e2e2f429abb0e299a2ce10d879e6e431c7b7
   file: release.tar.gz
   skip_clean: true
   on:
