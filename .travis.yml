@@ -37,6 +37,10 @@ install:
 script:
   - ./build.sh
 
+before_deploy:
+  - pwd && ls
+  - tar -czf release.tar.gz deploy/
+
 deploy:
   provider: releases
   api_key:
