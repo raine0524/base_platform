@@ -165,13 +165,11 @@ namespace crx
                 continue;
             }
 
-            if (cnt == EPOLL_SIZE)
-                printf("[main_coroutine::epoll_wait WARN] 当前待处理的事件达到监听队列的上限 (%d)！\n", cnt);
-
             size_t i = 0;
             for (; i < cnt; ++i) {      //处理已触发的事件
                 int fd = events[i].data.fd;
-                m_ev_array[fd]->f();
+                if (fd < m_ev_array.size() && m_ev_array[fd])
+                    m_ev_array[fd]->f();
             }
 
             i = 1;
