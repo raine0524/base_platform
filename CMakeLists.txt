@@ -9,7 +9,7 @@ include_directories(include src)
 
 link_directories(/usr/lib/python3.5/config-3.5m-x86_64-linux-gnu)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wno-unused-result \
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0 -Wno-unused-result \
 -D__FILENAME__='\"$(notdir $<)\"'")
 message("compile flags: ${CMAKE_CXX_FLAGS}")
 

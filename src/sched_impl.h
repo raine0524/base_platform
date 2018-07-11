@@ -530,7 +530,7 @@ namespace crx
                 read_len += abs_ret;
             }
 
-            if (read_len && sch_impl->m_ev_array[conn]) {
+            if (read_len && conn < sch_impl->m_ev_array.size() && sch_impl->m_ev_array[conn]) {
                 if (read_len == buf_len)
                     conn_ins->stream_buffer.clear();
                 else

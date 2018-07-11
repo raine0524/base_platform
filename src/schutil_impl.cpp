@@ -172,6 +172,9 @@ namespace crx
             tcp_impl->m_util.m_timer_wheel = sch_impl->m_sec_wheel;
 
         conn->fd = conn->conn_sock.create(PRT_TCP, USR_CLIENT, conn->ip_addr.c_str(), port);
+        if (-1 == conn->fd)
+            return -2;
+
         conn->conn_sock.set_keep_alive(1, 60, 5, 3);
         conn->f = std::bind(&tcp_client_conn::tcp_client_callback, conn.get());
         conn->sch_impl = sch_impl;

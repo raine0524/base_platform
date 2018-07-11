@@ -286,7 +286,7 @@ namespace crx
     int tcp_event::async_write(const char *data, size_t len)
     {
         if (!is_connect) {
-            cache_data.push_back(std::string(data, len));
+            cache_data.emplace_back(data, len);
             return 1;
         }
 
@@ -306,7 +306,7 @@ namespace crx
                     }
 
                     if (data && len)
-                        cache_data.push_back(std::string(data, len));
+                        cache_data.emplace_back(data, len);
                     return sts;
                 } else if (ret < it->size()) {      //写了一部分，等待缓冲区可写
                     if (ret > 0)
@@ -332,15 +332,15 @@ namespace crx
                         sts = -1;
                     }
 
-                    cache_data.push_back(std::string(data, len));
+                    cache_data.emplace_back(data, len);
                     if (sts <= 0)
                         return sts;
                 } else if (ret < len) {     //缓存未写入部分
-                    cache_data.push_back(std::string(data+ret, len-ret));
+                    cache_data.emplace_back(data+ret, len-ret);
                     sts = 1;
                 } //else 全部写完
             } else {        //缓冲已满
-                cache_data.push_back(std::string(data, len));
+                cache_data.emplace_back(data, len);
             }
         }
 
@@ -1388,7 +1388,7 @@ namespace crx
         if (-1 != simp_impl->m_log_conn)
             simp_impl->send_data(1, simp_impl->m_log_conn, m_cmd, ref.data, ref.len);
         else
-            simp_impl->m_cache_logs.push_back(std::string(ref.data, ref.len));
+            simp_impl->m_cache_logs.emplace_back(ref.data, ref.len);
         m_seria.reset();
         m_simp_impl = simp_impl;
         return true;
