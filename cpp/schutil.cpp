@@ -10,7 +10,7 @@ namespace crx
             auto sig_impl = std::make_shared<sigctl_impl>();
             impl = sig_impl;
             sig_impl->fd = signalfd(-1, &sig_impl->m_mask, SFD_NONBLOCK);
-            sig_impl->f = std::bind(&sigctl_impl::sigctl_callback, sig_impl.get());
+            sig_impl->f = std::bind(&sigctl_impl::sigctl_callback, sig_impl.get(), _1);
             sig_impl->sch_impl = sch_impl;
             sch_impl->add_event(sig_impl);
         }
@@ -20,7 +20,7 @@ namespace crx
         return obj;
     }
 
-    void sigctl_impl::sigctl_callback()
+    void sigctl_impl::sigctl_callback(uint32_t events)
     {
         int st_size = sizeof(m_fd_info);
         while (true) {
@@ -74,7 +74,7 @@ namespace crx
         if (__glibc_likely(-1 != tmr_impl->fd)) {
             auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
             tmr_impl->sch_impl = sch_impl;
-            tmr_impl->f = std::bind(&timer_impl::timer_callback, tmr_impl.get());
+            tmr_impl->f = std::bind(&timer_impl::timer_callback, tmr_impl.get(), _1);
             tmr_impl->m_f = std::move(f);
             sch_impl->add_event(tmr_impl);      //加入epoll监听事件
         } else {
@@ -91,7 +91,7 @@ namespace crx
      * 触发定时器回调时首先读文件描述符 fd，读操作将定时器状态切换为已读，若不执行读操作，
      * 则由于epoll采用edge-trigger边沿触发模式，定时器事件再次触发时将不再回调该函数
      */
-    void timer_impl::timer_callback()
+    void timer_impl::timer_callback(uint32_t events)
     {
         uint64_t cnt;
         read(fd, &cnt, sizeof(cnt));
@@ -187,7 +187,7 @@ namespace crx
         ev_impl->fd = eventfd(0, EFD_NONBLOCK);			//创建一个非阻塞的事件资源
         if (__glibc_likely(-1 != ev_impl->fd)) {
             auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-            ev_impl->f = std::bind(&event_impl::event_callback, ev_impl.get());
+            ev_impl->f = std::bind(&event_impl::event_callback, ev_impl.get(), _1);
             ev_impl->sch_impl = sch_impl;
             ev_impl->m_f = std::move(f);
             sch_impl->add_event(ev_impl);
@@ -201,7 +201,7 @@ namespace crx
         return ev;
     }
 
-    void event_impl::event_callback()
+    void event_impl::event_callback(uint32_t events)
     {
         eventfd_t val;
         eventfd_read(fd, &val);       //读操作将事件重置
@@ -238,7 +238,7 @@ namespace crx
 
         if (__glibc_likely(-1 != ui_impl->fd)) {
             auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-            ui_impl->f = std::bind(&udp_ins_impl::udp_ins_callback, ui_impl.get());
+            ui_impl->f = std::bind(&udp_ins_impl::udp_ins_callback, ui_impl.get(), _1);
             ui_impl->sch_impl = sch_impl;
             ui_impl->m_f = std::move(f);
             sch_impl->add_event(ui_impl);
@@ -252,7 +252,7 @@ namespace crx
         return ui;
     }
 
-    void udp_ins_impl::udp_ins_callback()
+    void udp_ins_impl::udp_ins_callback(uint32_t events)
     {
         bzero(&m_recv_addr, sizeof(m_recv_addr));
         m_recv_len = sizeof(m_recv_addr);

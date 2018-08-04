@@ -17,7 +17,8 @@ namespace crx
             close(impl->m_epoll_fd);
     }
 
-    size_t scheduler::co_create(std::function<void(scheduler *sch)> f, bool is_share /*= false*/, const char *comment /*= nullptr*/)
+    size_t scheduler::co_create(std::function<void(scheduler *sch, size_t co_id)> f,
+            bool is_share /*= false*/, const char *comment /*= nullptr*/)
     {
         auto impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         return impl->co_create(f, this, false, is_share, comment);
@@ -80,7 +81,7 @@ namespace crx
         return cos;
     }
 
-    size_t scheduler_impl::co_create(std::function<void(scheduler *sch)>& f, scheduler *sch,
+    size_t scheduler_impl::co_create(std::function<void(scheduler *sch, size_t co_id)>& f, scheduler *sch,
                                      bool is_main_co, bool is_share /*= false*/, const char *comment /*= nullptr*/)
     {
         std::shared_ptr<coroutine_impl> co_impl;
@@ -143,7 +144,7 @@ namespace crx
         auto sch = (scheduler*)this_ptr;
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(sch->m_impl);
         auto co_impl = sch_impl->m_cos[sch_impl->m_running_co];
-        co_impl->f(sch);
+        co_impl->f(sch, (size_t)sch_impl->m_running_co);
 
         //协程执行完成后退出，此时处于不可用状态，进入未使用队列等待复用
         sch_impl->m_running_co = 0;
@@ -169,7 +170,7 @@ namespace crx
             for (; i < cnt; ++i) {      //处理已触发的事件
                 int fd = events[i].data.fd;
                 if (fd < m_ev_array.size() && m_ev_array[fd])
-                    m_ev_array[fd]->f();
+                    m_ev_array[fd]->f(events[i].events);
             }
 
             i = 1;

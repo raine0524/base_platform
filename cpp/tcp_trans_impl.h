@@ -48,7 +48,7 @@ namespace crx
             delete name_reqs[0];
         }
 
-        void tcp_client_callback();
+        void tcp_client_callback(uint32_t events);
 
         void retry_connect();
 
@@ -91,7 +91,7 @@ namespace crx
     class tcp_server_conn : public tcp_event
     {
     public:
-        void read_tcp_stream();
+        void read_tcp_stream(uint32_t events);
 
         tcp_server_impl *tcp_impl;
     };
@@ -101,7 +101,7 @@ namespace crx
     public:
         tcp_server_impl() : m_addr_len(0) {}
 
-        void tcp_server_callback();
+        void tcp_server_callback(uint32_t events);
 
         struct sockaddr_in m_accept_addr;
         socklen_t m_addr_len;

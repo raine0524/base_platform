@@ -192,7 +192,7 @@ void registry::notify_server_online(int conn, std::map<std::string, crx::mem_ref
             else        //当前被动节点与registry处于不同的物理主机上
                 m_seria.insert("ip", svr_node->info.ip.c_str(), svr_node->info.ip.size());
         }
-        uint16_t net_port = htons(svr_node->info.port);
+        net_port = htons(svr_node->info.port);
         m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
 
         auto ref = m_seria.get_string();

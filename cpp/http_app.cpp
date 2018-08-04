@@ -112,7 +112,7 @@ namespace crx
             //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
             http_impl->fd = http_impl->conn_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
             http_impl->sch_impl = sch_impl;
-            http_impl->f = std::bind(&http_impl_t<tcp_server_impl>::tcp_server_callback, http_impl.get());
+            http_impl->f = std::bind(&http_impl_t<tcp_server_impl>::tcp_server_callback, http_impl.get(), _1);
             sch_impl->add_event(http_impl);
         }
 

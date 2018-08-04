@@ -80,17 +80,17 @@ namespace crx
             }
         }
 
-        if (EPOLLIN == event && 1 == sts) {     //当前监听的是可读事件且写缓冲已满，监听可写
-            event = EPOLLOUT;
-            sch_impl.lock()->handle_event(EPOLL_CTL_MOD, fd, EPOLLOUT);
-        } else if (EPOLLOUT == event && INT_MAX == sts) {       //当前监听可写且已全部写完，监听可读
+        if (EPOLLIN == event && 1 == sts) {     //当前监听的是可读事件且写缓冲已满，同时监听可读可写
+            event = EPOLLIN | EPOLLOUT;
+            sch_impl.lock()->handle_event(EPOLL_CTL_MOD, fd, event);
+        } else if (EPOLLIN | EPOLLOUT == event && INT_MAX == sts) {       //当前同时监听可读可写且已全部写完，只监听可读
             event = EPOLLIN;
-            sch_impl.lock()->handle_event(EPOLL_CTL_MOD, fd, EPOLLIN);
+            sch_impl.lock()->handle_event(EPOLL_CTL_MOD, fd, event);
         }
         return sts;
     }
 
-    void tcp_client_conn::tcp_client_callback()
+    void tcp_client_conn::tcp_client_callback(uint32_t events)
     {
         int sts = 0;
         if (!is_connect) {
@@ -101,10 +101,10 @@ namespace crx
                 sts = async_write(nullptr, 0);
             }
         } else {
-            if (EPOLLIN == event) {
+            if (events & EPOLLIN) {
                 sts = async_read(stream_buffer);        //读tcp响应流
                 handle_stream(fd, this);
-            } else {        //EPOLLOUT == event
+            } else if (events & EPOLLOUT) {
                 sts = async_write(nullptr, 0);
             }
         }
@@ -197,7 +197,7 @@ namespace crx
             char host[64] = {0};
             auto addr = &((sockaddr_in*)req->ar_result->ai_addr)->sin_addr;
             inet_ntop(req->ar_result->ai_family, addr, host, sizeof(host)-1);
-            conn->ip_addr = std::string(host);
+            conn->ip_addr = host;
         } else {        //已经是ip地址
             conn->ip_addr = server;
         }
@@ -210,10 +210,10 @@ namespace crx
             return -2;
 
         conn->conn_sock.set_keep_alive(1, 60, 5, 3);
-        conn->f = std::bind(&tcp_client_conn::tcp_client_callback, conn.get());
+        conn->f = std::bind(&tcp_client_conn::tcp_client_callback, conn.get(), _1);
         conn->sch_impl = sch_impl;
-        conn->event = EPOLLOUT;
-        sch_impl->add_event(conn, EPOLLOUT);        //套接字异步connect时其可写表明与对端server已经连接成功
+        conn->event = EPOLLIN | EPOLLOUT;
+        sch_impl->add_event(conn, conn->event);        //套接字异步connect时可写表明与对端server已经连接成功
         return conn->fd;
     }
 
@@ -254,7 +254,7 @@ namespace crx
             //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
             tcp_impl->fd = tcp_impl->conn_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
             tcp_impl->sch_impl = sch_impl;
-            tcp_impl->f = std::bind(&tcp_server_impl::tcp_server_callback, tcp_impl.get());
+            tcp_impl->f = std::bind(&tcp_server_impl::tcp_server_callback, tcp_impl.get(), _1);
             sch_impl->add_event(tcp_impl);
         }
 
@@ -263,7 +263,7 @@ namespace crx
         return obj;
     }
 
-    void tcp_server_impl::tcp_server_callback()
+    void tcp_server_impl::tcp_server_callback(uint32_t events)
     {
         bzero(&m_accept_addr, sizeof(struct sockaddr_in));
         m_addr_len = sizeof(struct sockaddr_in);
@@ -287,7 +287,7 @@ namespace crx
             }
 
             conn->fd = client_fd;
-            conn->f = std::bind(&tcp_server_conn::read_tcp_stream, conn.get());
+            conn->f = std::bind(&tcp_server_conn::read_tcp_stream, conn.get(), _1);
             conn->sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_util.m_sch->m_impl);
 
             conn->tcp_impl = this;
@@ -309,13 +309,13 @@ namespace crx
         }
     }
 
-    void tcp_server_conn::read_tcp_stream()
+    void tcp_server_conn::read_tcp_stream(uint32_t events)
     {
         int sts = 0;
-        if (EPOLLIN == event) {
+        if (events & EPOLLIN) {
             sts = async_read(stream_buffer);
             handle_stream(fd, this);
-        } else {        //EPOLLOUT == event
+        } else if (events & EPOLLOUT) {        //EPOLLOUT == event
             sts = async_write(nullptr, 0);
         }
 

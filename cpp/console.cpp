@@ -132,7 +132,7 @@ namespace crx
         ev->fd = STDIN_FILENO;
         setnonblocking(STDIN_FILENO);
         ev->sch_impl = sch_impl;
-        ev->f = [this]() {
+        ev->f = [this](uint32_t events) {
             std::string input(256, 0);
             ssize_t ret = read(STDIN_FILENO, &input[0], input.size()-1);
             if (-1 == ret || 0 == ret) {
@@ -193,7 +193,7 @@ namespace crx
         crx::setnonblocking(m_console_ev->fd);
 
         m_console_ev->sch_impl = sch_impl;
-        m_console_ev->f = [this]() {
+        m_console_ev->f = [this](uint32_t events) {
             //当读管道可读时，说明有其他进程的读写管道已经创建，并且写管道已经与本进程的读管道完成连接，
             //此时在本进程中打开写管道并与其他进程的读管道完成连接
             if (-1 == g_wr_fifo)
@@ -256,7 +256,7 @@ namespace crx
         auto eth_ev = std::make_shared<eth_event>();
         eth_ev->fd = rd_fifo;
         eth_ev->sch_impl = sch_impl;
-        eth_ev->f = [&]() {
+        eth_ev->f = [&](uint32_t events) {
             std::string output;
             int sts = eth_ev->async_read(output);
             if (!output.empty()) {
@@ -372,7 +372,7 @@ namespace crx
             return EXIT_FAILURE;
         }
 
-        std::function<void(scheduler *sch)> stub;
+        std::function<void(scheduler *sch, size_t co_id)> stub;
         sch_impl->co_create(stub, this, true, false, "main coroutine");        //创建主协程
 
         /*

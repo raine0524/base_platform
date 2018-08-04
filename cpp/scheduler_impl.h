@@ -29,14 +29,14 @@ namespace crx
         int async_read(std::string& read_str);
 
         int fd;      //与epoll事件关联的文件描述符
-        std::function<void()> f;     //回调函数
+        std::function<void(uint32_t events)> f;     //回调函数
         std::weak_ptr<scheduler_impl> sch_impl;
     };
 
     struct coroutine_impl : public coroutine
     {
         SUS_TYPE type;
-        std::function<void(crx::scheduler *sch)> f;
+        std::function<void(crx::scheduler *sch, size_t co_id)> f;
 
         ucontext_t ctx;
         std::string stack;
@@ -79,7 +79,7 @@ namespace crx
         virtual ~scheduler_impl() = default;
 
     public:
-        size_t co_create(std::function<void(crx::scheduler *sch)>& f, scheduler *sch,
+        size_t co_create(std::function<void(crx::scheduler *sch, size_t co_id)>& f, scheduler *sch,
                          bool is_main_co, bool is_share = false, const char *comment = nullptr);
 
         static void coroutine_wrap(uint32_t low32, uint32_t hi32);

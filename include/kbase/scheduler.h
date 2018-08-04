@@ -33,7 +33,8 @@ namespace crx
         virtual ~scheduler();
 
         //创建一个协程, @share参数表示是否使用共享栈，创建成功返回该协程的id(> 0)
-        size_t co_create(std::function<void(scheduler *sch)> f, bool is_share = false, const char *comment = nullptr);
+        size_t co_create(std::function<void(scheduler *sch, size_t co_id)> f,
+                bool is_share = false, const char *comment = nullptr);
 
         /*
          * 切换执行流，@co_id表示切换至哪个协程，若其为0则代表切换回主协程
@@ -45,33 +46,33 @@ namespace crx
         std::vector<std::shared_ptr<coroutine>> get_avail_cos();
 
         /*
-         * 获取日志实例(手动释放，但多次申请将返回多个不同的实例)
+         * 获取日志实例(手动释放,多次申请将返回多个不同实例)
          * @prefix 日志文件的前缀
          * @root_dir 设置日志的根目录，将在根目录基础上按照年/月/日逐级构造子目录
          * @max_size 文件切割大小(单位为MB)
          */
         log get_log(const char *prefix, const char *root_dir = "log_files", int64_t max_size = 10);
 
-        //[单例]
+        //[单例] 获取系统信号监听及处理实例(自动释放)
         sigctl get_sigctl();
 
-        //获取timer实例
+        //获取timer实例(手动释放,多次申请将返回多个不同的实例)
         timer get_timer(std::function<void()> f);
 
         /*
-         * 获取定时轮timer_wheel实例
-         * @interval 表示一个tick的间隔，单位为毫秒，使用时最好将该值设置在100ms以上，因为系统定时器本身的灵敏度在10ms以上，
-         * 在系统负荷较高的情况下，定时事件触发所需要处理的事件数量较多，若该值设置的较小将导致不够灵敏
+         * 获取定时轮timer_wheel实例(自动释放,多次申请将返回多个不同实例)
+         * @interval 表示一个tick的间隔，单位为毫秒，使用时最好将该值设置在20ms以上，因为系统定时器本身的灵敏度在10ms以上，
+         * 在系统负荷较高的情况下，定时事件触发所需处理的事件数量较多，若该值设置的较小将导致不够灵敏
          * @slot 定时轮的槽数
          * 一个经典的定时轮是表盘，interval为1000(1s)，slot为60(0~59)
          */
         timer_wheel get_timer_wheel(uint64_t interval, size_t slot);
 
-        //获取event实例
+        //获取event实例(手动释放,多次申请将返回多个不同实例)
         event get_event(std::function<void(int)> f);
 
         /*
-         * 获取udp实例
+         * 获取udp实例(手动释放,多次申请将返回多个不同实例)
          * @is_server：为true表明创建的是服务端使用的udp套接字，反之则为客户端使用的套接字
          * @port：udp是无连接的传输层协议，因此在创建套接字时不需要显示指定ip地址，但udp服务器端在接收请求时
          * 				需要显示指定监听的端口，若port为0，则系统将为该套接字选择一个随机的端口
