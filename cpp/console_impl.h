@@ -1,5 +1,7 @@
 #pragma once
 
+#include "stdafx.h"
+
 namespace crx
 {
     struct console_cmd
@@ -51,6 +53,6 @@ namespace crx
 
         std::random_device m_random;
         std::vector<console_cmd> m_cmd_vec;
-        std::unordered_map<std::string, size_t> m_cmd_idx;      //m_cmds根据m_init当前的值区分为两类
+        std::map<std::string, size_t> m_cmd_idx;    //m_cmds根据m_init当前的值区分为两类
     };
 }

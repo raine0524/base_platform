@@ -185,7 +185,7 @@ namespace crx
         impl->m_doc.SaveFile(impl->m_xml_file.c_str());		//刷新当前缓存
     }
 
-    void xml_parser::for_each_attr(std::function<void(std::string&, std::string&, void*)> f, void *arg /*= nullptr*/)
+    void xml_parser::for_each_attr(std::function<void(std::string&, std::string&)> f)
     {
         auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (!impl->m_cn)
@@ -195,13 +195,12 @@ namespace crx
         while (attr) {		//对当前节点的每一个属性依次执行相应的回调函数
             std::string name = attr->Name();
             std::string value = attr->Value();
-            f(name, value, arg);
+            f(name, value);
             attr = attr->Next();
         }
     }
 
-    void xml_parser::for_each_child(std::function<void(std::string&, std::string&, std::unordered_map<std::string, std::string>&, void*)> f,
-                                    void *arg /*= nullptr*/)
+    void xml_parser::for_each_child(std::function<void(std::string&, std::string&, std::map<std::string, std::string>&)> f)
     {
         auto impl = std::dynamic_pointer_cast<xml_impl>(m_impl);
         if (!impl->m_cn)
@@ -214,15 +213,15 @@ namespace crx
             const char *text = child->GetText();
             if (text)
                 value = text;
-            std::unordered_map<std::string, std::string> attr_map;		//节点的键值对属性
+            std::map<std::string, std::string> attr_map;		//节点的键值对属性
 
             const tinyxml2::XMLAttribute *attr = child->FirstAttribute();
             while (attr) {			//获取当前节点的所有属性
                 attr_map[attr->Name()] = attr->Value();
                 attr = attr->Next();		//获取下一个属性
             }
-            f(name, value, attr_map, arg);				//执行回调函数
-            child = child->NextSiblingElement();		//获取当前节点的下一个兄弟节点
+            f(name, value, attr_map);               //执行回调函数
+            child = child->NextSiblingElement();    //获取当前节点的下一个兄弟节点
         }
     }
 }

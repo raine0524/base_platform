@@ -1,5 +1,7 @@
 #pragma once
 
+#include "crx_pch.h"
+
 namespace crx
 {
     enum CO_STATUS
@@ -94,28 +96,33 @@ namespace crx
          */
         void register_tcp_hook(bool client, std::function<int(int, char*, size_t)> f);
 
-        //[单例] 获取tcp客户端实例，回调函数的3个参数分别为指定的连接，收到的tcp数据流
+        /*
+         * [单例] 获取tcp客户端实例(自动释放),回调函数中的参数依次为
+         * ①指定的连接
+         * ②连接的ip地址/端口
+         * ③tcp数据流
+         */
         tcp_client get_tcp_client(std::function<void(int, const std::string&, uint16_t, char*, size_t)> f);
 
         /*
-         * [单例] 获取tcp服务实例
+         * [单例] 获取tcp服务实例(自动释放)
          * @port：指示tcp服务将在哪个端口上进行监听，若port为0，则系统将随机选择一个可用端口
-         * @f：回调函数，函数的5个参数分别为指定的连接，连接的ip地址/端口，收到的tcp数据流
+         * @f：回调函数，函数参数分别为指定的连接,连接的ip地址/端口,收到的tcp数据流
          */
         tcp_server get_tcp_server(uint16_t port,
                                   std::function<void(int, const std::string&, uint16_t, char*, size_t)> f);
 
         /*
-         * [单例] 获取http客户端实例(自动释放)，回调函数中的4个参数依次为
+         * [单例] 获取http客户端实例(自动释放)，回调函数中的参数依次为
          * ①指定的连接
          * ②响应标志(200, 404等等)
          * ③头部键值对
          * ④响应体
          */
-        http_client get_http_client(std::function<void(int, int, std::unordered_map<std::string, const char*>&, char*, size_t)> f);
+        http_client get_http_client(std::function<void(int, int, std::map<std::string, const char*>&, char*, size_t)> f);
 
         /*
-         * [单例] 获取http服务实例(自动释放)，回调函数中的6个参数依次为
+         * [单例] 获取http服务实例(自动释放)，回调函数中的参数依次为
          * ①指定的连接
          * ②请求方法(例如"GET", "POST"等等)
          * ③url(以"/"起始的字符串，例如"/index.html")
@@ -123,7 +130,7 @@ namespace crx
          * ⑤请求体(可能不存在)
          */
         http_server get_http_server(uint16_t port,
-                                    std::function<void(int, const char*, const char*, std::unordered_map<std::string, const char*>&, char*, size_t)> f);
+                                    std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> f);
 
         //[单例] 获取simpack服务实例(自动释放)，主要用于分布式系统中可控服务节点之间的通信
         simpack_server
@@ -134,16 +141,7 @@ namespace crx
                            std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t)> on_notify);
 
         /*
-         * 获取fifo实例(主动释放)，主要用于同一物理主机上的两个非亲缘进程之间的通信，注意若有超过2个进程主动连接该fifo则该行为未定义
-         * @param passive 若为true，表示当前进程将主动创建fifo，并且等待其他进程的后续连接请求
-         * @param prefix 表示存放fifo文件的目录
-         * @param fifo_id 标识当前ipc_fifo的实例
-         * @param f 回调函数，函数中的三个参数分别是id，当前可用于解析的fifo流的首地址及长度
-         */
-        ipc_fifo get_fifo(bool passive, const char *prefix, int fifo_id, std::function<void(int, char*, size_t)> f);
-
-        /*
-         * [单例] 获取文件系统监控实例(自动释放)，回调函数中的6个参数依次为
+         * [单例] 获取文件系统监控实例(自动释放)，回调函数中的参数依次为
          * ①触发监控事件的文件
          * ②监控文件的掩码，用于确定触发事件的类型
          */

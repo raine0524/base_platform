@@ -1,5 +1,7 @@
 #pragma once
 
+#include "crx_pch.h"
+
 namespace crx
 {
     //base64编码
@@ -28,9 +30,6 @@ namespace crx
 
     //获取本机地址(mac/ip等)
     std::string CRX_SHARE get_local_addr(ADDR_TYPE type, const char *net_card = "eth0");
-
-    //获取当前进程的工作路径
-    std::string CRX_SHARE get_current_working_path();
 
     //获取指定时间戳的datetime格式 @tv为空指针时获取当前时间戳的特定格式
     datetime CRX_SHARE get_datetime(timeval *tv = nullptr);

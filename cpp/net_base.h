@@ -1,5 +1,7 @@
 #pragma once
 
+#include "stdafx.h"
+
 namespace crx
 {
     enum PRT_TYPE

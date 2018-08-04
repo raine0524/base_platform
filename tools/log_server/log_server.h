@@ -30,5 +30,5 @@ private:
 
     std::string m_root_dir;
     crx::log m_local_log;
-    std::unordered_map<int, std::unordered_map<uint32_t, crx::log>>  m_remote_logs;
+    std::map<int, std::map<uint32_t, crx::log>>  m_remote_logs;
 };

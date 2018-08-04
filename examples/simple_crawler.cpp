@@ -28,7 +28,7 @@ void simple_crawler::get_web_page(std::vector<std::string>& urls)
 
 bool simple_crawler::init(int argc, char *argv[])
 {
-    m_http_client = get_http_client([this](int conn, int status, std::unordered_map<std::string, const char*>& header_kvs,
+    m_http_client = get_http_client([this](int conn, int status, std::map<std::string, const char*>& header_kvs,
             const char* data, size_t len) {
         printf("\nresponse: %d %d\n\n", conn, status);
         if (data)

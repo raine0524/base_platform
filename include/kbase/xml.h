@@ -1,5 +1,7 @@
 #pragma once
 
+#include "crx_pch.h"
+
 namespace crx
 {
 	class CRX_SHARE xml_parser : public kobj
@@ -49,9 +51,9 @@ namespace crx
 		void flush();
 
 		//对当前节点的每一个属性执行相应的操作，回调函数中的三个参数依次为属性名、属性值及回调参数
-		void for_each_attr(std::function<void(std::string&, std::string&, void*)> f, void *arg = nullptr);
+		void for_each_attr(std::function<void(std::string&, std::string&)> f);
 
 		//对当前节点的每一个孩子节点执行相应的操作，回调函数中的4个参数依次为节点名、节点值、节点所有键值对属性及回调参数
-		void for_each_child(std::function<void(std::string&, std::string&, std::unordered_map<std::string, std::string>&, void*)> f, void *arg = nullptr);
+		void for_each_child(std::function<void(std::string&, std::string&, std::map<std::string, std::string>&)> f);
 	};
 }

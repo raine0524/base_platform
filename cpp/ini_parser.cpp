@@ -20,7 +20,7 @@ namespace crx
         std::vector<ini_item> items;
 
         //it->first: key, it->second: index of items
-        std::unordered_map<std::string, size_t> item_map;
+        std::map<std::string, size_t> item_map;
 
         ini_section() : valid(true) {}
     };
@@ -43,7 +43,7 @@ namespace crx
         std::vector<ini_section> m_sections;
 
         //it->first: key, it->second: index of sections
-        std::unordered_map<std::string, size_t> m_sec_map;
+        std::map<std::string, size_t> m_sec_map;
     };
 
     ini::ini()

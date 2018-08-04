@@ -1,5 +1,7 @@
 #pragma once
 
+#include "crx_pch.h"
+
 namespace crx
 {
     class CRX_SHARE console : public scheduler

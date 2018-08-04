@@ -1,5 +1,7 @@
 #pragma once
 
+#include "crx_pch.h"
+
 namespace crx
 {
     class CRX_SHARE seria : public kobj
@@ -32,6 +34,6 @@ namespace crx
         int get_sharding_size(const char *data, size_t len);
 
         //反序列化操作，将数据流反序列化为map表
-        std::unordered_map<std::string, mem_ref> dump(const char *data, size_t len);
+        std::map<std::string, mem_ref> dump(const char *data, size_t len);
     };
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "stdafx.h"
+
 namespace crx
 {
     struct py_plot_malloc
@@ -29,7 +31,7 @@ namespace crx
     {
         DIM_TYPE type;
         PyObject *gca_obj;      //current axis instance
-        std::unordered_map<std::string, PyObject*> axis_attrs;
+        std::map<std::string, PyObject*> axis_attrs;
 
         py_plot_gca() : gca_obj(nullptr) {}
         virtual ~py_plot_gca()
@@ -62,11 +64,11 @@ namespace crx
 
         void set_label(const std::string& key, const char *label);
 
-        std::unordered_map<std::string, PyObject*> m_persis_funcs;      //持久化函数，key为函数名，value为函数对象
-        std::unordered_map<std::string, py_plot_malloc> m_func_objs;    //py_plot对象的一系列方法中需要用到的PyObject*对象，比如函数参数、返回值等
+        std::map<std::string, PyObject*> m_persis_funcs;      //持久化函数，key为函数名，value为函数对象
+        std::map<std::string, py_plot_malloc> m_func_objs;    //py_plot对象的一系列方法中需要用到的PyObject*对象，比如函数参数、返回值等
 
         int m_curr_fig;
-        std::unordered_map<int, py_plot_gca> m_fig_gca;
+        std::map<int, py_plot_gca> m_fig_gca;
 
         std::vector<std::string> m_line_styles;			//对应于枚举类型`LINE_STYLE`，下同
         std::vector<std::string> m_point_markers;
@@ -76,7 +78,7 @@ namespace crx
     class py_env_impl : public impl
     {
     public:
-        std::unordered_map<std::string, PyObject*> m_persis_modules;    //持久化模块，key为模块名，value为模块对象
-        std::unordered_set<PyObject*> m_results_set;                    //run_py_func函数调用存储的结果集
+        std::map<std::string, PyObject*> m_persis_modules;    //持久化模块，key为模块名，value为模块对象
+        std::set<PyObject*> m_results_set;                    //run_py_func函数调用存储的结果集
     };
 }

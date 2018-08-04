@@ -1,0 +1,151 @@
+#pragma once
+
+#include "stdafx.h"
+
+namespace crx
+{
+    enum APP_PRT    //应用层协议的类型
+    {
+        PRT_NONE = 0,       //使用原始的传输层协议
+        PRT_HTTP,			//HTTP协议
+        PRT_SIMP,           //SIMP协议(私有)
+    };
+
+    //tcp套接字需要异步写操作
+    class tcp_event : public eth_event
+    {
+    public:
+        tcp_event() :is_connect(false), event(EPOLLIN)
+        {
+            stream_buffer.reserve(8192);
+        }
+
+        int async_write(const char *data, size_t len);
+
+        uint32_t event;
+        std::list<std::string> cache_data;      //缓存队列，等待可写事件
+        std::shared_ptr<impl> ext_data;         //扩展数据
+
+        bool is_connect;
+        std::string ip_addr;            //转换之后的ip地址
+        net_socket conn_sock;
+        std::string stream_buffer;      //tcp缓冲流
+    };
+
+    class tcp_client_impl;
+    class tcp_client_conn : public tcp_event
+    {
+    public:
+        tcp_client_conn() :cnt(0), last_conn(1)
+        {
+            name_reqs[0] = new gaicb;
+            bzero(name_reqs[0], sizeof(gaicb));
+        }
+
+        virtual ~tcp_client_conn()
+        {
+            freeaddrinfo(name_reqs[0]->ar_result);
+            delete name_reqs[0];
+        }
+
+        void tcp_client_callback();
+
+        void retry_connect();
+
+        //解析域名时需要用到的相关设施
+        gaicb *name_reqs[1];
+        addrinfo req_spec;
+        sigevent sigev;
+
+        std::shared_ptr<tcp_client_impl> tcp_impl;
+        std::string domain_name;        //连接对端使用的主机地址
+        int retry, timeout, cnt, last_conn;
+    };
+
+    class tcp_impl_xutil
+    {
+    public:
+        tcp_impl_xutil() : m_sch(nullptr), m_app_prt(PRT_NONE) {}
+
+        scheduler *m_sch;
+        APP_PRT m_app_prt;
+
+        //tcp_client需要一个秒盘做重连，tcp_server需要一个分钟盘做会话管理
+        timer_wheel m_timer_wheel;
+        std::function<int(int, char*, size_t)> m_protocol_hook;      //协议钩子
+        std::function<void(int, const std::string&, uint16_t, char*, size_t)> m_f;    //收到tcp数据流时触发的回调函数
+    };
+
+    class tcp_client_impl : public impl
+    {
+    public:
+        void name_resolve_callback(uint64_t sigval)
+        {
+            m_util.m_sch->co_yield(sigval);
+        }
+
+        tcp_impl_xutil m_util;
+    };
+
+    class tcp_server_impl;
+    class tcp_server_conn : public tcp_event
+    {
+    public:
+        void read_tcp_stream();
+
+        tcp_server_impl *tcp_impl;
+    };
+
+    class tcp_server_impl : public tcp_event
+    {
+    public:
+        tcp_server_impl() : m_addr_len(0) {}
+
+        void tcp_server_callback();
+
+        struct sockaddr_in m_accept_addr;
+        socklen_t m_addr_len;
+        tcp_impl_xutil m_util;
+    };
+
+    template<typename CONN_TYPE>
+    void handle_stream(int conn, CONN_TYPE conn_ins)
+    {
+        if (conn_ins->stream_buffer.empty())
+            return;
+
+        auto sch_impl = conn_ins->sch_impl.lock();
+        if (conn_ins->tcp_impl->m_util.m_protocol_hook) {
+            conn_ins->stream_buffer.push_back(0);
+            char *start = &conn_ins->stream_buffer[0];
+            size_t buf_len = conn_ins->stream_buffer.size()-1, read_len = 0;
+            while (read_len < buf_len) {
+                size_t remain_len = buf_len-read_len;
+                int ret = conn_ins->tcp_impl->m_util.m_protocol_hook(conn, start, remain_len);
+                if (0 == ret) {
+                    conn_ins->stream_buffer.pop_back();
+                    break;
+                }
+
+                int abs_ret = std::abs(ret);
+                assert(abs_ret <= remain_len);
+                if (ret > 0)
+                    conn_ins->tcp_impl->m_util.m_f(conn_ins->fd, conn_ins->ip_addr,
+                                                   conn_ins->conn_sock.m_port, start, ret);
+
+                start += abs_ret;
+                read_len += abs_ret;
+            }
+
+            if (read_len && conn < sch_impl->m_ev_array.size() && sch_impl->m_ev_array[conn]) {
+                if (read_len == buf_len)
+                    conn_ins->stream_buffer.clear();
+                else
+                    conn_ins->stream_buffer.erase(0, read_len);
+            }
+        } else {
+            conn_ins->tcp_impl->m_util.m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port,
+                                           &conn_ins->stream_buffer[0], conn_ins->stream_buffer.size());
+        }
+    }
+}

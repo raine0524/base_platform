@@ -67,7 +67,7 @@ void registry::setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_
 }
 
 void registry::register_server(int conn, const std::string& ip, uint16_t port,
-                               std::unordered_map<std::string, crx::mem_ref>& kvs)
+                               std::map<std::string, crx::mem_ref>& kvs)
 {
     auto port_it = kvs.find("port");
     if (kvs.end() == port_it) {
@@ -137,7 +137,7 @@ void registry::register_server(int conn, const std::string& ip, uint16_t port,
     m_seria.reset();
 }
 
-void registry::notify_server_online(int conn, std::unordered_map<std::string, crx::mem_ref>& kvs)
+void registry::notify_server_online(int conn, std::map<std::string, crx::mem_ref>& kvs)
 {
     auto name_it = kvs.find("name");
     if (kvs.end() == name_it) {
@@ -204,7 +204,7 @@ void registry::notify_server_online(int conn, std::unordered_map<std::string, cr
     }
 }
 
-void registry::notify_connect_msg(bool online, std::unordered_map<std::string, crx::mem_ref>& kvs)
+void registry::notify_connect_msg(bool online, std::map<std::string, crx::mem_ref>& kvs)
 {
     auto cli_it = kvs.find("client");
     if (kvs.end() == cli_it) {
@@ -230,7 +230,7 @@ void registry::notify_connect_msg(bool online, std::unordered_map<std::string, c
     conn->online = online;
 }
 
-void registry::server_offline(int conn, std::unordered_map<std::string, crx::mem_ref>& kvs)
+void registry::server_offline(int conn, std::map<std::string, crx::mem_ref>& kvs)
 {
     auto name_it = kvs.find("name");
     if (kvs.end() == name_it) {
@@ -288,7 +288,7 @@ bool registry::init(int argc, char *argv[])
     m_xml.load(xml_conf, "config");
     if (m_xml.find_child("node")) {
         m_xml.switch_child("node");
-        m_xml.for_each_child([&](std::string& name, std::string& value, std::unordered_map<std::string, std::string>& attrs, void *arg) {
+        m_xml.for_each_child([&](std::string& name, std::string& value, std::map<std::string, std::string>& attrs) {
             if (m_node_idx.end() != m_node_idx.find(name)) {
                 std::cout<<"[init]节点 "<<name<<" 已存在，不再重复添加"<<std::endl;
                 return;
@@ -306,7 +306,7 @@ bool registry::init(int argc, char *argv[])
 
     if (m_xml.find_child("conn")) {
         m_xml.switch_child("conn");
-        m_xml.for_each_child([&](std::string& name, std::string& value, std::unordered_map<std::string, std::string>& attrs, void *arg) {
+        m_xml.for_each_child([&](std::string& name, std::string& value, std::map<std::string, std::string>& attrs) {
             if (2 != attrs.size()) {
                 std::cout<<"[init]连接 "<<name<<" 属性非法，过滤该连接信息"<<std::endl;
                 return;

@@ -127,7 +127,7 @@ namespace crx
 
     extern std::string g_server_name;
 
-    enum ADDR_TYPE
+    enum CRX_SHARE ADDR_TYPE
     {
         ADDR_MAC = 0,
         ADDR_IP,
@@ -163,7 +163,7 @@ namespace crx
         datetime() : date(0), time(0), time_stamp(0) {}
     };
 
-    struct mem_ref
+    struct CRX_SHARE mem_ref
     {
         const char *data;
         size_t len;
@@ -177,12 +177,16 @@ namespace crx
 //kbase library (self custome interface)
 #include "kbase/base_util.h"
 #include "kbase/ini.h"
+#include "kbase/logger.h"
 #include "kbase/tinyxml2.h"
 #include "kbase/serialize.h"
 #include "kbase/xml.h"
 #include "kbase/statis.h"
 #include "kbase/py_wrapper.h"
 #include "kbase/schutil.h"
+#include "kbase/tcp_trans.h"
+#include "kbase/http_app.h"
 #include "kbase/simpack.h"
+#include "kbase/fs_monitor.h"
 #include "kbase/scheduler.h"
 #include "kbase/console.h"

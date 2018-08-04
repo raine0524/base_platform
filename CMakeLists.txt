@@ -1,11 +1,11 @@
-cmake_minimum_required(VERSION 3.6)
+cmake_minimum_required(VERSION 3.5)
 project(base_platform)
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
 add_compile_options(-std=c++14)
 
-include_directories(include src)
+include_directories(include cpp)
 
 link_directories(/usr/lib/python3.5/config-3.5m-x86_64-linux-gnu)
 
@@ -25,7 +25,7 @@ set(LIB_NAME kbase)
 set(LIB_VERSION 1.0.0)
 message("library name: ${KBASE_NAME} version: ${KBASE_VERSION}")
 
-FILE(GLOB_RECURSE SOURCE_FILES src/*.cpp)
+FILE(GLOB_RECURSE SOURCE_FILES cpp/*.cpp)
 add_library(${LIB_NAME} SHARED ${SOURCE_FILES})
 target_link_libraries(${LIB_NAME} z pthread anl crypto)
 set_target_properties(${LIB_NAME} PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib64)

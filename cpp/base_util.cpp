@@ -271,15 +271,6 @@ namespace crx
         return std::string(buffer);
     }
 
-    std::string get_current_working_path()
-    {
-        char temp[32] = {0};
-        sprintf(temp, "/proc/%d/exe", getpid());		//"/proc/{%pid%}/exe"是一个指向可执行文件的软连接
-        std::string path(256, 0);
-        readlink(temp, &path[0], path.size());		//读取链接指向的真实文件路径
-        return path;
-    }
-
     datetime get_datetime(timeval *tv /*= nullptr*/)
     {
         datetime dt;

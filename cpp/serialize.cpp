@@ -18,7 +18,7 @@ namespace crx
         simp_header m_stub_header;
 
         std::string m_origin_buf;
-        std::unordered_map<std::string, mem_ref> m_dump_map;
+        std::map<std::string, mem_ref> m_dump_map;
     };
 
     seria::seria(bool use_simp /*= false*/)
@@ -129,7 +129,7 @@ namespace crx
         }
     }
 
-    std::unordered_map<std::string, mem_ref> seria::dump(const char *data, size_t len)
+    std::map<std::string, mem_ref> seria::dump(const char *data, size_t len)
     {
         auto impl = std::dynamic_pointer_cast<seria_impl>(m_impl);
         impl->m_dump_map.clear();
