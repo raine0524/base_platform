@@ -110,33 +110,35 @@ namespace crx
             }
         }
 
-        if (sts <= 0) {     //读文件描述符检测到异常或发现对端已关闭连接
-//            if (sts < 0)
-//                printf("[tcp_client_conn::tcp_client_callback] 读文件描述符 %d 异常\n", fd);
-//            else
-//                printf("[tcp_client_conn::tcp_client_callback] 连接 %d 对端正常关闭\n", fd);
+        if (sts > 0)
+            return;
 
-            if (-1 == retry || (retry > 0 && cnt < retry)) {        //若不断尝试重连或重连次数还未满足要求，则不释放资源
-                if (is_connect) {       //已处于连接状态
-                    tcp_client client;
-                    client.m_impl = tcp_impl;
-                    int conn = client.connect(ip_addr.c_str(), conn_sock.m_port, retry, timeout);       //创建一个新的tcp套接字
-                    auto tcp_conn = std::dynamic_pointer_cast<tcp_client_conn>(sch_impl.lock()->m_ev_array[conn]);
+//        if (sts < 0)
+//            printf("[tcp_client_conn::tcp_client_callback] 读文件描述符 %d 异常\n", fd);
+//        else
+//            printf("[tcp_client_conn::tcp_client_callback] 连接 %d 对端正常关闭\n", fd);
 
-                    //将当前缓存数据及扩展数据移入新的tcp_event上
-                    tcp_conn->cache_data = std::move(cache_data);
-                    tcp_conn->ext_data = std::move(ext_data);
-                    tcp_conn->last_conn = fd;
-                } else {
-                    tcp_impl->m_util.m_timer_wheel.add_handler((uint64_t)timeout*1000,
-                                                               std::bind(&tcp_client_conn::retry_connect, this));
-                }
+        //读文件描述符检测到异常或发现对端已关闭连接
+        if (-1 == retry || (retry > 0 && cnt < retry)) {        //若不断尝试重连或重连次数还未满足要求，则不释放资源
+            if (is_connect) {       //已处于连接状态
+                tcp_client client;
+                client.m_impl = tcp_impl;
+                int conn = client.connect(ip_addr.c_str(), conn_sock.m_port, retry, timeout);       //创建一个新的tcp套接字
+                auto tcp_conn = std::dynamic_pointer_cast<tcp_client_conn>(sch_impl.lock()->m_ev_array[conn]);
+
+                //将当前缓存数据及扩展数据移入新的tcp_event上
+                tcp_conn->cache_data = std::move(cache_data);
+                tcp_conn->ext_data = std::move(ext_data);
+                tcp_conn->last_conn = fd;
+            } else {
+                tcp_impl->m_util.m_timer_wheel.add_handler((uint64_t)timeout*1000,
+                                                           std::bind(&tcp_client_conn::retry_connect, this));
             }
+        }
 
-            if (is_connect) {       //该套接字已经成功连接过对端，此时只能移除该套接字，无法复用
-                tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);       //通知上层连接关闭
-                sch_impl.lock()->remove_event(fd);
-            }
+        if (is_connect) {       //该套接字已经成功连接过对端，此时只能移除该套接字，无法复用
+            tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);       //通知上层连接关闭
+            sch_impl.lock()->remove_event(fd);
         }
     }
 

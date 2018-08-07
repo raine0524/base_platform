@@ -33,11 +33,11 @@ namespace crx
 
         void rotate_log(bool create_dir);
 
-        bool get_local_log(scheduler *sch, std::shared_ptr<scheduler_impl>& sch_impl);
+        void get_local_log(std::shared_ptr<scheduler_impl>& sch_impl);
 
         void write_local_log(const char *data, size_t len);
 
-        bool get_remote_log(std::shared_ptr<scheduler_impl>& sch_impl);
+        void get_remote_log(std::shared_ptr<scheduler_impl>& sch_impl);
 
         void flush_log_buffer();
 

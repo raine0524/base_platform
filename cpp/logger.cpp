@@ -2,7 +2,7 @@
 
 namespace crx
 {
-    log scheduler::get_log(const char *prefix, const char *root_dir /*= "log_files"*/, int64_t max_size /*= 10*/)
+    log scheduler::get_log(const char *prefix, const char *root_dir /*= "log_files"*/, int max_size /*= 10*/)
     {
         crx::log ins;
         auto impl = std::make_shared<log_impl>();
@@ -17,20 +17,8 @@ namespace crx
         else
             impl->m_max_size = max_size;
 
-        bool res = false;
         if (sch_impl->m_remote_log)
-            res = impl->get_remote_log(sch_impl);
-        else
-            res = impl->get_local_log(this, sch_impl);
-
-        if (!res) {
-            ins.m_impl.reset();
-        } else if (!sch_impl->m_remote_log && impl->m_fp) {
-            int fd = fileno(impl->m_fp);        //使用本地日志时需要周期性的刷新缓冲，因此在内部需要保存一个该实例的指针
-            if (fd >= sch_impl->m_ev_array.size())
-                sch_impl->m_ev_array.resize((size_t)fd+1);
-            sch_impl->m_ev_array[fd] = std::move(impl);
-        }
+            impl->get_remote_log(sch_impl);
         return ins;
     }
 
@@ -41,6 +29,17 @@ namespace crx
 
         //格式化
         auto impl = std::dynamic_pointer_cast<log_impl>(m_impl);
+        if (!impl->m_fp) {
+            auto sch_impl = impl->sch_impl.lock();
+            impl->get_local_log(sch_impl);
+            if (!impl->m_fp) return;
+
+            int fd = fileno(impl->m_fp);        //使用本地日志时需要周期性的刷新缓冲，因此在内部需要保存一个该实例的指针
+            if (fd >= sch_impl->m_ev_array.size())
+                sch_impl->m_ev_array.resize((size_t)fd+1);
+            sch_impl->m_ev_array[fd] = impl;
+        }
+
         if (tv.tv_sec != impl->m_last_sec) {
             impl->m_last_sec = tv.tv_sec;
             impl->m_now = get_datetime(&tv);
@@ -126,7 +125,7 @@ namespace crx
             fclose(m_fp);
         m_fp = fopen(log_file, "a");
         if (!m_fp) {
-            perror("get_local_log");
+            perror("create_log_file");
             return;
         }
 
@@ -135,7 +134,7 @@ namespace crx
         m_curr_size = (int)ftell(m_fp);
     }
 
-    bool log_impl::get_local_log(scheduler *sch, std::shared_ptr<scheduler_impl>& sch_impl)
+    void log_impl::get_local_log(std::shared_ptr<scheduler_impl>& sch_impl)
     {
         std::string log_path = get_log_path(true);
         size_t path_size = log_path.size();
@@ -154,22 +153,21 @@ namespace crx
         sprintf(&log_path[0]+path_size, "%s-%ld.log", file_wh, m_split_idx);
         create_log_file(log_path.c_str());
         if (!m_fp)
-            return false;
+            return;
 
         if (!m_sec_wheel.m_impl)
             m_sec_wheel = sch_impl->m_sec_wheel;
 
         //每隔3秒刷一次缓冲
         m_sec_wheel.add_handler(3*1000, std::bind(&log_impl::flush_log_buffer, this));
-        return true;
     }
 
-    bool log_impl::get_remote_log(std::shared_ptr<scheduler_impl>& sch_impl)
+    void log_impl::get_remote_log(std::shared_ptr<scheduler_impl>& sch_impl)
     {
         auto& impl = sch_impl->m_util_impls[SIMP_SVR];
         if (!impl) {
             printf("远程日志基于 simpack_server 组件，请先实例化该对象\n");
-            return false;
+            return;
         }
 
         m_seria.insert("prefix", m_prefix.c_str(), m_prefix.size());
@@ -191,7 +189,6 @@ namespace crx
             simp_impl->m_cache_logs.emplace_back(ref.data, ref.len);
         m_seria.reset();
         m_simp_impl = simp_impl;
-        return true;
     }
 
     void log_impl::rotate_log(bool create_dir)

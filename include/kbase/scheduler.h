@@ -51,7 +51,7 @@ namespace crx
          * @root_dir 设置日志的根目录，将在根目录基础上按照年/月/日逐级构造子目录
          * @max_size 文件切割大小(单位为MB)
          */
-        log get_log(const char *prefix, const char *root_dir = "log_files", int64_t max_size = 10);
+        log get_log(const char *prefix, const char *root_dir = "log_files", int max_size = 10);
 
         //[单例] 获取系统信号监听及处理实例(自动释放)
         sigctl get_sigctl();
