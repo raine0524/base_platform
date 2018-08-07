@@ -4,8 +4,9 @@
 
 namespace crx
 {
-    struct http_xutil
+    class http_xutil
     {
+    public:
         int status, content_len;
         const char *method, *url;		//请求方法/url(以"/"开始的字符串)
         std::map<std::string, const char*> headers;
@@ -13,21 +14,28 @@ namespace crx
         http_xutil() : content_len(-1) {}
     };
 
-    struct http_funcs
+    class http_funcs
     {
+    public:
         std::function<void(int, int, std::map<std::string, const char*>&, char*, size_t)> m_http_cli;
         std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> m_http_svr;
     };
 
     template <typename CONN_TYPE>
-    struct http_conn_t : public CONN_TYPE
+    class http_conn_t : public CONN_TYPE
     {
+    public:
+        http_conn_t(SOCK_TYPE type) : CONN_TYPE(type) {}
+
         http_xutil xutil;
     };
 
     template <typename IMPL_TYPE>
-    struct http_impl_t : public IMPL_TYPE
+    class http_impl_t : public IMPL_TYPE
     {
+    public:
+        http_impl_t(SOCK_TYPE type) : IMPL_TYPE(type) {}
+
         http_funcs funcs;
     };
 

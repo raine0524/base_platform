@@ -7,7 +7,7 @@ namespace crx
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto& impl = sch_impl->m_util_impls[HTTP_CLI];
         if (!impl) {
-            auto http_impl = std::make_shared<http_impl_t<tcp_client_impl>>();
+            auto http_impl = std::make_shared<http_impl_t<tcp_client_impl>>(NORM_TRANS);
             impl = http_impl;
             http_impl->m_util.m_sch = this;
             http_impl->m_util.m_app_prt = PRT_HTTP;
@@ -35,11 +35,9 @@ namespace crx
     }
 
     std::unordered_map<int, std::string> g_ext_type =
-            {
-                    {DST_NONE, "stub"},
-                    {DST_JSON, "application/json"},
-                    {DST_QSTRING, "application/x-www-form-urlencoded"},
-            };
+            {{DST_NONE, "stub"},
+             {DST_JSON, "application/json"},
+             {DST_QSTRING, "application/x-www-form-urlencoded"}};
 
     void http_client::request(int conn, const char *method, const char *post_page, std::map<std::string, std::string> *extra_headers,
                               const char *ext_data, size_t ext_len, EXT_DST ed /*= DST_NONE*/)
@@ -86,13 +84,14 @@ namespace crx
         request(conn, "POST", post_page, extra_headers, ext_data, ext_len, ed);
     }
 
-    http_server scheduler::get_http_server(uint16_t port,
-                                           std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> f)
+    http_server scheduler::get_http_server(int port,
+            std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> f)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto& impl = sch_impl->m_util_impls[HTTP_SVR];
         if (!impl) {
-            auto http_impl = std::make_shared<http_impl_t<tcp_server_impl>>();
+            SOCK_TYPE type = (port >= 0) ? NORM_TRANS : UNIX_DOMAIN;
+            auto http_impl = std::make_shared<http_impl_t<tcp_server_impl>>(type);
             impl = http_impl;
             http_impl->m_util.m_app_prt = PRT_HTTP;
             http_impl->m_util.m_sch = this;
@@ -110,7 +109,7 @@ namespace crx
             http_impl->funcs.m_http_svr = std::move(f);
 
             //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
-            http_impl->fd = http_impl->conn_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
+            http_impl->fd = http_impl->conn_sock.create(PRT_TCP, USR_SERVER, nullptr, (uint16_t)port);
             http_impl->sch_impl = sch_impl;
             http_impl->f = std::bind(&http_impl_t<tcp_server_impl>::tcp_server_callback, http_impl.get(), _1);
             sch_impl->add_event(http_impl);

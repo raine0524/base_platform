@@ -19,6 +19,12 @@ namespace crx
     //度量函数f的运行时间，单位为us
     int64_t CRX_SHARE measure_time(std::function<void()> f);
 
+    //获取当前进程的工作目录
+    std::string get_work_space();
+
+    //执行shell命令，并返回shell输出
+    std::string CRX_SHARE run_shell_cmd(const char *cmd_string);
+
     //打印当前执行点的调用堆栈
     void CRX_SHARE dump_segment();
 
@@ -68,7 +74,4 @@ namespace crx
     //对根目录进行深度优先遍历，对于所有取得的文件都执行f函数调用
     void  CRX_SHARE depth_first_traverse_dir(const char *root_dir, std::function<void(std::string&)> f,
                                              bool with_path = true, bool filter_dir = true);
-
-    //执行shell命令，并返回shell输出
-    std::string CRX_SHARE run_shell_cmd(const char *cmd_string);
 }

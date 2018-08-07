@@ -12,10 +12,10 @@ namespace crx
         PyObject *ret_val;			//返回值
 
         py_plot_malloc()
-                :py_args(nullptr)
-                ,py_lists(16, nullptr)
-                ,py_kw(nullptr)
-                ,ret_val(nullptr) {}
+        :py_args(nullptr)
+        ,py_lists(16, nullptr)
+        ,py_kw(nullptr)
+        ,ret_val(nullptr) {}
 
         virtual ~py_plot_malloc()
         {

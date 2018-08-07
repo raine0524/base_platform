@@ -27,6 +27,9 @@ namespace crx
         void add_cmd(const char *cmd, std::function<void(std::vector<std::string>&)> f,
                      const char *comment);
 
+        //当前进程在后台运行时,使用该接口将信息打印到shell进程的标准输出中
+        void pout(const char *fmt, ...);
+
         /*
          * 控制台带参运行时将会检测最后一个参数是否为-start/-stop
          * "-start": 以服务形式在后台运行

@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "net_base.h"
 
 namespace crx
 {
@@ -94,7 +95,7 @@ namespace crx
     {
         int sts = 0;
         if (!is_connect) {
-            sts = async_read(stream_buffer);        //首次回调时先通过读获取当前套接字的状态
+            sts = async_read(fd, stream_buffer);        //首次回调时先通过读获取当前套接字的状态
             if (sts > 0) {      //连接成功
                 tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, (size_t)last_conn);       //通知上层连接开启
                 is_connect = true;
@@ -102,7 +103,7 @@ namespace crx
             }
         } else {
             if (events & EPOLLIN) {
-                sts = async_read(stream_buffer);        //读tcp响应流
+                sts = async_read(fd, stream_buffer);        //读tcp响应流
                 handle_stream(fd, this);
             } else if (events & EPOLLOUT) {
                 sts = async_write(nullptr, 0);
@@ -141,8 +142,8 @@ namespace crx
 
     void tcp_client_conn::retry_connect()
     {
-        if (-1 == connect(conn_sock.m_sock_fd, (struct sockaddr*)&conn_sock.m_addr,
-                          sizeof(conn_sock.m_addr)) && EINPROGRESS != errno)
+        if (-1 == connect(conn_sock.m_sock_fd, (struct sockaddr*)&conn_sock.m_addr.trans,
+                          sizeof(conn_sock.m_addr.trans)) && EINPROGRESS != errno)
             perror("retry_connect");
         cnt = retry > 0 ? (cnt+1) : cnt;
         printf("尝试重连 [%d] ip=%s, port=%d, timeout=%d\n", fd, ip_addr.c_str(), conn_sock.m_port, timeout);
@@ -158,8 +159,8 @@ namespace crx
         std::shared_ptr<tcp_client_conn> conn;
         switch (tcp_impl->m_util.m_app_prt) {
             case PRT_NONE:
-            case PRT_SIMP:  conn = std::make_shared<tcp_client_conn>();                 break;
-            case PRT_HTTP:  conn = std::make_shared<http_conn_t<tcp_client_conn>>();    break;
+            case PRT_SIMP:  conn = std::make_shared<tcp_client_conn>(tcp_impl->m_util.m_type);                 break;
+            case PRT_HTTP:  conn = std::make_shared<http_conn_t<tcp_client_conn>>(tcp_impl->m_util.m_type);    break;
         }
 
         conn->tcp_impl = tcp_impl;
@@ -209,7 +210,8 @@ namespace crx
         if (-1 == conn->fd)
             return -2;
 
-        conn->conn_sock.set_keep_alive(1, 60, 5, 3);
+        if (NORM_TRANS == tcp_impl->m_util.m_type)
+            conn->conn_sock.set_keep_alive(1, 60, 5, 3);
         conn->f = std::bind(&tcp_client_conn::tcp_client_callback, conn.get(), _1);
         conn->sch_impl = sch_impl;
         conn->event = EPOLLIN | EPOLLOUT;
@@ -240,19 +242,19 @@ namespace crx
             tcp_conn->async_write(data, len);
     }
 
-    tcp_server scheduler::get_tcp_server(uint16_t port,
-                                         std::function<void(int, const std::string&, uint16_t, char*, size_t)> f)
+    tcp_server scheduler::get_tcp_server(int port, std::function<void(int, const std::string&, uint16_t, char*, size_t)> f)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto& impl = sch_impl->m_util_impls[TCP_SVR];
         if (!impl) {
-            auto tcp_impl = std::make_shared<tcp_server_impl>();
+            SOCK_TYPE type = (port >= 0) ? NORM_TRANS : UNIX_DOMAIN;
+            auto tcp_impl = std::make_shared<tcp_server_impl>(type);
             impl = tcp_impl;
             tcp_impl->m_util.m_sch = this;
             tcp_impl->m_util.m_f = std::move(f);		//保存回调函数
 
             //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
-            tcp_impl->fd = tcp_impl->conn_sock.create(PRT_TCP, USR_SERVER, nullptr, port);
+            tcp_impl->fd = tcp_impl->conn_sock.create(PRT_TCP, USR_SERVER, nullptr, (uint16_t)port);
             tcp_impl->sch_impl = sch_impl;
             tcp_impl->f = std::bind(&tcp_server_impl::tcp_server_callback, tcp_impl.get(), _1);
             sch_impl->add_event(tcp_impl);
@@ -268,7 +270,11 @@ namespace crx
         bzero(&m_accept_addr, sizeof(struct sockaddr_in));
         m_addr_len = sizeof(struct sockaddr_in);
         while (true) {		//接受所有请求连接的tcp客户端
-            int client_fd = accept(fd, (struct sockaddr*)&m_accept_addr, &m_addr_len);
+            int client_fd = -1;
+            if (UNIX_DOMAIN == m_util.m_type)
+                client_fd = accept(fd, nullptr, nullptr);
+            else        //NORM_TRANS == m_util.m_type
+                client_fd = accept(fd, (struct sockaddr*)&m_accept_addr, &m_addr_len);
             if (-1 == client_fd) {
                 if (EAGAIN != errno)
                     perror("tcp_server_callback::accept");
@@ -279,11 +285,12 @@ namespace crx
             std::shared_ptr<tcp_server_conn> conn;
             switch (m_util.m_app_prt) {
                 case PRT_NONE:
-                case PRT_SIMP:      conn = std::make_shared<tcp_server_conn>();                 break;
-                case PRT_HTTP:		conn = std::make_shared<http_conn_t<tcp_server_conn>>();    break;
-                default:
+                case PRT_SIMP:      conn = std::make_shared<tcp_server_conn>(m_util.m_type);                 break;
+                case PRT_HTTP:		conn = std::make_shared<http_conn_t<tcp_server_conn>>(m_util.m_type);    break;
+                default: {
                     close(client_fd);
                     continue;
+                }
             }
 
             conn->fd = client_fd;
@@ -292,19 +299,28 @@ namespace crx
 
             conn->tcp_impl = this;
             conn->is_connect = true;
-            conn->ip_addr = inet_ntoa(m_accept_addr.sin_addr);        //将地址转换为点分十进制格式的ip地址
-            conn->conn_sock.m_port = ntohs(m_accept_addr.sin_port);   //将端口由网络字节序转换为主机字节序
             conn->conn_sock.m_sock_fd = client_fd;
 
-            /*
-             * 1分钟之后若信道上没有数据传输则发送tcp心跳包，总共发3次，每次间隔为5秒，因此若有套接字处于异常状态(TIME_WAIT/CLOSE_WAIT)
-             * 则将在75秒之后关闭该套接字，以释放系统资源提供复用能力，但是tcp本身的keepalive仍然会存在问题，即当socket处于异常状态时
-             * 应用层同样有数据需要重传时，tcp的keepalive将会无效
-             * 具体参见链接描述: https://blog.csdn.net/ctthuangcheng/article/details/8596818
-             */
-            conn->conn_sock.set_keep_alive(1, 60, 5, 3);
+            if (NORM_TRANS == m_util.m_type) {
+                conn->ip_addr = inet_ntoa(m_accept_addr.sin_addr);        //将地址转换为点分十进制格式的ip地址
+                conn->conn_sock.m_port = ntohs(m_accept_addr.sin_port);   //将端口由网络字节序转换为主机字节序
+
+                /*
+                 * 1分钟之后若信道上没有数据传输则发送tcp心跳包，总共发3次，每次间隔为5秒，因此若有套接字处于异常状态(TIME_WAIT/CLOSE_WAIT)
+                 * 则将在75秒之后关闭该套接字，以释放系统资源提供复用能力，但是tcp本身的keepalive仍然会存在问题，即当socket处于异常状态时
+                 * 应用层同样有数据需要重传时，tcp的keepalive将会无效
+                 * 具体参见链接描述: https://blog.csdn.net/ctthuangcheng/article/details/8596818
+                 */
+                conn->conn_sock.set_keep_alive(1, 60, 5, 3);
+            }
 
             auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_util.m_sch->m_impl);
+            if (UNIX_DOMAIN == m_util.m_type) {
+                auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_util_impls[EXT_DATA]);
+                if (-1 != con_impl->m_conn)
+                    sch_impl->remove_event(con_impl->m_conn);
+                con_impl->m_conn = client_fd;
+            }
             sch_impl->add_event(conn);        //将该连接加入监听事件
         }
     }
@@ -313,7 +329,7 @@ namespace crx
     {
         int sts = 0;
         if (events & EPOLLIN) {
-            sts = async_read(stream_buffer);
+            sts = async_read(fd, stream_buffer);
             handle_stream(fd, this);
         } else if (events & EPOLLOUT) {        //EPOLLOUT == event
             sts = async_write(nullptr, 0);

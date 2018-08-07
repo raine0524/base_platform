@@ -59,7 +59,7 @@ namespace crx
     class udp_ins_impl : public eth_event
     {
     public:
-        udp_ins_impl() : m_recv_buffer(65536, 0)
+        udp_ins_impl() : m_net_sock(NORM_TRANS), m_recv_buffer(65536, 0)
         {
             bzero(&m_send_addr, sizeof(m_send_addr));
         }

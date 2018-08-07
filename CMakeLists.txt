@@ -3,7 +3,7 @@ project(base_platform)
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
-add_compile_options(-std=c++14)
+add_compile_options(-std=c++11)
 
 include_directories(include cpp)
 

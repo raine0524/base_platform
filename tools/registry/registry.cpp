@@ -55,12 +55,10 @@ void registry::tcp_server_callback(int conn, const std::string& ip, uint16_t por
     }
 }
 
-void registry::setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_t cmd, uint16_t *result)
+void registry::setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_t cmd)
 {
     header->length = htonl((uint32_t)(ref.len-sizeof(crx::simp_header)));
     header->cmd = htons(cmd);
-    if (result)
-        header->result = htons(*result);
     SET_BIT(header->ctl_flag, 0);       //由库处理
     SET_BIT(header->ctl_flag, 3);       //由registry发送
     header->ctl_flag = htonl(header->ctl_flag);
@@ -85,7 +83,7 @@ void registry::register_server(int conn, const std::string& ip, uint16_t port,
     printf("ip=%s, listen=%u, name=%s\n", ip.c_str(), listen, node_name.c_str());
 
     auto node_it = m_node_idx.find(node_name);
-    uint16_t result = 0;
+    uint8_t result = 0;
     bool node_legal = false;
     if (m_node_idx.end() == node_it) {      //node illegal
         result = 1;
@@ -123,9 +121,10 @@ void registry::register_server(int conn, const std::string& ip, uint16_t port,
         }
     }
 
+    m_seria.insert("result", (const char*)&result, sizeof(result));
     auto ref = m_seria.get_string();
     auto header = (crx::simp_header*)ref.data;
-    setup_header(ref, header, CMD_REG_NAME, &result);
+    setup_header(ref, header, CMD_REG_NAME);
 
     if (node_legal) {
         crx::datetime dt = crx::get_datetime();
@@ -171,7 +170,7 @@ void registry::notify_server_online(int conn, std::map<std::string, crx::mem_ref
 
             auto ref = m_seria.get_string();
             auto header = (crx::simp_header*)ref.data;
-            setup_header(ref, header, CMD_SVR_ONLINE, nullptr);
+            setup_header(ref, header, CMD_SVR_ONLINE);
             memcpy(header->token, node->token, 16);
             m_tcp_server.send_data(cli_node->info.conn, ref.data, ref.len);
             m_seria.reset();
@@ -197,7 +196,7 @@ void registry::notify_server_online(int conn, std::map<std::string, crx::mem_ref
 
         auto ref = m_seria.get_string();
         auto header = (crx::simp_header*)ref.data;
-        setup_header(ref, header, CMD_SVR_ONLINE, nullptr);
+        setup_header(ref, header, CMD_SVR_ONLINE);
         memcpy(header->token, svr_node->token, 16);
         m_tcp_server.send_data(conn, ref.data, ref.len);
         m_seria.reset();

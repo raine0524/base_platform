@@ -79,7 +79,7 @@ namespace crx
          * 	@f：回调函数，函数的4个参数分别为对端的ip地址、端口、接收到的udp包和大小
          */
         udp_ins get_udp_ins(bool is_server, uint16_t port,
-                            std::function<void(const std::string&, uint16_t, char*, size_t)> f);
+                std::function<void(const std::string&, uint16_t, char*, size_t)> f);
 
         /*
          * 注册tcp钩子，这个函数将在收到tcp流之后回调，主要用于定制应用层协议，并将协议与原始的tcp流进行解耦
@@ -107,11 +107,12 @@ namespace crx
 
         /*
          * [单例] 获取tcp服务实例(自动释放)
-         * @port：指示tcp服务将在哪个端口上进行监听，若port为0，则系统将随机选择一个可用端口
+         * @port：指示tcp服务将在哪个端口上进行监听
+         *        --> 当port >= 0时,将创建一个tcp套接字. 其中若port为0，系统将随机选择一个可用端口
+         *        --> 当port <  0时,将创建一个unix域套接字.
          * @f：回调函数，函数参数分别为指定的连接,连接的ip地址/端口,收到的tcp数据流
          */
-        tcp_server get_tcp_server(uint16_t port,
-                                  std::function<void(int, const std::string&, uint16_t, char*, size_t)> f);
+        tcp_server get_tcp_server(int port, std::function<void(int, const std::string&, uint16_t, char*, size_t)> f);
 
         /*
          * [单例] 获取http客户端实例(自动释放)，回调函数中的参数依次为
@@ -123,15 +124,15 @@ namespace crx
         http_client get_http_client(std::function<void(int, int, std::map<std::string, const char*>&, char*, size_t)> f);
 
         /*
-         * [单例] 获取http服务实例(自动释放)，回调函数中的参数依次为
+         * [单例] 获取http服务实例(自动释放),此处的port与tcp_server中的port含义相同,回调函数中的参数依次为
          * ①指定的连接
          * ②请求方法(例如"GET", "POST"等等)
          * ③url(以"/"起始的字符串，例如"/index.html")
          * ④头部键值对
          * ⑤请求体(可能不存在)
          */
-        http_server get_http_server(uint16_t port,
-                                    std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> f);
+        http_server get_http_server(int port,
+                std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> f);
 
         //[单例] 获取simpack服务实例(自动释放)，主要用于分布式系统中可控服务节点之间的通信
         simpack_server

@@ -86,6 +86,7 @@
 #include <sys/socket.h>
 #include <sys/inotify.h>
 #include <sys/sysinfo.h>
+#include <sys/un.h>
 
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -184,8 +185,8 @@ namespace crx
 #include "kbase/statis.h"
 #include "kbase/py_wrapper.h"
 #include "kbase/schutil.h"
-#include "kbase/tcp_trans.h"
-#include "kbase/http_app.h"
+#include "kbase/tcp_proto.h"
+#include "kbase/http_proto.h"
 #include "kbase/simpack.h"
 #include "kbase/fs_monitor.h"
 #include "kbase/scheduler.h"

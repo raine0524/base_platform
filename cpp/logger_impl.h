@@ -9,14 +9,14 @@ namespace crx
     {
     public:
         log_impl()
-                :m_split_idx(0)
-                ,m_detach(false)
-                ,m_last_sec(-1)
-                ,m_fmt_buf(1024, 0)
-                ,m_log_buf(65536, 0)
-                ,m_fp(nullptr)
-                ,m_seria(true)
-                ,m_log_idx(0)
+        :m_split_idx(0)
+        ,m_detach(false)
+        ,m_last_sec(-1)
+        ,m_fmt_buf(1024, 0)
+        ,m_log_buf(65536, 0)
+        ,m_fp(nullptr)
+        ,m_seria(true)
+        ,m_log_idx(0)
         {
             bzero(&m_cmd, sizeof(m_cmd));
         }

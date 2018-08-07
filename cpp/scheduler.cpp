@@ -219,7 +219,7 @@ namespace crx
 
     void scheduler_impl::add_event(std::shared_ptr<eth_event> ev, uint32_t event /*= EPOLLIN*/)
     {
-        if (ev) {
+        if (ev && ev->fd >= 0) {
             if (ev->fd >= m_ev_array.size())
                 m_ev_array.resize((size_t)ev->fd+1);
 
@@ -254,8 +254,11 @@ namespace crx
     }
 
     //异步读的一个原则是只要可读就一直读，直到errno被置为EAGAIN提示等待更多数据可读
-    int eth_event::async_read(std::string& read_str)
+    int async_read(int fd, std::string& read_str)
     {
+        if (fd < 0)
+            return -1;
+
         size_t read_size = read_str.size();
         while (true) {
             read_str.resize(read_size+1024);

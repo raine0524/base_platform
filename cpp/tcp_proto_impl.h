@@ -15,7 +15,10 @@ namespace crx
     class tcp_event : public eth_event
     {
     public:
-        tcp_event() :is_connect(false), event(EPOLLIN)
+        tcp_event(SOCK_TYPE type)
+        :event(EPOLLIN)
+        ,is_connect(false)
+        ,conn_sock(type)
         {
             stream_buffer.reserve(8192);
         }
@@ -36,7 +39,10 @@ namespace crx
     class tcp_client_conn : public tcp_event
     {
     public:
-        tcp_client_conn() :cnt(0), last_conn(1)
+        tcp_client_conn(SOCK_TYPE type)
+        :tcp_event(type)
+        ,cnt(0)
+        ,last_conn(1)
         {
             name_reqs[0] = new gaicb;
             bzero(name_reqs[0], sizeof(gaicb));
@@ -65,10 +71,14 @@ namespace crx
     class tcp_impl_xutil
     {
     public:
-        tcp_impl_xutil() : m_sch(nullptr), m_app_prt(PRT_NONE) {}
+        tcp_impl_xutil(SOCK_TYPE type)
+        :m_sch(nullptr)
+        ,m_app_prt(PRT_NONE)
+        ,m_type(type) {}
 
         scheduler *m_sch;
         APP_PRT m_app_prt;
+        SOCK_TYPE m_type;
 
         //tcp_client需要一个秒盘做重连，tcp_server需要一个分钟盘做会话管理
         timer_wheel m_timer_wheel;
@@ -79,6 +89,8 @@ namespace crx
     class tcp_client_impl : public impl
     {
     public:
+        tcp_client_impl(SOCK_TYPE type = NORM_TRANS) : m_util(type) {}
+
         void name_resolve_callback(uint64_t sigval)
         {
             m_util.m_sch->co_yield(sigval);
@@ -91,6 +103,8 @@ namespace crx
     class tcp_server_conn : public tcp_event
     {
     public:
+        tcp_server_conn(SOCK_TYPE type) : tcp_event(type) {}
+
         void read_tcp_stream(uint32_t events);
 
         tcp_server_impl *tcp_impl;
@@ -99,7 +113,10 @@ namespace crx
     class tcp_server_impl : public tcp_event
     {
     public:
-        tcp_server_impl() : m_addr_len(0) {}
+        tcp_server_impl(SOCK_TYPE type)
+        :tcp_event(type)
+        ,m_addr_len(0)
+        ,m_util(type) {}
 
         void tcp_server_callback(uint32_t events);
 
@@ -131,7 +148,7 @@ namespace crx
                 assert(abs_ret <= remain_len);
                 if (ret > 0)
                     conn_ins->tcp_impl->m_util.m_f(conn_ins->fd, conn_ins->ip_addr,
-                                                   conn_ins->conn_sock.m_port, start, ret);
+                            conn_ins->conn_sock.m_port, start, ret);
 
                 start += abs_ret;
                 read_len += abs_ret;
@@ -145,7 +162,7 @@ namespace crx
             }
         } else {
             conn_ins->tcp_impl->m_util.m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port,
-                                           &conn_ins->stream_buffer[0], conn_ins->stream_buffer.size());
+                    &conn_ins->stream_buffer[0], conn_ins->stream_buffer.size());
         }
     }
 }

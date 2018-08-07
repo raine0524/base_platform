@@ -110,6 +110,33 @@ namespace crx
         return ((int64_t)(end.tv_sec-start.tv_sec))*1000000+(int64_t)(end.tv_usec-start.tv_usec);
     }
 
+    std::string get_work_space()
+    {
+        std::string path(256, 0);
+        ssize_t ret = readlink("/proc/self/exe", &path[0], path.size());		//读取链接指向的真实文件路径
+        if (-1 == ret)
+            path.clear();
+        else
+            path.resize((size_t)ret);
+        return path;
+    }
+
+    std::string run_shell_cmd(const char *cmd_string)
+    {
+        FILE *pf = popen(cmd_string, "r");		//执行shell命令，命令的输出通过管道返回
+        if (!pf) {
+            perror("run_shell_cmd::popen failed");
+            return "";
+        }
+
+        char buffer[1024] = {0};
+        std::string result;
+        while (fgets(buffer, 1024, pf))		//不停地获取shell命令的输出，命令执行完毕后统一返回所有输出
+            result.append(buffer);
+        pclose(pf);
+        return result;
+    }
+
     void dump_segment()
     {
         void *buffer[1024] = {0};
@@ -450,21 +477,5 @@ namespace crx
             f(file_name);
         }
         closedir(dir);
-    }
-
-    std::string run_shell_cmd(const char *cmd_string)
-    {
-        FILE *pf = popen(cmd_string, "r");		//执行shell命令，命令的输出通过管道返回
-        if (!pf) {
-            perror("run_shell_cmd::popen failed");
-            return "";
-        }
-
-        char buffer[1024] = {0};
-        std::string result;
-        while (fgets(buffer, 1024, pf))		//不停地获取shell命令的输出，命令执行完毕后统一返回所有输出
-            result.append(buffer);
-        pclose(pf);
-        return result;
     }
 }

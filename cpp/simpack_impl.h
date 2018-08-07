@@ -25,11 +25,8 @@ namespace crx
         uint32_t magic_num;         //魔数，4个字节依次为0x5f3759df
         uint32_t version;           //版本，填入发布日期，比如1.0.0版本的值设置为20180501
         uint32_t length;            //body部分长度，整个一帧的大小为sizeof(simp_header)+length
-        uint16_t type;              //类型
-        uint16_t cmd;               //命令
-        uint16_t result;            //请求结果
-        uint32_t ses_id;            //会话id
-        uint32_t req_id;            //请求id
+        uint16_t type;              //表明数据的类型
+        uint16_t cmd;               //若是请求类型的数据,指明哪一个请求
         uint32_t ctl_flag;          //控制字段
         unsigned char token[16];    //请求携带token，表明请求合法(token=md5(current_timestamp+name))
 
@@ -58,9 +55,9 @@ namespace crx
     {
     public:
         simpack_server_impl()
-                :m_registry_conn(-1)
-                ,m_log_conn(-1)
-                ,m_seria(true)
+        :m_registry_conn(-1)
+        ,m_log_conn(-1)
+        ,m_seria(true)
         {
             simp_header stub_header;
             m_simp_buf = std::string((const char*)&stub_header, sizeof(simp_header));
@@ -79,7 +76,7 @@ namespace crx
         void handle_hello_request(int conn, const std::string &ip, uint16_t port, unsigned char *token,
                                   std::map<std::string, mem_ref>& kvs);
 
-        void handle_hello_response(int conn, uint16_t result, unsigned char *token, std::map<std::string, mem_ref>& kvs);
+        void handle_hello_response(int conn, unsigned char *token, std::map<std::string, mem_ref>& kvs);
 
         void say_goodbye(std::shared_ptr<simpack_xutil>& xutil);
 

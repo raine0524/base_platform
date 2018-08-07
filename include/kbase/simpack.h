@@ -17,11 +17,8 @@ namespace crx
 
     struct server_cmd
     {
-        uint32_t ses_id;    //会话id
-        uint32_t req_id;    //请求id
         uint16_t type;
         uint16_t cmd;
-        uint16_t result;    //请求结果 0-成功 非0-失败，这一字段通常用于response接口中
 
         server_cmd() { bzero(this, sizeof(server_cmd)); }
     };

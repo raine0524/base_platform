@@ -49,8 +49,7 @@ namespace crx
             simp_impl->m_client = get_tcp_client(std::bind(&simpack_server_impl::simp_callback, simp_impl.get(), _1, _2, _3, _4, _5));
             auto cli_impl = std::dynamic_pointer_cast<tcp_client_impl>(simp_impl->m_client.m_impl);
             cli_impl->m_util.m_app_prt = PRT_SIMP;
-            register_tcp_hook(true, [](int conn, char *data, size_t len) {
-                return simpack_protocol(data, len); });
+            register_tcp_hook(true, [](int conn, char *data, size_t len) { return simpack_protocol(data, len); });
             sch_impl->m_util_impls[TCP_CLI].reset();
 
             //创建tcp_server用于被动连接
@@ -58,8 +57,7 @@ namespace crx
                                                  std::bind(&simpack_server_impl::simp_callback, simp_impl.get(), _1, _2, _3, _4, _5));
             auto svr_impl = std::dynamic_pointer_cast<tcp_server_impl>(simp_impl->m_server.m_impl);
             svr_impl->m_util.m_app_prt = PRT_SIMP;
-            register_tcp_hook(false, [](int conn, char *data, size_t len) {
-                return simpack_protocol(data, len); });
+            register_tcp_hook(false, [](int conn, char *data, size_t len) { return simpack_protocol(data, len); });
             xutil->listen = simp_impl->m_server.get_port();
             sch_impl->m_util_impls[TCP_SVR].reset();
 
@@ -134,12 +132,8 @@ namespace crx
             total_len = len+sizeof(simp_header);
         }
 
-        header->ses_id = htonl(cmd.ses_id);
-        header->req_id = htonl(cmd.req_id);
         header->type = htons(cmd.type);
         header->cmd = htons(cmd.cmd);
-        header->result = htons(cmd.result);
-
         uint32_t ctl_flag = 0;
         if (lib_proc)
             SET_BIT(ctl_flag, 0);       //由库这一层处理
@@ -206,12 +200,8 @@ namespace crx
         if (len <= header_len)
             return;
 
-        m_app_cmd.ses_id = ntohl(header->ses_id);
-        m_app_cmd.req_id = ntohl(header->req_id);
         m_app_cmd.type = ntohs(header->type);
         m_app_cmd.cmd = ntohs(header->cmd);
-        m_app_cmd.result = ntohs(header->result);
-
         uint32_t ctl_flag = ntohl(header->ctl_flag);
         bool is_registry = GET_BIT(ctl_flag, 3) != 0;
         if (GET_BIT(ctl_flag, 0)) {     //捕获控制请求
@@ -263,7 +253,7 @@ namespace crx
                     if (1 == m_app_cmd.type)
                         handle_hello_request(conn, ip, port, header->token, kvs);
                     else if (2 == m_app_cmd.type)
-                        handle_hello_response(conn, m_app_cmd.result, header->token, kvs);
+                        handle_hello_response(conn, header->token, kvs);
                     break;
                 }
                 case CMD_GOODBYE:       handle_goodbye(conn);                               break;
@@ -274,7 +264,9 @@ namespace crx
 
     void simpack_server_impl::handle_reg_name(int conn, unsigned char *token, std::map<std::string, mem_ref>& kvs)
     {
-        if (m_app_cmd.result) {    //失败
+        auto res_it = kvs.find("result");
+        uint8_t result = *(uint8_t*)res_it->second.data;
+        if (result) {    //失败
             printf("pronounce failed: %s\n", kvs["error_info"].data);
             m_client.release(conn);
             return;
@@ -400,11 +392,13 @@ namespace crx
             m_seria.insert("error_info", error_info.c_str(), error_info.size());
         }
 
-        auto ref = m_seria.get_string();
+        uint8_t result = (uint8_t)(client_valid ? 0 : 1);
+        m_seria.insert("result", (const char*)&result, sizeof(result));
         bzero(&m_app_cmd, sizeof(m_app_cmd));
         m_app_cmd.cmd = CMD_HELLO;
         m_app_cmd.type = 2;     //响应
-        m_app_cmd.result = (uint16_t)(client_valid ? 0 : 1);
+
+        auto ref = m_seria.get_string();
         send_package(2, conn, m_app_cmd, true, new_token, ref.data, ref.len);
         m_seria.reset();
 
@@ -420,18 +414,19 @@ namespace crx
         }
     }
 
-    void simpack_server_impl::handle_hello_response(int conn, uint16_t result, unsigned char *token,
-                                                    std::map<std::string, mem_ref>& kvs)
+    void simpack_server_impl::handle_hello_response(int conn, unsigned char *token, std::map<std::string, mem_ref>& kvs)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
-        auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
-        auto xutil = std::dynamic_pointer_cast<simpack_xutil>(tcp_ev->ext_data);
+        auto res_it = kvs.find("result");
+        uint8_t result = *(uint8_t*)res_it->second.data;
         if (result) {
             printf("say hello response error: %s\n", kvs["error_info"].data);
             sch_impl->remove_event(conn);
             return;
         }
 
+        auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
+        auto xutil = std::dynamic_pointer_cast<simpack_xutil>(tcp_ev->ext_data);
         m_ordinary_conn.insert(conn);
         auto name_it = kvs.find("name");
         xutil->info.name = std::string(name_it->second.data, name_it->second.len);

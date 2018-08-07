@@ -50,7 +50,7 @@ private:
 
     void server_offline(int conn, std::map<std::string, crx::mem_ref>& kvs);
 
-    void setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_t cmd, uint16_t *result);
+    void setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_t cmd);
 
     bool check_connect_cmd(std::vector<std::string>& args);
 

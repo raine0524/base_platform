@@ -8,6 +8,15 @@ namespace crx
 
     static const int STACK_SIZE = 256*1024;     //栈大小设置为256K
 
+    /*
+     * @read_str: 将读到的数据追加在read_str尾部
+     * @return param
+     *      -> 1: 等待更多数据可读
+     *      -> 0: 所读文件正常关闭
+     *      -> -1: 出现异常，异常由errno描述
+     */
+    int async_read(int fd, std::string& read_str);
+
     class scheduler_impl;
     class eth_event : public impl
     {
@@ -18,15 +27,6 @@ namespace crx
             if (-1 != fd && STDIN_FILENO != fd)
                 close(fd);
         }
-
-        /*
-         * @read_str: 将读到的数据追加在read_str尾部
-         * @return param
-         *      -> 1: 等待更多数据可读
-         *      -> 0: 所读文件正常关闭
-         *      -> -1: 出现异常，异常由errno描述
-         */
-        int async_read(std::string& read_str);
 
         int fd;      //与epoll事件关联的文件描述符
         std::function<void(uint32_t events)> f;     //回调函数
@@ -67,11 +67,11 @@ namespace crx
     {
     public:
         scheduler_impl()
-                :m_running_co(0)
-                ,m_next_co(-1)
-                ,m_epoll_fd(-1)
-                ,m_log_idx(0)
-                ,m_remote_log(false)
+        :m_running_co(0)
+        ,m_next_co(-1)
+        ,m_epoll_fd(-1)
+        ,m_log_idx(0)
+        ,m_remote_log(false)
         {
             m_util_impls.resize(IDX_MAX);
         }
