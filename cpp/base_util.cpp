@@ -18,7 +18,7 @@ namespace crx
 
     std::string base64_encode(const char *data, int len)
     {
-        if (!data || len <= 0)		//接口安全性检查
+        if (!data || len <= 0)
             return "";
 
         //带编码长度检查
@@ -52,7 +52,7 @@ namespace crx
 
     std::string base64_decode(const char *data, int len)
     {
-        if (!data || len <= 0)		//接口安全性检查
+        if (!data || len <= 0)
             return "";
 
         std::string retval;
@@ -77,28 +77,18 @@ namespace crx
         return retval;
     }
 
-    bool setnonblocking(int fd)
+    void setnonblocking(int fd)
     {
-        if (fd < 0)
-            return false;
-
-        if (-1 == fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK)) {
-            perror("crx::setnonblocking failed");
-            return false;
-        }
-        return true;
+        if (fd < 0) return;
+        if (__glibc_unlikely(-1 == fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK)))
+            log_error(g_lib_log, "setnonblocking %d failed: %s\n", fd, strerror(errno));
     }
 
-    bool setcloseonexec(int fd)
+    void setcloseonexec(int fd)
     {
-        if (fd < 0)
-            return false;
-
-        if (-1 == fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC)) {
-            perror("crx::setcloseonexec failed");
-            return false;
-        }
-        return true;
+        if (fd < 0) return;
+        if (__glibc_unlikely(-1 == fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC)))
+            log_error(g_lib_log, "setcloseonexec %d failed: %s\n", fd, strerror(errno));
     }
 
     int64_t measure_time(std::function<void()> f)
@@ -124,13 +114,13 @@ namespace crx
     std::string run_shell_cmd(const char *cmd_string)
     {
         FILE *pf = popen(cmd_string, "r");		//执行shell命令，命令的输出通过管道返回
-        if (!pf) {
-            perror("run_shell_cmd::popen failed");
+        if (__glibc_unlikely(nullptr == pf)) {
+            log_error(g_lib_log, "popen failed: %s\n", strerror(errno));
             return "";
         }
 
-        char buffer[1024] = {0};
         std::string result;
+        char buffer[1024] = {0};
         while (fgets(buffer, 1024, pf))		//不停地获取shell命令的输出，命令执行完毕后统一返回所有输出
             result.append(buffer);
         pclose(pf);
@@ -142,8 +132,8 @@ namespace crx
         void *buffer[1024] = {0};
         int size = backtrace(buffer, 1024);		//获取函数调用栈中每个调用点的地址
         char **strings = backtrace_symbols(buffer, size);		//将地址转换为函数名及其在函数内部以十六进制表示的偏移量
-        if (!strings) {
-            perror("backtrace_symbols failed");
+        if (__glibc_unlikely(!strings)) {
+            log_error(g_lib_log, "backtrace_symbols failed: %s\n", strerror(errno));
             return;
         }
 
@@ -208,9 +198,7 @@ namespace crx
 
     void mkdir_multi(const char *path, mode_t mode /*= 0755*/)
     {
-        if (!path)		//接口参数安全性检查
-            return;
-
+        if (!path) return;
         std::string temp_path = path;
         if ('/' != temp_path.back())	//若原始路径不是以'/'结尾，则构造一个'/'结尾的目录路径
             temp_path.append("/");
@@ -218,8 +206,7 @@ namespace crx
         const char *pch = temp_path.c_str();
         while (true) {
             pch = strstr(pch, "/");		//从上次查找处继续搜索下一个'/'
-            if (!pch)
-                break;
+            if (!pch) break;
 
             //构造中间目录对应的目录名
             std::string middle_dir = temp_path.substr(0, pch-temp_path.c_str());
@@ -231,7 +218,7 @@ namespace crx
 
     std::string charset_convert(const char *from_charset, const char *to_charset, const char *src_data, size_t src_len)
     {
-        if (!src_data || src_len == 0)		//接口安全性检查
+        if (!src_data || src_len == 0)
             return "";
 
         /*
@@ -240,21 +227,24 @@ namespace crx
          */
         std::string res(src_len*5, 0);
         char *outbuf = &res[0];
-        size_t inbytes = src_len, outbytes = res.size();
-        iconv_t cd = nullptr;
-        if ((cd = iconv_open(to_charset, from_charset)) == (void*)-1)
-            perror("charset_convert::iconv_open");
-        if (-1 == iconv(cd, (char**)&src_data, &inbytes, &outbuf, &outbytes))
-            perror("charset_convert::iconv");
-        res.resize(strlen(res.c_str()));
+        size_t outbytes = res.size();
+
+        iconv_t cd = iconv_open(to_charset, from_charset);
+        if (__glibc_unlikely(cd == (void*)-1))
+            log_error(g_lib_log, "iconv_open failed: %s\n", strerror(errno));
+
+        if (__glibc_unlikely(-1 == iconv(cd, (char**)&src_data, &src_len, &outbuf, &outbytes)))
+            log_error(g_lib_log, "iconv failed: %s\n", strerror(errno));
+        res.resize(res.size()-outbytes);
         iconv_close(cd);
         return res;
     }
 
     std::string get_local_addr(ADDR_TYPE type, const char *net_card /*= "eth0"*/)
     {
-        if (!net_card)		//接口安全性检查
-            return "";
+        std::string local_addr;
+        if (!net_card)
+            return local_addr;
 
         size_t cmd = 0;
         if (ADDR_MAC == type)
@@ -262,53 +252,54 @@ namespace crx
         else if (ADDR_IP == type)
             cmd = SIOCGIFADDR;
         else
-            return "";
+            return local_addr;
 
-        int sock_fd = ::socket(AF_INET, SOCK_STREAM, 0);		//获取MAC或者IP地址都需要用到socket套接字
-        if (-1 == sock_fd) {
-            perror("get_local_addr::socket");
-            return "";
+        int sock_fd = socket(AF_INET, SOCK_STREAM, 0);      //获取MAC或者IP地址都需要用到socket套接字
+        if (__glibc_unlikely(-1 == sock_fd)) {
+            log_error(g_lib_log, "socket create failed: %s\n", strerror(errno));
+            return local_addr;
         }
 
         struct ifreq ifr;
-        memset(&ifr, 0, sizeof(ifr));
+        bzero(&ifr, sizeof(ifr));
         strcpy(ifr.ifr_name, net_card);
 
-        if (-1 == ioctl(sock_fd, cmd, &ifr)) {		//根据不同的cmd获取不同的ifr结构体
-            perror("get_local_addr::ioctl");
-            close(sock_fd);
-            return "";
-        }
+        try {
+            if (__glibc_unlikely(-1 == ioctl(sock_fd, cmd, &ifr))) {      //根据不同的cmd获取不同的ifr结构体
+                log_error(g_lib_log, "ioctl failed: %s\n", strerror(errno));
+                throw -1;
+            }
 
-        char buffer[32] = {0};
-        if (ADDR_MAC == type) {
-            sprintf(buffer, "%02x:%02x:%02x:%02x:%02x:%02x",
-                    (unsigned char)ifr.ifr_hwaddr.sa_data[0],
-                    (unsigned char)ifr.ifr_hwaddr.sa_data[1],
-                    (unsigned char)ifr.ifr_hwaddr.sa_data[2],
-                    (unsigned char)ifr.ifr_hwaddr.sa_data[3],
-                    (unsigned char)ifr.ifr_hwaddr.sa_data[4],
-                    (unsigned char)ifr.ifr_hwaddr.sa_data[5]);
-        } else {        //ADDR_IP == type
-            struct sockaddr_in *addr = (struct sockaddr_in*)&ifr.ifr_addr;
-            strcpy(buffer, inet_ntoa(addr->sin_addr));
-        }
+            char buffer[32] = {0};
+            if (ADDR_MAC == type) {
+                sprintf(buffer, "%02x:%02x:%02x:%02x:%02x:%02x",
+                        (unsigned char)ifr.ifr_hwaddr.sa_data[0],
+                        (unsigned char)ifr.ifr_hwaddr.sa_data[1],
+                        (unsigned char)ifr.ifr_hwaddr.sa_data[2],
+                        (unsigned char)ifr.ifr_hwaddr.sa_data[3],
+                        (unsigned char)ifr.ifr_hwaddr.sa_data[4],
+                        (unsigned char)ifr.ifr_hwaddr.sa_data[5]);
+            } else if (ADDR_IP == type) {
+                struct sockaddr_in *addr = (struct sockaddr_in*)&ifr.ifr_addr;
+                strcpy(buffer, inet_ntoa(addr->sin_addr));
+            }
+            local_addr = buffer;
+        } catch (int exp) {}
 
         close(sock_fd);
-        return std::string(buffer);
+        return local_addr;
     }
 
     datetime get_datetime(timeval *tv /*= nullptr*/)
     {
-        datetime dt;
-        char time_buffer[64] = {0};
-
         timeval now;
         if (!tv) {
             gettimeofday(&now, nullptr);
             tv = &now;
         }
 
+        datetime dt;
+        char time_buffer[32] = {0};
         dt.t = localtime(&tv->tv_sec);		//获取当前时点并将其转化为tm结构体
         strftime(time_buffer, sizeof(time_buffer), "%Y%m%d", dt.t);
         dt.date = (uint32_t)atoi(time_buffer);
@@ -349,25 +340,24 @@ namespace crx
         return p->tm_year*10000+p->tm_mon*100+p->tm_mday;
     }
 
-    int get_file_size(const char *file)
+    int
+    get_file_size(const char *file)
     {
-        if (!file)			//接口安全性检查
+        if (!file) return -1;
+        if (__glibc_unlikely(access(file, F_OK))) {   //判断是否存在该文件
             return -1;
-
-        if (-1 == access(file, 0)) {		//判断是否存在该文件
-            return -1;
-        } else {		//文件存在返回文件大小
-            struct stat st;
-            if (-1 == stat(file, &st))
-                return -1;
-            else
-                return (int)st.st_size;
         }
+
+        struct stat st = {0};
+        if (__glibc_unlikely(-1 == stat(file, &st)))
+            return -1;
+        else
+            return (int)st.st_size;
     }
 
     int find_nth_pos(const std::string& src, const char *pattern, int n)
     {
-        if (src.empty() || !pattern)		//接口安全性检查
+        if (src.empty() || !pattern)
             return -1;
 
         if (n < 0) {		//找src中的最后一个子串
@@ -404,6 +394,9 @@ namespace crx
 
     std::vector<mem_ref> split(const char *src, size_t len, const char *delim)
     {
+        if (!src || !len || !delim)
+            return std::vector<mem_ref>();
+
         size_t delim_len = strlen(delim);
         std::vector<mem_ref> tokens;
         const char *start = src, *end = src+len, *pos = nullptr;
@@ -434,10 +427,11 @@ namespace crx
         if (!hent)
             return false;
 
-        //当前使用的协议为ipv4
-        assert(hent->h_addrtype == AF_INET);
-        if (!hent->h_addr_list[0])
+        //只转换ipv4协议格式的ip地址
+        if (AF_INET != hent->h_addrtype || !hent->h_addr_list[0]) {
+            log_error(g_lib_log, "addr type %d != *AF_INET* or empty addr list\n", hent->h_addrtype);
             return false;
+        }
 
         ip_addr.resize(32);     //取addr_list列表中的第一个地址转化为ip地址
         inet_ntop(hent->h_addrtype, hent->h_addr_list[0], &ip_addr[0], (socklen_t)ip_addr.size());
@@ -449,11 +443,11 @@ namespace crx
     {
         DIR *dir = opendir(root_dir);
         if (__glibc_unlikely(!dir)) {
-            perror("depth_first_traverse_dir::opendir failed");
+            log_error(g_lib_log, "opendir failed: %s\n", strerror(errno));
             return;
         }
 
-        struct stat st;
+        struct stat st = {0};
         struct dirent *ent = nullptr;
         while ((ent = readdir(dir))) {
             if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
@@ -461,8 +455,8 @@ namespace crx
 
             std::string file_name = root_dir;
             file_name = file_name+"/"+ent->d_name;
-            if (-1 == stat(file_name.c_str(), &st)){
-                perror("depth_first_traverse_dir::stat failed");
+            if (__glibc_unlikely(-1 == stat(file_name.c_str(), &st))) {
+                log_error(g_lib_log, "stat failed: %s\n", strerror(errno));
                 return;
             }
 

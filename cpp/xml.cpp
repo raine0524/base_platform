@@ -6,7 +6,7 @@ namespace crx
     {
     public:
         xml_impl() : m_cn(nullptr) {}
-        virtual ~xml_impl() {}
+        virtual ~xml_impl() = default;
 
         /*
          * 判断当前是否存在指定的孩子节点，存在则返回true，反之则为false

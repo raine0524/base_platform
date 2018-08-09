@@ -34,23 +34,23 @@ namespace crx
             return true;
 
         auto yield_co = sch_impl->m_cos[co_id];
-        if (!yield_co || CO_UNKNOWN == yield_co->status || CO_RUNNING == yield_co->status)
+        if (!yield_co || CO_UNKNOWN == yield_co->status)
             return false;               //指定协程无效或者状态指示不可用，同样不发生切换
 
-        auto curr_co = sch_impl->m_cos[sch_impl->m_running_co];
-        sch_impl->m_running_co = (int)co_id;
-
         auto main_co = sch_impl->m_cos[0];
+        auto curr_co = sch_impl->m_cos[sch_impl->m_running_co];
         if (curr_co->is_share)      //当前协程使用的是共享栈模式，其使用的栈是主协程中申请的空间
             sch_impl->save_stack(curr_co, main_co->stack.data()+STACK_SIZE);
 
         curr_co->status = CO_SUSPEND;
         curr_co->type = type;
+        sch_impl->m_running_co = (int)co_id;
 
         //当前协程与待切换的协程都使用了共享栈
         if (curr_co->is_share && yield_co->is_share && CO_SUSPEND == yield_co->status) {
             sch_impl->m_next_co = (int)co_id;
-            swapcontext(&curr_co->ctx, &main_co->ctx);      //先切换回主协程
+            if (__glibc_unlikely(-1 == swapcontext(&curr_co->ctx, &main_co->ctx)))      //先切换回主协程
+                log_error(g_lib_log, "swapcontext failed: %s\n", strerror(errno));
         } else {
             //待切换的协程使用的是共享栈模式并且当前处于挂起状态，恢复其栈空间至主协程的缓冲区中
             if (yield_co->is_share && CO_SUSPEND == yield_co->status)
@@ -58,7 +58,8 @@ namespace crx
 
             sch_impl->m_next_co = -1;
             yield_co->status = CO_RUNNING;
-            swapcontext(&curr_co->ctx, &yield_co->ctx);
+            if (__glibc_unlikely(-1 == swapcontext(&curr_co->ctx, &yield_co->ctx)))
+                log_error(g_lib_log, "swapcontext failed: %s\n", strerror(errno));
         }
 
         //此时位于主协程中，且主协程用于帮助从一个使用共享栈的协程切换到另一个使用共享栈的协程中
@@ -66,7 +67,8 @@ namespace crx
             auto next_co = sch_impl->m_cos[sch_impl->m_next_co];
             memcpy(&main_co->stack[0]+STACK_SIZE-next_co->size, next_co->stack.data(), next_co->size);
             next_co->status = CO_RUNNING;
-            swapcontext(&main_co->ctx, &next_co->ctx);
+            if (__glibc_unlikely(-1 == swapcontext(&main_co->ctx, &next_co->ctx)))
+                log_error(g_lib_log, "swapcontext failed: %s\n", strerror(errno));
         }
         return true;
     }
@@ -82,7 +84,7 @@ namespace crx
     }
 
     size_t scheduler_impl::co_create(std::function<void(scheduler *sch, size_t co_id)>& f, scheduler *sch,
-                                     bool is_main_co, bool is_share /*= false*/, const char *comment /*= nullptr*/)
+            bool is_main_co, bool is_share /*= false*/, const char *comment /*= nullptr*/)
     {
         std::shared_ptr<coroutine_impl> co_impl;
         if (m_unused_cos.empty()) {
@@ -130,11 +132,12 @@ namespace crx
     void scheduler_impl::save_stack(std::shared_ptr<coroutine_impl>& co_impl, const char *top)
     {
         char stub = 0;
-        assert(top-&stub <= STACK_SIZE);
-        if (co_impl->stack.size() < top-&stub)      //容量不足
-            co_impl->stack.resize(top-&stub);
+        size_t valid_stack_size = top-&stub;
+        assert(valid_stack_size <= STACK_SIZE);
+        if (co_impl->stack.size() < valid_stack_size)      //容量不足
+            co_impl->stack.resize(valid_stack_size);
 
-        co_impl->size = top-&stub;
+        co_impl->size = valid_stack_size;
         memcpy(&co_impl->stack[0], &stub, co_impl->size);
     }
 
@@ -147,11 +150,13 @@ namespace crx
         co_impl->f(sch, (size_t)sch_impl->m_running_co);
 
         //协程执行完成后退出，此时处于不可用状态，进入未使用队列等待复用
-        sch_impl->m_running_co = 0;
-        sch_impl->m_cos[0]->status = CO_RUNNING;
         co_impl->status = CO_UNKNOWN;
         sch_impl->m_unused_cos.push_back(co_impl->co_id);
         std::push_heap(sch_impl->m_unused_cos.begin(), sch_impl->m_unused_cos.end(), std::greater<size_t>());
+
+        //非主协程退出后自动恢复主协程的堆栈,修改相关状态
+        sch_impl->m_running_co = 0;
+        sch_impl->m_cos[0]->status = CO_RUNNING;
     }
 
     void scheduler_impl::main_coroutine(scheduler *sch)
@@ -159,17 +164,17 @@ namespace crx
         std::vector<epoll_event> events(EPOLL_SIZE);
         m_go_done = true;
         while (m_go_done) {
-            int cnt = epoll_wait(m_epoll_fd, &events[0], EPOLL_SIZE, 10);		//时间片设置为10ms，与Linux内核使用的时间片相近
+            int cnt = epoll_wait(m_epoll_fd, &events[0], EPOLL_SIZE, 10);   //时间片设置为10ms，与Linux内核使用的时间片相近
 
-            if (-1 == cnt) {			//epoll_wait有可能因为中断操作而返回，然而此时并没有任何监听事件触发
-                perror("main_coroutine::epoll_wait");
+            if (-1 == cnt) {    //epoll_wait有可能因为中断操作而返回，然而此时并没有任何监听事件触发
+                log_warn(g_lib_log, "epoll_wait interrupt without events trigger: %s\n", strerror(errno));
                 continue;
             }
 
             size_t i = 0;
             for (; i < cnt; ++i) {      //处理已触发的事件
                 int fd = events[i].data.fd;
-                if (fd < m_ev_array.size() && m_ev_array[fd])
+                if (0 <= fd && fd < m_ev_array.size() && m_ev_array[fd])
                     m_ev_array[fd]->f(events[i].events);
             }
 
@@ -193,7 +198,7 @@ namespace crx
 
                 //重新建立未使用co_id的最小堆
                 m_unused_cos.clear();
-                for (auto co : m_cos)
+                for (auto& co : m_cos)
                     if (CO_UNKNOWN == co->status)
                         m_unused_cos.push_back(co->co_id);
                 std::make_heap(m_unused_cos.begin(), m_unused_cos.end(), std::greater<size_t>());
@@ -213,8 +218,8 @@ namespace crx
         ev.events = event | EPOLLET;    //每个读/写事件都采用edge-trigger(边沿触发)的模式
         ev.data.fd = fd;
 
-        if (-1 == epoll_ctl(m_epoll_fd, op, fd, &ev))
-            perror("handle_event::epoll_ctl");
+        if (__glibc_unlikely(-1 == epoll_ctl(m_epoll_fd, op, fd, &ev)))
+            log_error(g_lib_log, "epoll_ctl failed: %s\n", strerror(errno));
     }
 
     void scheduler_impl::add_event(std::shared_ptr<eth_event> ev, uint32_t event /*= EPOLLIN*/)
@@ -234,31 +239,26 @@ namespace crx
      */
     void scheduler_impl::remove_event(int fd)
     {
-        if (fd < 0 || fd >= m_ev_array.size())
+        if (fd < 0 || fd >= m_ev_array.size() || !m_ev_array[fd])
             return;
 
-        auto& ev = m_ev_array[fd];
-        if (ev) {
-            handle_event(EPOLL_CTL_DEL, fd, EPOLLIN);
-            if (fd == m_ev_array.size()-1)
-                m_ev_array.resize((size_t)fd);
-            else
-                m_ev_array[fd].reset();
-        }
+        handle_event(EPOLL_CTL_DEL, fd, EPOLLIN);
+        if (fd == m_ev_array.size()-1)
+            m_ev_array.resize((size_t)fd);
+        else
+            m_ev_array[fd].reset();
     }
 
     void scheduler_impl::periodic_trim_memory()
     {
-        malloc_trim(0);
+        malloc_trim(0);     //强制收回glibc缓存的堆内存
         m_sec_wheel.add_handler(5*1000, std::bind(&scheduler_impl::periodic_trim_memory, this));
     }
 
     //异步读的一个原则是只要可读就一直读，直到errno被置为EAGAIN提示等待更多数据可读
     int async_read(int fd, std::string& read_str)
     {
-        if (fd < 0)
-            return -1;
-
+        if (fd < 0) return -1;
         size_t read_size = read_str.size();
         while (true) {
             read_str.resize(read_size+1024);
@@ -269,7 +269,7 @@ namespace crx
                 if (EAGAIN == errno) {		//等待缓冲区可读
                     return 1;
                 } else {		//异常状态
-                    perror("scheduler::async_read");
+                    log_error(g_lib_log, "read error: %s\n", strerror(errno));
                     return -1;
                 }
             }

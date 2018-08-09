@@ -41,6 +41,7 @@ namespace crx
     class CRX_SHARE http_server : public tcp_server
     {
     public:
+        //发送http响应
         void response(int conn, const char *ext_data, size_t ext_len, EXT_DST ed = DST_JSON);
     };
 }

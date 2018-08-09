@@ -24,6 +24,14 @@ namespace crx
 
     void log::printf(const char *fmt, ...)
     {
+        if (!m_impl) {
+            va_list val;
+            va_start(val, fmt);
+            vprintf(fmt, val);
+            va_end(val);
+            return;
+        }
+
         timeval tv = {0};
         gettimeofday(&tv, nullptr);
 
@@ -77,11 +85,12 @@ namespace crx
             auto header = (simp_header*)ref.data;
             header->cmd = impl->m_cmd.cmd = 1;
             header->type = impl->m_cmd.type = 3;    //notify
+            header->length = (uint32_t)(ref.len-sizeof(simp_header));
 
             if (-1 != impl->m_simp_impl->m_log_conn)
                 impl->m_simp_impl->send_data(3, impl->m_simp_impl->m_log_conn, impl->m_cmd, ref.data, ref.len);
             else
-                impl->m_simp_impl->m_cache_logs.push_back(std::string(ref.data, ref.len));
+                impl->m_simp_impl->m_log_cache.append(ref.data, ref.len);
             impl->m_seria.reset();
         } else {        //本地
             impl->write_local_log(data, ret);
@@ -119,19 +128,16 @@ namespace crx
         return log_path;
     }
 
-    void log_impl::create_log_file(const char *log_file)
+    bool log_impl::create_log_file(const char *log_file)
     {
-        if (m_fp)
-            fclose(m_fp);
+        if (m_fp) fclose(m_fp);
         m_fp = fopen(log_file, "a");
-        if (!m_fp) {
-            perror("create_log_file");
-            return;
-        }
+        if (!m_fp) return false;
 
         //使用自定义的日志缓冲，大小为64k
         setvbuf(m_fp, &m_log_buf[0], _IOFBF, m_log_buf.size());
         m_curr_size = (int)ftell(m_fp);
+        return true;
     }
 
     void log_impl::get_local_log(std::shared_ptr<scheduler_impl>& sch_impl)
@@ -151,8 +157,7 @@ namespace crx
             }
         }, false);
         sprintf(&log_path[0]+path_size, "%s-%ld.log", file_wh, m_split_idx);
-        create_log_file(log_path.c_str());
-        if (!m_fp)
+        if (!create_log_file(log_path.c_str()))
             return;
 
         if (!m_sec_wheel.m_impl)
@@ -181,12 +186,14 @@ namespace crx
         auto header = (simp_header*)ref.data;
         header->cmd = m_cmd.cmd = 1;
         header->type = m_cmd.type = 1;     //request
+        header->length = (uint32_t)(ref.len-sizeof(simp_header));
 
         auto simp_impl = std::dynamic_pointer_cast<simpack_server_impl>(impl);
+        simp_impl->m_log_req = std::string(ref.data, ref.len);
         if (-1 != simp_impl->m_log_conn)
             simp_impl->send_data(1, simp_impl->m_log_conn, m_cmd, ref.data, ref.len);
         else
-            simp_impl->m_cache_logs.emplace_back(ref.data, ref.len);
+            simp_impl->m_log_cache.append(ref.data, ref.len);
         m_seria.reset();
         m_simp_impl = simp_impl;
     }
@@ -199,7 +206,9 @@ namespace crx
         sprintf(&log_path[0]+path_size, "%s_%02ld-%ld.log", m_prefix.c_str(), m_last_hour, m_split_idx);
 
         int old_fd = fileno(m_fp);
-        create_log_file(log_path.c_str());
+        if (create_log_file(log_path.c_str()))
+            return;
+
         int new_fd = fileno(m_fp);
         if (old_fd != new_fd) {
             auto impl = sch_impl.lock();

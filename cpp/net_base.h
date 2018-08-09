@@ -55,8 +55,8 @@ namespace crx
                 type = SOCK_DGRAM | SOCK_NONBLOCK;
 
             m_sock_fd = socket(domain, type, proto);    //创建套接字
-            if (-1 == m_sock_fd) {
-                perror("net_socket::create::socket");
+            if (__glibc_unlikely(-1 == m_sock_fd)) {
+                log_error(g_lib_log, "socket create failed: %s\n", strerror(errno));
                 return -1;
             }
 
@@ -69,12 +69,12 @@ namespace crx
             } else {    //NORM_TRANS == m_type
                 //允许重用ip地址
                 socklen_t opt_val = 1;
-                if (-1 == setsockopt(m_sock_fd, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val)))
-                    perror("set_reuse_addr::setsockopt failed");
+                if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val))))
+                    log_error(g_lib_log, "setsockopt %d *SO_REUSEADDR* failed: %s\n", m_sock_fd, strerror(errno));
 
                 //允许重用端口
-                if (-1 == setsockopt(m_sock_fd, SOL_SOCKET, SO_REUSEPORT, &opt_val, sizeof(opt_val)))
-                    perror("set_reuse_port::setsockopt failed");
+                if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_SOCKET, SO_REUSEPORT, &opt_val, sizeof(opt_val))))
+                    log_error(g_lib_log, "setsockopt %d *SO_REUSEPORT* failed: %s\n", m_sock_fd, strerror(errno));
 
                 m_addr.trans.sin_family = AF_INET;
                 if (USR_SERVER == utype && !ip_addr)
@@ -89,21 +89,21 @@ namespace crx
                 socklen_t addr_len = (UNIX_DOMAIN == m_type) ? sizeof(m_addr.local) : sizeof(m_addr.trans);
                 if (USR_SERVER == utype) {		//服务端
                     //无论传输层协议是tcp还是udp，在server端都需要首先进行绑定操作
-                    if (-1 == bind(m_sock_fd, (struct sockaddr*)&m_addr, addr_len)) {
+                    if (__glibc_unlikely(-1 == bind(m_sock_fd, (struct sockaddr*)&m_addr, addr_len))) {
                         if (NORM_TRANS == m_type)
-                            perror("net_socket::create::bind");
+                            log_error(g_lib_log, "bind socket %d failed: %s\n", m_sock_fd, strerror(errno));
                         throw -2;
                     }
 
                     //若传输层使用的是tcp协议，则由于tcp是面向连接的，因此需要监听任意ip地址的连接请求
-                    if (PRT_TCP == ptype && -1 == listen(m_sock_fd, 128)) {
-                        perror("net_socket::create::listen");
+                    if (PRT_TCP == ptype && __glibc_unlikely(-1 == listen(m_sock_fd, 128))) {
+                        log_error(g_lib_log, "listen socket %d failed: %s\n", m_sock_fd, strerror(errno));
                         throw -3;
                     }
                 } else if (PRT_TCP == ptype && -1 == connect(m_sock_fd, (struct sockaddr*)&m_addr, addr_len)) {
                     //tcp客户端需要执行连接操作
-                    if (EINPROGRESS != errno) {
-                        perror("net_socket::create::connect");
+                    if (__glibc_unlikely(EINPROGRESS != errno)) {
+                        log_error(g_lib_log, "connect socket %d failed: %s\n", m_sock_fd, strerror(errno));
                         throw -4;
                     }
                 }
@@ -124,39 +124,37 @@ namespace crx
          */
         void set_tcp_nodelay(socklen_t opt_val)
         {
-            if (-1 == setsockopt(m_sock_fd, IPPROTO_TCP, TCP_NODELAY, &opt_val, sizeof(opt_val)))
-                perror("net_socket::set_tcp_nodelay::setsockopt");
+            if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, IPPROTO_TCP, TCP_NODELAY, &opt_val, sizeof(opt_val))))
+                log_error(g_lib_log, "setsockopt %d *TCP_NODELAY* failed: %s\n", m_sock_fd, strerror(errno));
         }
 
         void set_keep_alive(int val, int idle, int interval, int count)
         {
-            if (-1 == setsockopt(m_sock_fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)))
-                perror("net_socket::set_keep_alive::setsockopt");
+            if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val))))
+                log_error(g_lib_log, "setsockopt %d *SO_KEEPALIVE* failed: %s\n", m_sock_fd, strerror(errno));
 
-            if (-1 == setsockopt(m_sock_fd, SOL_TCP, TCP_KEEPIDLE, &idle, sizeof(idle)))
-                perror("net_socket::set_keep_alive::setsockopt");
+            if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_TCP, TCP_KEEPIDLE, &idle, sizeof(idle))))
+                log_error(g_lib_log, "setsockopt %d *TCP_KEEPIDLE* failed: %s\n", m_sock_fd, strerror(errno));
 
-            if (-1 == setsockopt(m_sock_fd, SOL_TCP, TCP_KEEPINTVL, &interval, sizeof(interval)))
-                perror("net_socket::set_keep_alive::setsockopt");
+            if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_TCP, TCP_KEEPINTVL, &interval, sizeof(interval))))
+                log_error(g_lib_log, "setsockopt %d *TCP_KEEPINTVL* failed: %s\n", m_sock_fd, strerror(errno));
 
-            if (-1 == setsockopt(m_sock_fd, SOL_TCP, TCP_KEEPCNT, &count, sizeof(count)))
-                perror("net_socket::set_keep_alive::setsockopt");
+            if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_TCP, TCP_KEEPCNT, &count, sizeof(count))))
+                log_error(g_lib_log, "setsockopt %d *TCP_KEEPCNT* failed: %s\n", m_sock_fd, strerror(errno));
         }
 
     private:
         void get_inuse_port()
         {
-            if (m_port)		//若已指定所用端口，则不再获取当前套接占用的端口
-                return;
-
+            if (m_port) return;     //若已指定所用端口，则不再获取当前套接占用的端口
             struct sockaddr_in addr;
             socklen_t len = sizeof(addr);
+
             //获取和该套接字相关的一系列地址信息，此处只需要sockaddr_in结构体中的端口字段sin_port
-            if (-1 == getsockname(m_sock_fd, (struct sockaddr*)&addr, &len)) {
-                perror("get_inuse_port::getsockname");
-                return;
-            }
-            m_port = ntohs(addr.sin_port);		//将端口从网络字节序转换为本机字节序
+            if (__glibc_unlikely(-1 == getsockname(m_sock_fd, (struct sockaddr*)&addr, &len)))
+                log_error(g_lib_log, "socket %d getsockname failed: %s\n", m_sock_fd, strerror(errno));
+            else
+                m_port = ntohs(addr.sin_port);		//将端口从网络字节序转换为本机字节序
         }
 
     public:

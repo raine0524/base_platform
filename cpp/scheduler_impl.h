@@ -76,9 +76,6 @@ namespace crx
             m_util_impls.resize(IDX_MAX);
         }
 
-        virtual ~scheduler_impl() = default;
-
-    public:
         size_t co_create(std::function<void(crx::scheduler *sch, size_t co_id)>& f, scheduler *sch,
                          bool is_main_co, bool is_share = false, const char *comment = nullptr);
 

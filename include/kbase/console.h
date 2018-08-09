@@ -8,7 +8,7 @@ namespace crx
     {
     public:
         console();
-        virtual ~console();
+        virtual ~console() = default;
 
         //控制台初始化，返回true表示初始化成功，false将直接退出main函数
         virtual bool init(int argc, char *argv[]) = 0;

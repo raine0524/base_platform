@@ -11,10 +11,10 @@ namespace crx
     std::string CRX_SHARE base64_decode(const char *data, int len);
 
     //将fd指定的文件设置为非阻塞
-    bool CRX_SHARE setnonblocking(int fd);
+    void CRX_SHARE setnonblocking(int fd);
 
     //在执行(fork-)exec调用之后关闭该描述符
-    bool CRX_SHARE setcloseonexec(int fd);
+    void CRX_SHARE setcloseonexec(int fd);
 
     //度量函数f的运行时间，单位为us
     int64_t CRX_SHARE measure_time(std::function<void()> f);

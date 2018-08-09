@@ -29,7 +29,7 @@ namespace crx
 
         std::string get_log_path(bool create);
 
-        void create_log_file(const char *log_file);
+        bool create_log_file(const char *log_file);
 
         void rotate_log(bool create_dir);
 

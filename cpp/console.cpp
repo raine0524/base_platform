@@ -4,6 +4,8 @@ namespace crx
 {
     std::string g_server_name;		//当前服务的名称
 
+    crx::log g_lib_log;
+
     console_impl::console_impl(console *c)
     :m_c(c)
     ,m_is_service(false)
@@ -30,13 +32,14 @@ namespace crx
     void console_impl::connect_service()
     {
         m_client = m_c->get_tcp_client(std::bind(&console_impl::tcp_callback, this, true, _1, _2, _3, _4, _5));
+        m_c->register_tcp_hook(true, [](int conn, char *data, size_t len) { return simpack_protocol(data, len); });
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
+        sch_impl->m_util_impls[TCP_CLI].reset();
+
         auto cli_impl = std::dynamic_pointer_cast<tcp_client_impl>(m_client.m_impl);
         cli_impl->m_util.m_app_prt = PRT_SIMP;
         cli_impl->m_util.m_type = UNIX_DOMAIN;
-        m_c->register_tcp_hook(true, [](int conn, char *data, size_t len) { return simpack_protocol(data, len); });
         m_conn = m_client.connect("127.0.0.1", 0);
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
-        sch_impl->m_util_impls[TCP_CLI].reset();
     }
 
     void console_impl::stop_service(bool pout)
@@ -49,6 +52,7 @@ namespace crx
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
         sch_impl->main_coroutine(m_c);      //进入主协程
         m_client.release(m_conn);
+        m_client.m_impl.reset();
         m_conn = -1;
         if (pout)
             printf("后台服务 %s 正常关闭，退出当前shell\n", g_server_name.c_str());
@@ -56,8 +60,6 @@ namespace crx
 
     void console_impl::tcp_callback(bool client, int conn, const std::string& ip_addr, uint16_t port, char *data, size_t len)
     {
-        auto header = (simp_header*)data;
-        std::vector<std::string> args;
         if (client) {
             if (data)
                 std::cout<<data+sizeof(simp_header)<<std::flush;
@@ -68,30 +70,33 @@ namespace crx
                 if (m_close_exp)
                     printf("\n后台服务 %s 异常关闭\n", g_server_name.c_str());
             }
-        } else {
-            if (!data && !len) {        //shell进程已关闭,释放此处连接资源
-                m_server.release(conn);
-                m_conn = -1;
-                return;
-            }
-
-            uint32_t length = ntohl(header->length);
-            if (UINT32_MAX == length) {     //停止daemon进程
-                quit_loop(args);
-                return;
-            }
-
-            auto str_vec = split(data+sizeof(simp_header), length, " ");
-            std::string cmd;
-            for (size_t i = 0; i < str_vec.size(); ++i) {
-                auto& arg = str_vec[i];
-                if (0 == i)
-                    cmd = std::string(arg.data, arg.len);
-                else
-                    args.emplace_back(arg.data, arg.len);
-            }
-            execute_cmd(cmd, args);
+            return;
         }
+
+        //server
+        if (!data && !len) {        //shell进程已关闭,释放此处连接资源
+            m_server.release(conn);
+            m_conn = -1;
+            return;
+        }
+
+        std::vector<std::string> args;
+        uint32_t length = ntohl(((simp_header*)data)->length);
+        if (UINT32_MAX == length) {     //停止daemon进程
+            quit_loop(args);
+            return;
+        }
+
+        auto str_vec = split(data+sizeof(simp_header), length, " ");
+        std::string cmd;
+        for (size_t i = 0; i < str_vec.size(); ++i) {
+            auto& arg = str_vec[i];
+            if (0 == i)
+                cmd = std::string(arg.data, arg.len);
+            else
+                args.emplace_back(arg.data, arg.len);
+        }
+        execute_cmd(cmd, args);
     }
 
     //控制台预处理操作
@@ -99,8 +104,9 @@ namespace crx
     {
         std::vector<std::string> stub_args;
         if (argc >= 2) {		//当前服务以带参模式运行，检测最后一个参数是否为{"-start", "-stop", "-restart"}之一
+            bool exist = check_service_exist();
             if (!strcmp("-start", argv[argc-1])) {      //启动服务
-                if (check_service_exist()) {    //检测后台服务是否处于运行过程中
+                if (exist) {    //检测后台服务是否处于运行过程中
                     printf("当前服务 %s 正在后台运行中\n", g_server_name.c_str());
                     return true;
                 }
@@ -108,7 +114,7 @@ namespace crx
             }
 
             if (!strcmp("-stop", argv[argc-1])) {       //终止服务
-                if (check_service_exist()) {            //确认当前服务正在运行中，执行终止操作
+                if (exist) {            //确认当前服务正在运行中，执行终止操作
                     connect_service();
                     stop_service(true);
                 } else {
@@ -118,10 +124,9 @@ namespace crx
             }
 
             if (!strcmp("-restart", argv[argc-1])) {    //重启服务
-                if (check_service_exist()) {
+                if (exist) {
                     connect_service();
                     stop_service(false);
-                    m_client.m_impl.reset();
                 }
                 start_daemon();
             }
@@ -165,7 +170,7 @@ namespace crx
             std::string input;
             int ret = async_read(STDIN_FILENO, input);
             if (ret <= 0) {
-                syslog(LOG_ERR, "read keyboard failed: %s\n", strerror(errno));
+                perror("read keyboard failed");
                 return;
             }
 
@@ -178,9 +183,6 @@ namespace crx
 
             //命令行输入的一系列参数都是以空格分隔
             auto str_vec = split(input.data(), input.size(), " ");
-            if (str_vec.empty())
-                return;
-
             std::string cmd;
             std::vector<std::string> args;
             for (size_t i = 0; i < str_vec.size(); ++i) {
@@ -232,20 +234,17 @@ namespace crx
         sch_impl->m_util_impls[TCP_SVR].reset();
 
         m_is_service = true;
-        daemon(1, 0);		//创建守护进程，不切换进程当前工作目录
+        daemon(1, 0);       //创建守护进程，不切换进程当前工作目录
     }
 
     void console_impl::quit_loop(std::vector<std::string>& args)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
-        for (auto co_impl : sch_impl->m_cos)
+        for (auto& co_impl : sch_impl->m_cos)
             co_impl->status = CO_UNKNOWN;
 
-        if (!m_as_shell) {			//以shell方式运行时不需要执行init/destroy操作
-            printf("[%s] 已发送控制台退出信号，正在执行退出操作...\n", g_server_name.c_str());
-            fflush(stdout);
+        if (!m_as_shell)        //以shell方式运行时不需要执行init/destroy操作
             m_c->destroy();
-        }
         sch_impl->m_go_done = false;
     }
 
@@ -253,10 +252,10 @@ namespace crx
     void console_impl::print_help(std::vector<std::string>& args)
     {
         std::cout<<std::right<<std::setw(5)<<"cmd";
-        std::cout<<std::setw(10)<<' '<<std::setw(0)<<"comments"<<std::endl;
+        std::cout<<std::setw(10)<<' '<<std::setw(0)<<"comments\n";
         for (auto& cmd : m_cmd_vec) {
             std::string str = "  "+cmd.cmd;
-            std::cout<<std::left<<std::setw(15)<<str<<cmd.comment<<std::endl;
+            std::cout<<std::left<<std::setw(15)<<str<<cmd.comment<<'\n';
         }
         std::cout<<std::endl;
     }
@@ -265,11 +264,6 @@ namespace crx
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         sch_impl->m_util_impls[EXT_DATA] = std::make_shared<console_impl>(this);
-    }
-
-    console::~console()
-    {
-        closelog();
     }
 
     //添加控制台命令
@@ -311,11 +305,11 @@ namespace crx
         CPU_ZERO(&mask);
         CPU_SET(which, &mask);
         if (syscall(__NR_gettid) == getpid()) {     //main thread
-            if (sched_setaffinity(0, sizeof(mask), &mask) < 0)
-                syslog(LOG_ERR, "bind core failed: %s\n", strerror(errno));
+            if (__glibc_unlikely(sched_setaffinity(0, sizeof(mask), &mask) < 0))
+                log_error(g_lib_log, "bind core failed: %s\n", strerror(errno));
         } else {
-            if (pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask) < 0)
-                syslog(LOG_ERR, "bind core failed: %s\n", strerror(errno));
+            if (__glibc_unlikely(pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask) < 0))
+                log_error(g_lib_log, "bind core failed: %s\n", strerror(errno));
         }
     }
 
@@ -345,11 +339,7 @@ namespace crx
         if (con_impl->preprocess(argc, argv))
             return EXIT_SUCCESS;
 
-        signal(SIGPIPE, SIG_IGN);       //向已经断开连接的管道和套接字写数据时只返回错误,不主动退出进程
-        openlog(g_server_name.c_str(), LOG_PID | LOG_CONS, LOG_USER);
-
-        //解析日志配置
-        if (!access(conf, F_OK)) {
+        if (!access(conf, F_OK)) {      //解析日志配置
             sch_impl->m_ini_file = conf;
             ini ini_parser;
             ini_parser.load(conf);
@@ -357,6 +347,7 @@ namespace crx
                 ini_parser.set_section("log");
                 sch_impl->m_remote_log = ini_parser.get_int("remote") != 0;
             }
+            g_lib_log = get_log("kbase");
         }
 
         //处理绑核操作
@@ -368,6 +359,7 @@ namespace crx
                 con_impl->bind_core(bind_flag);
         }
 
+        signal(SIGPIPE, SIG_IGN);       //向已经断开连接的管道和套接字写数据时只返回错误,不主动退出进程
         if (!sch_impl->m_sec_wheel.m_impl)       //创建一个秒盘
             sch_impl->m_sec_wheel = get_timer_wheel(1000, 60);
         sch_impl->m_sec_wheel.add_handler(5*1000, std::bind(&scheduler_impl::periodic_trim_memory, sch_impl.get()));

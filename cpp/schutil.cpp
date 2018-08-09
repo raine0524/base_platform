@@ -8,11 +8,15 @@ namespace crx
         auto& impl = sch_impl->m_util_impls[SIG_CTL];
         if (!impl) {
             auto sig_impl = std::make_shared<sigctl_impl>();
-            impl = sig_impl;
             sig_impl->fd = signalfd(-1, &sig_impl->m_mask, SFD_NONBLOCK);
-            sig_impl->f = std::bind(&sigctl_impl::sigctl_callback, sig_impl.get(), _1);
-            sig_impl->sch_impl = sch_impl;
-            sch_impl->add_event(sig_impl);
+            if (__glibc_likely(sig_impl->fd > 0)) {
+                sig_impl->f = std::bind(&sigctl_impl::sigctl_callback, sig_impl.get(), _1);
+                sig_impl->sch_impl = sch_impl;
+                sch_impl->add_event(sig_impl);
+                impl = sig_impl;
+            } else {
+                log_error(g_lib_log, "signalfd failed: %s\n", strerror(errno));
+            }
         }
 
         sigctl obj;
@@ -25,15 +29,15 @@ namespace crx
         int st_size = sizeof(m_fd_info);
         while (true) {
             int64_t ret = read(fd, &m_fd_info, (size_t)st_size);
-            if (ret == st_size) {
+            if (__glibc_likely(ret == st_size)) {
                 auto it = m_sig_cb.find(m_fd_info.ssi_signo);
                 if (m_sig_cb.end() != it)
                     it->second(m_fd_info.ssi_ptr);
             } else {
                 if (-1 == ret && EAGAIN != errno)
-                    perror("sigctl_callback");
+                    log_error(g_lib_log, "read failed: %s\n", strerror(errno));
                 else if (ret > 0)
-                    fprintf(stderr, "invalid `signalfd_siginfo` size: %ld\n", ret);
+                    log_error(g_lib_log, "invalid size: %ld\n", ret);
                 break;      //file closed & wait more data is normal
             }
         }
@@ -41,6 +45,7 @@ namespace crx
 
     void sigctl::add_sig(int signo, std::function<void(uint64_t)> callback)
     {
+        if (!m_impl) return;
         auto impl = std::dynamic_pointer_cast<sigctl_impl>(m_impl);
         impl->handle_sig(signo, true);
         impl->m_sig_cb[signo] = std::move(callback);
@@ -48,6 +53,7 @@ namespace crx
 
     void sigctl::remove_sig(int signo)
     {
+        if (!m_impl) return;
         auto impl = std::dynamic_pointer_cast<sigctl_impl>(m_impl);
         impl->handle_sig(signo, false);
         impl->m_sig_cb.erase(signo);
@@ -62,8 +68,13 @@ namespace crx
             sigaddset(&m_mask, signo);
         else
             sigdelset(&m_mask, signo);
-        sigprocmask(SIG_SETMASK, &m_mask, nullptr);
-        signalfd(fd, &m_mask, SFD_NONBLOCK);
+
+        if (__glibc_unlikely(-1 == sigprocmask(SIG_SETMASK, &m_mask, nullptr)))
+            log_error(g_lib_log, "sigprocmask failed: %s\n", strerror(errno));
+
+        if (__glibc_unlikely(-1 == signalfd(fd, &m_mask, SFD_NONBLOCK)))
+            log_error(g_lib_log, "signalfd failed: %s\n", strerror(errno));
+
         impl->handle_event(EPOLL_CTL_ADD, fd, EPOLLIN);
     }
 
@@ -78,7 +89,7 @@ namespace crx
             tmr_impl->m_f = std::move(f);
             sch_impl->add_event(tmr_impl);      //加入epoll监听事件
         } else {
-            perror("scheduler::get_timer");
+            log_error(g_lib_log, "timerfd_create failed: %s\n", strerror(errno));
             tmr_impl.reset();
         }
 
@@ -122,23 +133,21 @@ namespace crx
             add = 1;
         }
 
-        struct itimerspec time_setting;
-        memset(&time_setting, 0, sizeof(time_setting));
+        struct itimerspec time_setting = {0};
         time_setting.it_value.tv_sec = now.tv_sec+delay_nanos/nano_per_sec+add;     //设置初始延迟
         time_setting.it_value.tv_nsec = tv_nsec;
         time_setting.it_interval.tv_sec = interval_nanos/nano_per_sec;              //设置时间间隔
         time_setting.it_interval.tv_nsec = interval_nanos%nano_per_sec;
-        if (-1 == timerfd_settime(impl->fd, TFD_TIMER_ABSTIME, &time_setting, nullptr))
-            perror("create_timer::timerfd_settime");
+        if (__glibc_unlikely(-1 == timerfd_settime(impl->fd, TFD_TIMER_ABSTIME, &time_setting, nullptr)))
+            log_error(g_lib_log, "timerfd_settime failed: %s\n", strerror(errno));
     }
 
     void timer::detach()
     {
+        if (!m_impl) return;
         auto tmr_impl = std::dynamic_pointer_cast<timer_impl>(m_impl);
-        if (!tmr_impl->sch_impl.expired()) {
-            auto sch_impl = tmr_impl->sch_impl.lock();
-            sch_impl->remove_event(tmr_impl->fd);       //移除该定时器相关的监听事件
-        }
+        auto sch_impl = tmr_impl->sch_impl.lock();
+        sch_impl->remove_event(tmr_impl->fd);       //移除该定时器相关的监听事件
     }
 
     timer_wheel scheduler::get_timer_wheel(uint64_t interval, size_t slot)
@@ -149,7 +158,6 @@ namespace crx
             tw_impl->m_timer.start(interval, interval);
             tw_impl->m_slots.resize(slot);
         } else {
-            printf("系统定时器获取失败\n");
             tw_impl.reset();
         }
 
@@ -168,6 +176,7 @@ namespace crx
 
     bool timer_wheel::add_handler(uint64_t delay, std::function<void()> callback)
     {
+        if (!m_impl) return false;
         auto tw_impl = std::dynamic_pointer_cast<timer_wheel_impl>(m_impl);
         auto tm_impl = std::dynamic_pointer_cast<timer_impl>(tw_impl->m_timer.m_impl);
         size_t tick = (size_t)std::ceil(delay/tm_impl->m_interval*1.0);
@@ -192,7 +201,7 @@ namespace crx
             ev_impl->m_f = std::move(f);
             sch_impl->add_event(ev_impl);
         } else {
-            perror("scheduler::get_event");
+            log_error(g_lib_log, "eventfd failed: %s\n", strerror(errno));
             ev_impl.reset();
         }
 
@@ -212,6 +221,7 @@ namespace crx
 
     void event::send_signal(int signal)
     {
+        if (!m_impl) return;
         auto impl = std::dynamic_pointer_cast<event_impl>(m_impl);
         impl->m_signals.push_back(signal);      //将信号加入事件相关的信号集
         eventfd_write(impl->fd, 1);             //设置事件
@@ -219,11 +229,10 @@ namespace crx
 
     void event::detach()
     {
+        if (!m_impl) return;
         auto ev_impl = std::dynamic_pointer_cast<event_impl>(m_impl);
-        if (!ev_impl->sch_impl.expired()) {
-            auto sch_impl = ev_impl->sch_impl.lock();
-            sch_impl->remove_event(ev_impl->fd);    //移除该定时器相关的监听事件
-        }
+        auto sch_impl = ev_impl->sch_impl.lock();
+        sch_impl->remove_event(ev_impl->fd);    //移除该定时器相关的监听事件
     }
 
     udp_ins scheduler::get_udp_ins(bool is_server, uint16_t port,
@@ -243,7 +252,7 @@ namespace crx
             ui_impl->m_f = std::move(f);
             sch_impl->add_event(ui_impl);
         } else {
-            perror("scheduler::get_udp_ins");
+            log_error(g_lib_log, "get_udp_ins failed of create socket(%d)\n", ui_impl->fd);
             ui_impl.reset();
         }
 
@@ -266,7 +275,7 @@ namespace crx
 
             if (-1 == ret) {
                 if (EAGAIN != errno)
-                    perror("udp_ins_callback::recvfrom");
+                    log_error(g_lib_log, "recvfrom failed: %s\n", strerror(errno));
                 break;
             }
 
@@ -281,25 +290,27 @@ namespace crx
 
     uint16_t udp_ins::get_port()
     {
+        if (!m_impl) return 0;
         auto impl = std::dynamic_pointer_cast<udp_ins_impl>(m_impl);
         return impl->m_net_sock.m_port;
     }
 
     void udp_ins::send_data(const char *ip_addr, uint16_t port, const char *data, size_t len)
     {
+        if (!m_impl) return;
         auto impl = std::dynamic_pointer_cast<udp_ins_impl>(m_impl);
         impl->m_send_addr.sin_addr.s_addr = inet_addr(ip_addr);
         impl->m_send_addr.sin_port = htons(port);
-        if (-1 == sendto(impl->fd, data, len, 0, (struct sockaddr*)&impl->m_send_addr, sizeof(struct sockaddr)))
-            perror("udp_ins::send_data::sendto");
+        if (__glibc_unlikely(-1 == sendto(impl->fd, data, len, 0,
+                (struct sockaddr*)&impl->m_send_addr, sizeof(struct sockaddr))))
+            log_error(g_lib_log, "sendto failed: %s\n", strerror(errno));
     }
 
     void udp_ins::detach()
     {
+        if (!m_impl) return;
         auto ui_impl = std::dynamic_pointer_cast<udp_ins_impl>(m_impl);
-        if (!ui_impl->sch_impl.expired()) {
-            auto sch_impl = ui_impl->sch_impl.lock();
-            sch_impl->remove_event(ui_impl->fd);        //移除该定时器相关的监听事件
-        }
+        auto sch_impl = ui_impl->sch_impl.lock();
+        sch_impl->remove_event(ui_impl->fd);        //移除该定时器相关的监听事件
     }
 }

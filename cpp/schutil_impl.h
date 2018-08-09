@@ -52,7 +52,7 @@ namespace crx
     public:
         void event_callback(uint32_t events);
 
-        std::list<int> m_signals;		//同一个事件可以由多个线程通过发送不同的信号同时触发
+        std::list<int> m_signals;		//同一个事件可以由多个信号源发送多个不同的信号
         std::function<void(int)> m_f;
     };
 

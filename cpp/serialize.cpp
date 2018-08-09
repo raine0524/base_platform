@@ -87,9 +87,7 @@ namespace crx
 
     int seria::get_sharding_size(const char *data, size_t len)
     {
-        if (len < 5)        //头5个字节用于确定整个序列化串的大小
-            return 0;
-
+        if (len < 5) return 0;          //头5个字节用于确定整个序列化串的大小
         if ((char)0xd2 != *data) {		//验证第一个字节的魔数是否等于0xd2u
             size_t i = 1;
             for (; i < len; ++i)

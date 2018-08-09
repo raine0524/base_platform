@@ -2,14 +2,14 @@
 
 #include "stdafx.h"
 
-namespace crx
-{
 #define GET_BIT(field, n)   (field & 1<<n)
 
 #define SET_BIT(field, n)   (field |= 1<<n)
 
 #define CLR_BIT(field, n)   (field &= ~(1<<n))
 
+namespace crx
+{
 #pragma pack(1)
     /*
      * simp协议的头部，此处是对ctl_flag字段更详细的表述：
@@ -55,7 +55,7 @@ namespace crx
     {
     public:
         simpack_server_impl()
-        :m_registry_conn(-1)
+        :m_reg_conn(-1)
         ,m_log_conn(-1)
         ,m_seria(true)
         {
@@ -67,9 +67,11 @@ namespace crx
 
         void simp_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len);
 
-        void capture_sharding(bool registry, int conn, const std::string &ip, uint16_t port, char *data, size_t len);
+        void capture_sharding(bool registry, int conn, std::shared_ptr<simpack_xutil>& xutil,
+                const std::string &ip, uint16_t port, char *data, size_t len);
 
-        void handle_reg_name(int conn, unsigned char *token, std::map<std::string, mem_ref>& kvs);
+        void handle_reg_name(int conn, unsigned char *token, std::map<std::string, mem_ref>& kvs,
+                std::shared_ptr<simpack_xutil>& xutil);
 
         void handle_svr_online(unsigned char *token, std::map<std::string, mem_ref>& kvs);
 
@@ -88,12 +90,12 @@ namespace crx
                           unsigned char *token, const char *data, size_t len);
 
         scheduler *m_sch;
-        int m_registry_conn;
+        int m_reg_conn;
         std::string m_reg_str;
         std::set<int> m_ordinary_conn;
 
         int m_log_conn;
-        std::list<std::string> m_cache_logs;
+        std::string m_log_req, m_log_cache;
 
         seria m_seria;
         server_cmd m_app_cmd;

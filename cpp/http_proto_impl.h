@@ -42,23 +42,25 @@ namespace crx
     template <typename IMPL_TYPE, typename CONN_TYPE>
     void tcp_callback_for_http(bool client, IMPL_TYPE impl, int fd, char *data, size_t len)
     {
-        if (!data)      //tcp连接开启/关闭时同样将调用回调函数，此时直接返回
+        if (!data || !len) return;      //tcp连接开启/关闭时同样将调用回调函数
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(impl->m_util.m_sch->m_impl);
+        if (fd < 0 || fd >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[fd])
             return;
 
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(impl->m_util.m_sch->m_impl);
-        auto conn = std::dynamic_pointer_cast<CONN_TYPE>(sch_impl->m_ev_array[fd]);
-
-        char *cb_data = nullptr;
         size_t cb_len = 0;
+        char *cb_data = nullptr;
+        auto conn = std::dynamic_pointer_cast<CONN_TYPE>(sch_impl->m_ev_array[fd]);
         if (len != 1 || '\n' != *data) {
             cb_data = data;
             cb_len = (size_t) conn->xutil.content_len;
         }
 
         if (client)
-            impl->funcs.m_http_cli(fd, conn->xutil.status, conn->xutil.headers, cb_data, cb_len);
+            impl->funcs.m_http_cli(fd, conn->xutil.status, conn->xutil.headers,
+                    cb_data, cb_len);
         else
-            impl->funcs.m_http_svr(fd, conn->xutil.method, conn->xutil.url, conn->xutil.headers, cb_data, cb_len);
+            impl->funcs.m_http_svr(fd, conn->xutil.method, conn->xutil.url,
+                    conn->xutil.headers, cb_data, cb_len);
         if (sch_impl->m_ev_array[fd]) {
             conn->xutil.content_len = -1;
             conn->xutil.headers.clear();

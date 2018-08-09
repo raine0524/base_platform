@@ -8,25 +8,29 @@ namespace crx
         auto& impl = sch_impl->m_util_impls[HTTP_CLI];
         if (!impl) {
             auto http_impl = std::make_shared<http_impl_t<tcp_client_impl>>(NORM_TRANS);
-            impl = http_impl;
             http_impl->m_util.m_sch = this;
             http_impl->m_util.m_app_prt = PRT_HTTP;
             http_impl->m_util.m_protocol_hook = [this](int fd, char* data, size_t len) {
                 auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                if (fd < 0 || fd >= this_sch_impl->m_ev_array.size() || !this_sch_impl->m_ev_array[fd])
+                    return -(int)len;
+
                 auto conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(this_sch_impl->m_ev_array[fd]);
                 return http_parser(true, conn, data, len);
             };
+
             http_impl->m_util.m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
                 auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-                auto this_http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(this_sch_impl->m_util_impls[HTTP_CLI]);
+                auto& this_http_cli = this_sch_impl->m_util_impls[HTTP_CLI];
+                auto this_http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(this_http_cli);
                 tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_client_impl>>,
                         http_conn_t<tcp_client_conn>>(true, this_http_impl, fd, data, len);
             };
             http_impl->funcs.m_http_cli = std::move(f);		//保存回调函数
+            impl = http_impl;
 
-            auto ctl = get_sigctl();
-            ctl.add_sig(SIGRTMIN+14, std::bind(&http_impl_t<tcp_client_impl>::name_resolve_callback,
-                                               http_impl.get(), _1));
+            auto ctl = get_sigctl();    //基于tcp_client::connect接口的连接操作在遇到名字解析时将发生协程的切换操作
+            ctl.add_sig(SIGRTMIN+14, std::bind(&http_impl_t<tcp_client_impl>::name_resolve_callback, http_impl.get(), _1));
         }
 
         http_client obj;
@@ -35,8 +39,7 @@ namespace crx
     }
 
     std::unordered_map<int, std::string> g_ext_type =
-            {{DST_NONE, "stub"},
-             {DST_JSON, "application/json"},
+            {{DST_JSON, "application/json"},
              {DST_QSTRING, "application/x-www-form-urlencoded"}};
 
     void http_client::request(int conn, const char *method, const char *post_page, std::map<std::string, std::string> *extra_headers,
@@ -45,8 +48,11 @@ namespace crx
         auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(m_impl);
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(http_impl->m_util.m_sch->m_impl);
 
-        //判断当前连接是否已经加入监听
-        if (conn < 0 || conn >= sch_impl->m_ev_array.size())
+        //判断当前连接是否有效
+        if (conn < 0 || conn >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[conn])
+            return;
+
+        if (__glibc_unlikely(!method || !post_page))
             return;
 
         auto http_conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(sch_impl->m_ev_array[conn]);
@@ -60,7 +66,7 @@ namespace crx
                 http_request += header.first+": "+header.second+"\r\n";
         }
 
-        if (ext_data) {		//若有则加入请求体
+        if (ext_data && ext_len) {		//若有则加入请求体
             http_request += "Content-Length: "+std::to_string(ext_len)+"\r\n\r\n";
             http_request.append(ext_data, ext_len);
         } else {
@@ -68,7 +74,7 @@ namespace crx
         }
 
         if (!http_conn->is_connect)     //还未建立连接
-            http_conn->cache_data.push_back(std::move(http_request));
+            http_conn->cache_data.append(http_request);
         else
             http_conn->async_write(http_request.c_str(), http_request.size());
     }
@@ -92,27 +98,35 @@ namespace crx
         if (!impl) {
             SOCK_TYPE type = (port >= 0) ? NORM_TRANS : UNIX_DOMAIN;
             auto http_impl = std::make_shared<http_impl_t<tcp_server_impl>>(type);
-            impl = http_impl;
-            http_impl->m_util.m_app_prt = PRT_HTTP;
-            http_impl->m_util.m_sch = this;
-            http_impl->m_util.m_protocol_hook = [this](int fd, char* data, size_t len) {
-                auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-                auto conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(this_sch_impl->m_ev_array[fd]);
-                return http_parser(false, conn, data, len);
-            };
-            http_impl->m_util.m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
-                auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-                auto this_http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(this_sch_impl->m_util_impls[HTTP_SVR]);
-                tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_server_impl>>,
-                        http_conn_t<tcp_server_conn>>(true, this_http_impl, fd, data, len);
-            };
-            http_impl->funcs.m_http_svr = std::move(f);
-
             //创建tcp服务端的监听套接字，允许接收任意ip地址发送的服务请求，监听请求的端口为port
             http_impl->fd = http_impl->conn_sock.create(PRT_TCP, USR_SERVER, nullptr, (uint16_t)port);
-            http_impl->sch_impl = sch_impl;
-            http_impl->f = std::bind(&http_impl_t<tcp_server_impl>::tcp_server_callback, http_impl.get(), _1);
-            sch_impl->add_event(http_impl);
+
+            if (__glibc_likely(http_impl->fd > 0)) {
+                http_impl->m_util.m_app_prt = PRT_HTTP;
+                http_impl->m_util.m_sch = this;
+                http_impl->m_util.m_protocol_hook = [this](int fd, char* data, size_t len) {
+                    auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                    if (fd < 0 || fd >= this_sch_impl->m_ev_array.size() || !this_sch_impl->m_ev_array[fd])
+                        return -(int)len;
+
+                    auto conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(this_sch_impl->m_ev_array[fd]);
+                    return http_parser(false, conn, data, len);
+                };
+
+                http_impl->m_util.m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
+                    auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                    auto& this_http_svr = this_sch_impl->m_util_impls[HTTP_SVR];
+                    auto this_http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(this_http_svr);
+                    tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_server_impl>>,
+                            http_conn_t<tcp_server_conn>>(true, this_http_impl, fd, data, len);
+                };
+                http_impl->funcs.m_http_svr = std::move(f);
+
+                http_impl->sch_impl = sch_impl;
+                http_impl->f = std::bind(&http_impl_t<tcp_server_impl>::tcp_server_callback, http_impl.get(), _1);
+                sch_impl->add_event(http_impl);
+                impl = http_impl;
+            }
         }
 
         http_server obj;
@@ -125,18 +139,18 @@ namespace crx
     {
         auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(m_impl);
         auto sch_impl = http_impl->sch_impl.lock();
+
         //判断连接是否有效
-        if (conn < 0 || conn >= sch_impl->m_ev_array.size())
+        if (conn < 0 || conn >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[conn])
             return;
 
         auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
-        if (!tcp_ev)
-            return;
-
         std::string http_response = "HTTP/1.1 200 OK\r\n";
-        http_response += "Content-Type: "+g_ext_type[ed]+"; charset=utf-8\r\n";
+        if (DST_NONE != ed)
+            http_response += "Content-Type: "+g_ext_type[ed]+"; charset=utf-8\r\n";
         http_response += "Content-Length: "+std::to_string(ext_len)+"\r\n\r\n";
-        http_response += std::string(ext_data, ext_len);
+        if (ext_data && ext_len)
+            http_response.append(ext_data, ext_len);
         tcp_ev->async_write(http_response.c_str(), http_response.size());
     }
 }

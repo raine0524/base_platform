@@ -53,16 +53,12 @@ namespace crx
 
     bool ini::load(const char *file_name)
     {
-        if (!file_name)
-            return false;
-
+        if (!file_name) return false;
         auto impl = std::dynamic_pointer_cast<ini_impl>(m_impl);
         impl->m_sections.clear();
+        impl->m_sec_map.clear();
+        impl->m_sec_idx = -1;
         impl->m_file_name = file_name;
-
-        FILE *fp = fopen(file_name, "r");
-        if (!fp)
-            return false;
 
         //创建一个默认的section，存放文件开始处没有任何section的行
         const char *def_sec = "__default__";
@@ -73,18 +69,15 @@ namespace crx
         auto& sec = impl->m_sections[sec_idx];
         sec.name = impl->m_sec_map.find(def_sec)->first.c_str();
 
-        std::string line(1024, 0);
-        while (fgets(&line[0], (int)(line.size()-1), fp)) {
-            std::string temp = line.substr(0, strlen(line.data())-1);   //去掉最后一个换行符
-            trim(temp);
-            if (temp.empty())
-                continue;
+        std::ifstream fin(file_name);
+        if (!fin) return false;
 
-            sec_idx = impl->parse_line(sec_idx, temp);
-            bzero(&line[0], line.size());
+        std::string line;
+        while (std::getline(fin, line)) {
+            trim(line);
+            if (!line.empty())
+                sec_idx = impl->parse_line(sec_idx, line);
         }
-
-        fclose(fp);
         return true;
     }
 
@@ -93,15 +86,11 @@ namespace crx
         line.push_back(0);
         if ('[' == line.front()) {      //new section
             const char *pos = strchr(line.data()+1, ']');
-            if (!pos) {
-                printf("invalid section: %s\n", line.c_str());
+            if (!pos)
                 return sec_idx;
-            }
 
-            if (strchr(pos+1, ']')) {
-                printf("invalid section: %s\n", line.c_str());
+            if (strchr(pos+1, ']'))
                 return sec_idx;
-            }
 
             std::string sec_name = line.substr(1, pos-line.data()-1);
             if (m_sec_map.end() != m_sec_map.find(sec_name))

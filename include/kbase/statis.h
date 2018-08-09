@@ -50,9 +50,9 @@ namespace crx
         sys_mem_dist_t get_sys_mem_dist();
 
         //获取打开的文件句柄的个数(排除系统的标准输入和标准输出)
-        int32_t get_open_file_handle();
+        int get_open_file_handle();
 
         //获取指定目录所占用的磁盘大小
-        static int32_t get_disk_usage(const char *dir);
+        static int get_disk_usage(const char *dir);
     };
 }

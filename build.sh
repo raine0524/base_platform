@@ -11,8 +11,11 @@ cloud_pwd=$CLOUD_PWD
 # build
 mkdir -p $build_dir
 cd $proj_path/$build_dir
-rm -f CMakeCache.txt
+rm -rf *
 cmake ..
+cd ..
+cmake --build $proj_path/$build_dir --target all -- -j 4
+cd -
 make install
 
 # pack

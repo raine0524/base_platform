@@ -26,7 +26,7 @@ namespace crx
         int async_write(const char *data, size_t len);
 
         uint32_t event;
-        std::list<std::string> cache_data;      //缓存队列，等待可写事件
+        std::string cache_data;     //缓存数据，等待可写事件
         std::shared_ptr<impl> ext_data;         //扩展数据
 
         bool is_connect;
@@ -50,7 +50,8 @@ namespace crx
 
         virtual ~tcp_client_conn()
         {
-            freeaddrinfo(name_reqs[0]->ar_result);
+            if (name_reqs[0]->ar_result)
+                freeaddrinfo(name_reqs[0]->ar_result);
             delete name_reqs[0];
         }
 
@@ -128,9 +129,7 @@ namespace crx
     template<typename CONN_TYPE>
     void handle_stream(int conn, CONN_TYPE conn_ins)
     {
-        if (conn_ins->stream_buffer.empty())
-            return;
-
+        if (conn_ins->stream_buffer.empty()) return;
         auto sch_impl = conn_ins->sch_impl.lock();
         if (conn_ins->tcp_impl->m_util.m_protocol_hook) {
             conn_ins->stream_buffer.push_back(0);
@@ -139,10 +138,7 @@ namespace crx
             while (read_len < buf_len) {
                 size_t remain_len = buf_len-read_len;
                 int ret = conn_ins->tcp_impl->m_util.m_protocol_hook(conn, start, remain_len);
-                if (0 == ret) {
-                    conn_ins->stream_buffer.pop_back();
-                    break;
-                }
+                if (0 == ret) break;
 
                 int abs_ret = std::abs(ret);
                 assert(abs_ret <= remain_len);
@@ -154,12 +150,14 @@ namespace crx
                 read_len += abs_ret;
             }
 
-            if (read_len && conn < sch_impl->m_ev_array.size() && sch_impl->m_ev_array[conn]) {
-                if (read_len == buf_len)
-                    conn_ins->stream_buffer.clear();
-                else
-                    conn_ins->stream_buffer.erase(0, read_len);
-            }
+            if (conn < 0 || conn >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[conn])
+                return;
+
+            conn_ins->stream_buffer.pop_back();
+            if (read_len == buf_len)
+                conn_ins->stream_buffer.clear();
+            else if (read_len > 0)
+                conn_ins->stream_buffer.erase(0, read_len);
         } else {
             conn_ins->tcp_impl->m_util.m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port,
                     &conn_ins->stream_buffer[0], conn_ins->stream_buffer.size());
