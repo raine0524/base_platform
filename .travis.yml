@@ -23,13 +23,11 @@ matrix:
 
 before_install:
   - eval "${MATRIX_EVAL}"
-  - sudo add-apt-repository -y ppa:deadsnakes/ppa
   - sudo apt-get update
 
 install:
   - sudo apt-get -y install zlib1g-dev
   - sudo apt-get -y install libssl-dev
-  - sudo apt-get -y install libpython3.5-dev
   - sudo apt-get -y install libmysqlcppconn-dev
   - sudo apt-get -y install expect
   - sudo apt-get -y install openssh-client
