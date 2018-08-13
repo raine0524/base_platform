@@ -101,9 +101,6 @@
 #include <openssl/md5.h>
 #include <openssl/aes.h>
 
-//python3
-#include <python3.5/Python.h>
-
 //mysql
 #include <mysql_driver.h>
 #include <mysql_connection.h>
@@ -183,7 +180,6 @@ namespace crx
 #include "kbase/serialize.h"
 #include "kbase/xml.h"
 #include "kbase/statis.h"
-#include "kbase/py_wrapper.h"
 #include "kbase/schutil.h"
 #include "kbase/tcp_proto.h"
 #include "kbase/http_proto.h"

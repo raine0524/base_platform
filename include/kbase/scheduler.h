@@ -40,7 +40,13 @@ namespace crx
          * 切换执行流，@co_id表示切换至哪个协程，若其为0则代表切换回主协程
          * 切换成功返回true，失败则返回false，表明待切换的协程已失效(还未创建或已执行完退出)
          */
-        bool co_yield(size_t co_id, SUS_TYPE type = WAIT_EVENT);
+        void co_yield(size_t co_id, SUS_TYPE type = WAIT_EVENT);
+
+        /*
+         * 在当前协程中睡眠seconds秒,该接口对于主协程无效,也即应用层必须创建一个协程
+         * seconds的取值范围为[0, 60)
+         */
+        void co_sleep(int seconds);
 
         //获取当前调度器中所有可用的协程，可用指协程状态为CO_READY, CO_RUNNING, CO_SUSPEND之一
         std::vector<std::shared_ptr<coroutine>> get_avail_cos();

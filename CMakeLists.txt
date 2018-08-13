@@ -7,8 +7,6 @@ add_compile_options(-std=c++11)
 
 include_directories(include cpp)
 
-link_directories(/usr/lib/python3.5/config-3.5m-x86_64-linux-gnu)
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0 -Wno-unused-result \
 -D__FILENAME__='\"$(notdir $<)\"'")
 message("compile flags: ${CMAKE_CXX_FLAGS}")
@@ -62,7 +60,7 @@ FILE(GLOB_RECURSE EXS_SRC "${EXAMPLES_DIR_NAME}/*.cpp")
 foreach(FILE_PATH ${EXS_SRC})
     string(REGEX REPLACE ".+/(.+)\\..*" "\\1" FILE_NAME ${FILE_PATH})   #获取examples目录下cpp源文件的名称
     add_executable(${FILE_NAME} ${FILE_PATH})
-    target_link_libraries(${FILE_NAME} ${LIB_NAME} python3.5)
+    target_link_libraries(${FILE_NAME} ${LIB_NAME})
     set_target_properties(${FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${EXAMPLES_BIN_DIR})
     install(PROGRAMS ${EXAMPLES_BIN_DIR}/${FILE_NAME} DESTINATION ${PROJECT_SOURCE_DIR}/deploy/${EXAMPLES_DIR_NAME})
 endforeach()

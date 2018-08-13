@@ -9,11 +9,13 @@ cloud_host=$CLOUD_HOST
 cloud_pwd=$CLOUD_PWD
 
 # build
+cd $proj_path
+rm -rf deploy
 mkdir -p $build_dir
-cd $proj_path/$build_dir
+cd $build_dir
 rm -rf *
 cmake ..
-cd ..
+cd -
 cmake --build $proj_path/$build_dir --target all -- -j 4
 cd -
 make install

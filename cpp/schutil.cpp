@@ -146,8 +146,10 @@ namespace crx
     {
         if (!m_impl) return;
         auto tmr_impl = std::dynamic_pointer_cast<timer_impl>(m_impl);
-        auto sch_impl = tmr_impl->sch_impl.lock();
-        sch_impl->remove_event(tmr_impl->fd);       //移除该定时器相关的监听事件
+        if (!tmr_impl->sch_impl.expired()) {
+            auto sch_impl = tmr_impl->sch_impl.lock();
+            sch_impl->remove_event(tmr_impl->fd);       //移除该定时器相关的监听事件
+        }
     }
 
     timer_wheel scheduler::get_timer_wheel(uint64_t interval, size_t slot)
@@ -231,8 +233,10 @@ namespace crx
     {
         if (!m_impl) return;
         auto ev_impl = std::dynamic_pointer_cast<event_impl>(m_impl);
-        auto sch_impl = ev_impl->sch_impl.lock();
-        sch_impl->remove_event(ev_impl->fd);    //移除该定时器相关的监听事件
+        if (!ev_impl->sch_impl.expired()) {
+            auto sch_impl = ev_impl->sch_impl.lock();
+            sch_impl->remove_event(ev_impl->fd);    //移除该定时器相关的监听事件
+        }
     }
 
     udp_ins scheduler::get_udp_ins(bool is_server, uint16_t port,
@@ -310,7 +314,9 @@ namespace crx
     {
         if (!m_impl) return;
         auto ui_impl = std::dynamic_pointer_cast<udp_ins_impl>(m_impl);
-        auto sch_impl = ui_impl->sch_impl.lock();
-        sch_impl->remove_event(ui_impl->fd);        //移除该定时器相关的监听事件
+        if (!ui_impl->sch_impl.expired()) {
+            auto sch_impl = ui_impl->sch_impl.lock();
+            sch_impl->remove_event(ui_impl->fd);        //移除该定时器相关的监听事件
+        }
     }
 }

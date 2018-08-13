@@ -58,6 +58,7 @@ namespace crx
         auto http_conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(sch_impl->m_ev_array[conn]);
         std::string http_request = std::string(method)+" "+std::string(post_page)+" HTTP/1.1\r\n";		//构造请求行
         http_request += "Host: "+http_conn->domain_name+"\r\n";		//构造请求头中的Host字段
+        http_request += "Connection: Keep-Alive\r\n";               //复用连接
 
         if (DST_NONE != ed)
             http_request += "Content-Type: "+g_ext_type[ed]+"; charset=utf-8\r\n";

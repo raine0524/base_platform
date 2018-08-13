@@ -24,18 +24,18 @@ namespace crx
         return impl->co_create(f, this, false, is_share, comment);
     }
 
-    bool scheduler::co_yield(size_t co_id, SUS_TYPE type /*= WAIT_EVENT*/)
+    void scheduler::co_yield(size_t co_id, SUS_TYPE type /*= WAIT_EVENT*/)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         if (co_id >= sch_impl->m_cos.size())
-            return false;
+            return;
 
         if (sch_impl->m_running_co == co_id)        //co_id无效或对自身进行切换，直接返回
-            return true;
+            return;
 
         auto yield_co = sch_impl->m_cos[co_id];
         if (!yield_co || CO_UNKNOWN == yield_co->status)
-            return false;               //指定协程无效或者状态指示不可用，同样不发生切换
+            return;               //指定协程无效或者状态指示不可用，同样不发生切换
 
         auto main_co = sch_impl->m_cos[0];
         auto curr_co = sch_impl->m_cos[sch_impl->m_running_co];
@@ -70,7 +70,17 @@ namespace crx
             if (__glibc_unlikely(-1 == swapcontext(&main_co->ctx, &next_co->ctx)))
                 log_error(g_lib_log, "swapcontext failed: %s\n", strerror(errno));
         }
-        return true;
+    }
+
+    void scheduler::co_sleep(int seconds)
+    {
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        if (__glibc_unlikely(0 == sch_impl->m_running_co))
+            return;
+
+        sch_impl->m_sec_wheel.add_handler((uint64_t)seconds*1000,
+                std::bind(&scheduler::co_yield, this, sch_impl->m_running_co, WAIT_EVENT));
+        co_yield(0);        //切换到主协程
     }
 
     std::vector<std::shared_ptr<coroutine>> scheduler::get_avail_cos()
