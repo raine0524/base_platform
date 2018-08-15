@@ -20,6 +20,10 @@ namespace crx
     extern log g_lib_log;
 
     extern std::unordered_map<int, std::string> g_ext_type;
+
+    extern std::map<std::string, std::string> g_ws_headers;
+
+    extern std::unordered_map<int, std::string> g_sts_desc;
 }
 
 //////////////////////////////////////////////////////////////////////////

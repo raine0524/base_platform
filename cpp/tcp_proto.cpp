@@ -73,6 +73,9 @@ namespace crx
             } //else 全部写完
         }
 
+        if (INT_MAX == sts && release_conn)     //已全部写完且要释放连接
+            return -1;
+
         auto impl = sch_impl.lock();
         if (EPOLLIN == event && 1 == sts) {     //当前监听的是可读事件且写缓冲已满，同时监听可读可写
             event = EPOLLIN | EPOLLOUT;
@@ -82,6 +85,18 @@ namespace crx
             impl->handle_event(EPOLL_CTL_MOD, fd, event);
         }
         return sts;
+    }
+
+    void tcp_event::release()
+    {
+        if (is_connect && !cache_data.empty()) {     //处于连接状态且存在待写数据
+            release_conn = true;
+            return;
+        }
+
+        //处于非连接状态或不存在待写数据,直接移除事件
+        auto impl = sch_impl.lock();
+        impl->remove_event(fd);
     }
 
     void tcp_client_conn::tcp_client_callback(uint32_t events)
@@ -213,7 +228,12 @@ namespace crx
     {
         auto tcp_impl = std::dynamic_pointer_cast<tcp_client_impl>(m_impl);
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(tcp_impl->m_util.m_sch->m_impl);
-        sch_impl->remove_event(conn);
+        if (conn < 0 || conn >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[conn])
+            return;
+
+        auto cli_conn = std::dynamic_pointer_cast<tcp_client_conn>(sch_impl->m_ev_array[conn]);
+        cli_conn->retry = 0;
+        cli_conn->release();
     }
 
     void tcp_client::send_data(int conn, const char *data, size_t len)
@@ -341,8 +361,12 @@ namespace crx
     void tcp_server::release(int conn)
     {
         auto tcp_impl = std::dynamic_pointer_cast<tcp_server_impl>(m_impl);
-        auto sch_impl = tcp_impl->sch_impl.lock();
-        sch_impl->remove_event(conn);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(tcp_impl->m_util.m_sch->m_impl);
+        if (conn < 0 || conn >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[conn])
+            return;
+
+        auto svr_conn = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
+        svr_conn->release();
     }
 
     void tcp_server::send_data(int conn, const char *data, size_t len)

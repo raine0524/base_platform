@@ -36,12 +36,25 @@ namespace crx
         //发送一次POST请求
         void POST(int conn, const char *post_page, std::map<std::string, std::string> *extra_headers,
                   const char *ext_data, size_t ext_len, EXT_DST ed = DST_JSON);
+
+        //将连接 conn 升级为websocket协议
+        void upgrade_websocket(int conn);
+    };
+
+    enum WS_TYPE
+    {
+        WS_TEXT,    //文本帧
+        WS_BIN,     //二进制帧
     };
 
     class CRX_SHARE http_server : public tcp_server
     {
     public:
         //发送http响应
-        void response(int conn, const char *ext_data, size_t ext_len, EXT_DST ed = DST_JSON);
+        void response(int conn, const char *ext_data, size_t ext_len, EXT_DST ed = DST_JSON,
+                int status = 200, std::map<std::string, std::string> *extra_headers = nullptr);
+
+        //推送数据,必须确保推送数据的连接已升级为websocket,推送数据的大小控制在32k以下
+        void notify(int conn, const char *ext_data, size_t ext_len, WS_TYPE wt = WS_TEXT);
     };
 }

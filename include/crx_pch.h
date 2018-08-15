@@ -99,7 +99,7 @@
 //////////////////////////////////////////////////////////////////////////
 //third-party open source library
 #include <openssl/md5.h>
-#include <openssl/aes.h>
+#include <openssl/sha.h>
 
 //mysql
 #include <mysql_driver.h>

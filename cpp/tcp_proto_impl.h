@@ -18,6 +18,7 @@ namespace crx
         tcp_event(SOCK_TYPE type)
         :event(EPOLLIN)
         ,is_connect(false)
+        ,release_conn(false)
         ,conn_sock(type)
         {
             stream_buffer.reserve(8192);
@@ -25,11 +26,13 @@ namespace crx
 
         int async_write(const char *data, size_t len);
 
+        void release();
+
         uint32_t event;
         std::string cache_data;     //缓存数据，等待可写事件
         std::shared_ptr<impl> ext_data;         //扩展数据
 
-        bool is_connect;
+        bool is_connect, release_conn;
         std::string ip_addr;            //转换之后的ip地址
         net_socket conn_sock;
         std::string stream_buffer;      //tcp缓冲流

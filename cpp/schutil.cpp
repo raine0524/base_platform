@@ -47,16 +47,20 @@ namespace crx
     {
         if (!m_impl) return;
         auto impl = std::dynamic_pointer_cast<sigctl_impl>(m_impl);
-        impl->handle_sig(signo, true);
-        impl->m_sig_cb[signo] = std::move(callback);
+        if (impl->m_sig_cb.end() == impl->m_sig_cb.find(signo)) {
+            impl->handle_sig(signo, true);
+            impl->m_sig_cb[signo] = std::move(callback);
+        }
     }
 
     void sigctl::remove_sig(int signo)
     {
         if (!m_impl) return;
         auto impl = std::dynamic_pointer_cast<sigctl_impl>(m_impl);
-        impl->handle_sig(signo, false);
-        impl->m_sig_cb.erase(signo);
+        if (impl->m_sig_cb.end() != impl->m_sig_cb.find(signo)) {
+            impl->handle_sig(signo, false);
+            impl->m_sig_cb.erase(signo);
+        }
     }
 
     //添加/删除信号文件描述符相关的信号掩码值时，要使新的信号集合生效，必须要重新添加该epoll上监听的signalfd

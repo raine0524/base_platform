@@ -31,6 +31,7 @@ void simple_crawler::get_web_page(std::vector<std::string>& urls)
         }, true);
 
         pout("url: %s, co_id: %lu\n", url.c_str(), co_id);
+        printf("url: %s, co_id: %lu\n", url.c_str(), co_id);
         m_co_url[co_id] = std::move(url);
         co_yield(co_id);
     }
@@ -42,8 +43,11 @@ bool simple_crawler::init(int argc, char *argv[])
             std::map<std::string, const char*>& header_kvs,
             const char* data, size_t len) {
         pout("\nresponse: %d %d\n\n", conn, status);
-        if (data)
+        printf("\nresponse: %d %d\n\n", conn, status);
+        if (data) {
             pout("%s\n", data);
+            printf("%s\n", data);
+        }
         m_http_client.release(conn);
 
         m_co_url.erase(m_conn_co[conn]);
