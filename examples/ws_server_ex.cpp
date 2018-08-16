@@ -52,7 +52,7 @@ void ws_server::notify_data(int count)
             doc.AddMember("data", rand, alloc);
             doc.Accept(writer);
             printf("notify:  %s\n", buffer.GetString());
-            m_server.notify(m_conn, buffer.GetString(), buffer.GetLength());
+            m_server.notify(m_conn, buffer.GetString(), buffer.GetSize());
 
             doc.RemoveAllMembers();
             buffer.Clear();

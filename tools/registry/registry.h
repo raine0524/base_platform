@@ -19,8 +19,13 @@ struct conn_info
 class registry : public crx::console
 {
 public:
-    registry() : m_seria(true) {}
-    virtual ~registry() override = default;
+    registry() : m_fp(nullptr), m_seria(true) {}
+
+    virtual ~registry() override
+    {
+        if (m_fp)
+            fclose(m_fp);
+    }
 
 public:
     bool init(int argc, char **argv) override;
@@ -54,16 +59,22 @@ private:
 
     bool check_connect_cmd(std::vector<std::string>& args);
 
-private:
-    crx::xml_parser m_xml;
-    std::map<int, size_t> m_conn_node;            //在线节点的映射表
-    std::vector<std::shared_ptr<node_info>> m_nodes;        //所有节点
-    std::map<std::string, size_t> m_node_idx;
-    std::list<size_t> m_node_uslots;        //节点数组中未使用的槽
+    void flush_json();
 
-    std::vector<std::shared_ptr<conn_info>> m_conns;        //所有连接
+private:
+    char m_write_buffer[1024];
+    rapidjson::Document m_doc;
+    rapidjson::PrettyWriter<rapidjson::FileWriteStream> m_writer;
+    FILE *m_fp;
+
+    std::vector<std::shared_ptr<node_info>> m_nodes;    //所有节点
+    std::list<size_t> m_node_uslots;                    //节点数组中未使用的槽
+    std::map<int, size_t> m_conn_node;                  //在线节点的映射表
+    std::map<std::string, size_t> m_node_idx;
+
+    std::vector<std::shared_ptr<conn_info>> m_conns;    //所有连接
+    std::list<size_t> m_conn_uslots;                    //连接数组中未使用的槽
     std::map<std::string, size_t> m_conn_idx;
-    std::list<size_t> m_conn_uslots;        //连接数组中未使用的槽
 
     crx::seria m_seria;
     crx::tcp_server m_tcp_server;

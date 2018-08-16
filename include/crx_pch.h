@@ -115,7 +115,10 @@
 #include "rapidjson/document.h"
 #include "rapidjson/reader.h"
 #include "rapidjson/writer.h"
+#include "rapidjson/prettywriter.h"
 #include "rapidjson/stringbuffer.h"
+#include "rapidjson/filereadstream.h"
+#include "rapidjson/filewritestream.h"
 
 using namespace std::placeholders;
 
@@ -176,10 +179,7 @@ namespace crx
 #include "kbase/base_util.h"
 #include "kbase/ini.h"
 #include "kbase/logger.h"
-#include "kbase/tinyxml2.h"
 #include "kbase/serialize.h"
-#include "kbase/xml.h"
-#include "kbase/statis.h"
 #include "kbase/schutil.h"
 #include "kbase/tcp_proto.h"
 #include "kbase/http_proto.h"

@@ -277,72 +277,82 @@ bool registry::init(int argc, char *argv[])
     m_tcp_server = get_tcp_server((uint16_t)listen, std::bind(&registry::tcp_server_callback, this, _1, _2, _3, _4, _5));
     register_tcp_hook(false, [](int conn, char *data, size_t len) { return crx::simpack_protocol(data, len); });
 
-    const char *xml_conf = "ini/node_conf.xml";
-    if (access(xml_conf, F_OK)) {        //不存在则创建
-        FILE *fp = fopen(xml_conf, "w");
-        fputs("<config><node></node><conn></conn></config>", fp);
-        fclose(fp);
+    const char *json_conf = "ini/node_conf.json";
+    if (access(json_conf, F_OK)) {        //不存在则创建
+        m_fp = fopen(json_conf, "w");
+        m_doc.Parse("{\"node\": {}, \"conn\": {}}");
+    } else {
+        int file_size = crx::get_file_size(json_conf);
+        std::string read_buffer(file_size+1, 0);
+        m_fp = fopen(json_conf, "r");
+        rapidjson::FileReadStream is(m_fp, &read_buffer[0], read_buffer.size());
+        m_doc.ParseStream(is);
+        fclose(m_fp);
+        m_fp = fopen(json_conf, "w");
     }
 
-    m_xml.load(xml_conf, "config");
-    if (m_xml.find_child("node")) {
-        m_xml.switch_child("node");
-        m_xml.for_each_child([&](std::string& name, std::string& value, std::map<std::string, std::string>& attrs) {
-            if (m_node_idx.end() != m_node_idx.find(name)) {
-                std::cout<<"[init]节点 "<<name<<" 已存在，不再重复添加"<<std::endl;
-                return;
+    flush_json();
+    if (m_doc.HasMember("node")) {
+        for (auto& m : m_doc["node"].GetObject()) {
+            const char *node_name = m.name.GetString();
+            if (m_node_idx.end() != m_node_idx.find(node_name)) {
+                std::cout<<"[init]节点 "<<node_name<<" 已存在，不再重复添加"<<std::endl;
+                return false;
             }
 
             auto node = std::make_shared<node_info>();
-            node->info.name = std::move(name);
-            node->info.role = std::move(attrs["role"]);
+            node->info.name = node_name;
+            node->info.role = m.value["role"].GetString();
             node->info.conn = -1;       //-1表示节点还未上线
             m_node_idx[node->info.name] = m_nodes.size();
             m_nodes.push_back(std::move(node));
-        });
-        m_xml.switch_parent();
+        }
     }
 
-    if (m_xml.find_child("conn")) {
-        m_xml.switch_child("conn");
-        m_xml.for_each_child([&](std::string& name, std::string& value, std::map<std::string, std::string>& attrs) {
-            if (2 != attrs.size()) {
-                std::cout<<"[init]连接 "<<name<<" 属性非法，过滤该连接信息"<<std::endl;
-                return;
-            }
-
-            auto& cli = attrs["cli"];
-            auto cli_it = m_node_idx.find(cli);
+    if (m_doc.HasMember("conn")) {
+        for (auto& m : m_doc["conn"].GetObject()) {
+            const char *conn_name = m.name.GetString();
+            auto cli_it = m_node_idx.find(m.value["cli"].GetString());
             if (m_node_idx.end() == cli_it) {
-                std::cout<<"[init]连接 "<<name<<" 指定的client节点不存在"<<std::endl;
-                return;
+                std::cout<<"[init]连接 "<<conn_name<<" 指定的client节点不存在"<<std::endl;
+                return false;
             }
 
-            auto& svr = attrs["svr"];
-            auto svr_it = m_node_idx.find(svr);
+            auto svr_it = m_node_idx.find(m.value["svr"].GetString());
             if (m_node_idx.end() == svr_it) {
-                std::cout<<"[init]连接 "<<name<<" 指定的server节点不存在"<<std::endl;
-                return;
+                std::cout<<"[init]连接 "<<conn_name<<" 指定的server节点不存在"<<std::endl;
+                return false;
             }
 
-            auto rev_mangle = svr+"-"+cli;
+            auto rev_mangle = svr_it->first+"-"+cli_it->first;
             if (m_conn_idx.end() != m_conn_idx.find(rev_mangle)) {
-                std::cout<<"[init]反向连接 "<<svr<<"(主动) <-----> "<<cli<<"(被动) 已存在"<<std::endl;
-                return;
+                std::cout<<"[init]反向连接 "<<svr_it->first<<"(主动) <-----> "<<cli_it->first<<"(被动) 已存在"<<std::endl;
+                return false;
             }
 
-            auto conn = std::make_shared<conn_info>();
+            m_conn_idx[conn_name] = m_conns.size();
+            m_conns.emplace_back();
+            auto& conn = m_conns.back();
             conn->cli_idx = cli_it->second;
             conn->svr_idx = svr_it->second;
             conn->online = false;
-            m_conn_idx[name] = m_conns.size();
-            m_conns.push_back(std::move(conn));
+
             m_nodes[cli_it->second]->servers.insert(svr_it->second);
             m_nodes[svr_it->second]->clients.insert(cli_it->second);
-        });
-        m_xml.switch_parent();
+        }
     }
     return true;
+}
+
+void registry::flush_json()
+{
+    fseek(m_fp, 0, SEEK_SET);
+    ftruncate(m_fp->_fileno, 0);
+
+    rapidjson::FileWriteStream os(m_fp, m_write_buffer, sizeof(m_write_buffer));
+    m_writer.Reset(os);
+    m_doc.Accept(m_writer);
+    fflush(m_fp);
 }
 
 void registry::add_node(std::vector<std::string>& args)
@@ -390,11 +400,12 @@ void registry::add_node(std::vector<std::string>& args)
     }
     std::cout<<"[add_node] 节点 "<<name_it->second<<" 创建成功！"<<std::endl;
 
-    m_xml.switch_child("node");
-    m_xml.set_child(name_it->second.c_str(), nullptr, false);
-    m_xml.switch_child(name_it->second.c_str());
-    m_xml.set_attribute("role", role_it->second.c_str());
-    m_xml.switch_parent().switch_parent();
+    rapidjson::Document::AllocatorType& alloc = m_doc.GetAllocator();
+    m_doc["node"].AddMember(rapidjson::Value().SetString(name_it->second.c_str(),
+            (unsigned)name_it->second.size(), alloc), rapidjson::Value().SetObject(), alloc);
+    m_doc["node"][name_it->second.c_str()].AddMember("role", rapidjson::Value().SetString(role_it->second.c_str(),
+            (unsigned)role_it->second.size(), alloc), alloc);
+    flush_json();
 }
 
 void registry::del_node(std::vector<std::string>& args)
@@ -409,7 +420,6 @@ void registry::del_node(std::vector<std::string>& args)
 
         //删除该节点前把所有与该节点相关的连接都断开
         auto& node = m_nodes[idx_it->second];
-        m_xml.switch_child("conn");
         for (auto& cli : node->clients) {
             auto conn_mangle = m_nodes[cli]->info.name+"-"+arg;
             auto conn_it = m_conn_idx.find(conn_mangle);
@@ -418,8 +428,9 @@ void registry::del_node(std::vector<std::string>& args)
                 m_conn_idx.erase(conn_it);
                 m_conn_uslots.push_back(conn_it->second);
             }
-            if (m_xml.find_child(conn_mangle.c_str()))
-                m_xml.delete_child(conn_mangle.c_str(), false);
+
+            if (m_doc["conn"].HasMember(conn_mangle.c_str()))
+                m_doc["conn"].RemoveMember(conn_mangle.c_str());
             std::cout<<"[del_node] 连接 "<<m_nodes[cli]->info.name<<"(主动) <-----> "<<arg<<"(被动) 断开！"<<std::endl;
         }
 
@@ -431,25 +442,22 @@ void registry::del_node(std::vector<std::string>& args)
                 m_conn_idx.erase(conn_it);
                 m_conn_uslots.push_back(conn_it->second);
             }
-            if (m_xml.find_child(conn_mangle.c_str()))
-                m_xml.delete_child(conn_mangle.c_str(), false);
+
+            if (m_doc["conn"].HasMember(conn_mangle.c_str()))
+                m_doc["conn"].RemoveMember(conn_mangle.c_str());
             std::cout<<"[del_node] 连接 "<<arg<<"(主动) <-----> "<<m_nodes[svr]->info.name<<"(被动) 断开！"<<std::endl;
         }
-        m_xml.switch_parent();
         m_nodes[idx_it->second].reset();
         m_node_idx.erase(idx_it);
         m_node_uslots.push_back(idx_it->second);
 
-        m_xml.switch_child("node");
-        if (m_xml.find_child(arg.c_str()))
-            m_xml.delete_child(arg.c_str(), false);
-        m_xml.switch_parent();
-
+        if (m_doc["node"].HasMember(arg.c_str()))
+            m_doc["node"].RemoveMember(arg.c_str());
         std::cout<<"[del_node] 节点 "<<arg<<" 删除成功！"<<std::endl;
         del_occur = true;
     }
     if (del_occur)
-        m_xml.flush();
+        flush_json();
 }
 
 bool registry::check_connect_cmd(std::vector<std::string>& args)
@@ -504,12 +512,14 @@ void registry::cst_conn(std::vector<std::string>& args)
         m_conns[slot] = std::move(conn);
     }
 
-    m_xml.switch_child("conn");
-    m_xml.set_child(conn_mangle1.c_str(), nullptr, false);
-    m_xml.switch_child(conn_mangle1.c_str());
-    m_xml.set_attribute("cli", args[0].c_str(), false);
-    m_xml.set_attribute("svr", args[1].c_str());
-    m_xml.switch_parent().switch_parent();
+    rapidjson::Document::AllocatorType& alloc = m_doc.GetAllocator();
+    m_doc["conn"].AddMember(rapidjson::Value().SetString(conn_mangle1.c_str(),
+            (unsigned)conn_mangle1.size(), alloc), rapidjson::Value().SetObject(), alloc);
+    m_doc["conn"][conn_mangle1.c_str()].AddMember("cli", rapidjson::Value().SetString(args[0].c_str(),
+            (unsigned)args[0].size(), alloc), alloc);
+    m_doc["conn"][conn_mangle1.c_str()].AddMember("svr", rapidjson::Value().SetString(args[1].c_str(),
+            (unsigned)args[1].size(), alloc), alloc);
+    flush_json();
     std::cout<<"[cst_conn] 连接 "<<args[0]<<"(主动) <-----> "<<args[1]<<"(被动) 创建成功！"<<std::endl;
 }
 
@@ -534,9 +544,8 @@ void registry::dst_conn(std::vector<std::string>& args)
     m_conn_idx.erase(conn_it);
     m_conn_uslots.push_back(conn_it->second);
 
-    m_xml.switch_child("conn");
-    m_xml.delete_child(conn_mangle.c_str());
-    m_xml.switch_parent();
+    m_doc["conn"].RemoveMember(conn_mangle.c_str());
+    flush_json();
     std::cout<<"[dst_conn] 连接 "<<args[0]<<"(主动) <-----> "<<args[1]<<"(被动) 断开！"<<std::endl;
 }
 

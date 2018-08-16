@@ -100,7 +100,7 @@ void http_plot::plot_2d_func()
 
         doc.Accept(writer);
         int conn = m_client.connect("127.0.0.1", 19915);
-        m_client.POST(conn, "/plot/create", &m_ext_headers, buffer.GetString(), buffer.GetLength());
+        m_client.POST(conn, "/plot/create", &m_ext_headers, buffer.GetString(), buffer.GetSize());
         co_sleep(1);
 
         double dt = 8.0/50;
@@ -123,7 +123,7 @@ void http_plot::plot_2d_func()
             writer.Reset(buffer);
             doc.Accept(writer);
 
-            m_client.POST(conn, "/plot/append", &m_ext_headers, buffer.GetString(), buffer.GetLength());
+            m_client.POST(conn, "/plot/append", &m_ext_headers, buffer.GetString(), buffer.GetSize());
             co_sleep(1);
         }
 
@@ -194,7 +194,7 @@ void http_plot::plot_3d_func()
 
         doc.Accept(writer);
         int conn = m_client.connect("127.0.0.1", 19915);
-        m_client.POST(conn, "/plot/create", &m_ext_headers, buffer.GetString(), buffer.GetLength());
+        m_client.POST(conn, "/plot/create", &m_ext_headers, buffer.GetString(), buffer.GetSize());
         co_sleep(1);
 
         std::vector<double> last_point, curr_point(3, 0.0);
@@ -218,7 +218,7 @@ void http_plot::plot_3d_func()
             writer.Reset(buffer);
             doc.Accept(writer);
 
-            m_client.POST(conn, "/plot/append", &m_ext_headers, buffer.GetString(), buffer.GetLength());
+            m_client.POST(conn, "/plot/append", &m_ext_headers, buffer.GetString(), buffer.GetSize());
             last_point = curr_point;
             co_sleep(1);
         }
