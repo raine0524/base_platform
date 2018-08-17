@@ -2,6 +2,26 @@
 
 namespace crx
 {
+    simp_buffer::simp_buffer()
+    {
+        simp_header stub_header;
+        Push(sizeof(simp_header));
+        memcpy(stack_.Bottom<char>(), &stub_header, sizeof(stub_header));
+    }
+
+    void simp_buffer::append_zero()
+    {
+        *Push(1) = 0;
+    }
+
+    void simp_buffer::reset()
+    {
+        size_t size = GetSize();
+        assert(size >= sizeof(simp_header));
+        if (size > sizeof(simp_header))
+            Pop(size-sizeof(simp_header));
+    }
+
     simpack_server
     scheduler::get_simpack_server(
             std::function<void(const crx::server_info&)> on_connect,
@@ -75,19 +95,26 @@ namespace crx
             auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
             tcp_ev->ext_data = xutil;
 
-            uint16_t net_port = htons((uint16_t)xutil->listen);
-            simp_impl->m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
-            simp_impl->m_seria.insert("name", xutil->info.name.c_str(), xutil->info.name.size());
-            auto ref = simp_impl->m_seria.get_string();
+            simp_impl->m_write_doc.SetObject();
+            Document::AllocatorType& alloc = simp_impl->m_write_doc.GetAllocator();
+            simp_impl->m_write_doc.AddMember("port", xutil->listen, alloc);
+            simp_impl->m_write_doc.AddMember("name", Value().SetString(xutil->info.name.c_str(),
+                    (unsigned)xutil->info.name.size()), alloc);
+            simp_impl->m_write_doc.Accept(simp_impl->m_writer);
+
+            simp_impl->m_write_buf.append_zero();
+            const char *data = simp_impl->m_write_buf.GetString();
+            size_t len = simp_impl->m_write_buf.GetSize();
 
             //setup header
-            auto header = (simp_header*)ref.data;
-            header->length = htonl((uint32_t)(ref.len-sizeof(simp_header)));
+            auto header = (simp_header*)data;
+            header->length = htonl((uint32_t)(len-sizeof(simp_header)));
             header->cmd = htons(CMD_REG_NAME);
 
-            simp_impl->m_reg_str = std::string(ref.data, ref.len);
-            simp_impl->m_client.send_data(conn, ref.data, ref.len);
-            simp_impl->m_seria.reset();
+            simp_impl->m_reg_str = std::string(data, len);
+            simp_impl->m_client.send_data(conn, data, len);
+            simp_impl->m_write_buf.reset();
+            simp_impl->m_writer.Reset(simp_impl->m_write_buf);
         }
 
         obj.m_impl = impl = simp_impl;
@@ -132,15 +159,19 @@ namespace crx
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
         simp_header *header = nullptr;
         size_t total_len = len;
-        if (len >= 4 && htonl(0x5f3759df) == *(uint32_t*)data) {    //上层使用的是基于simp协议的序列化组件seria
+        if (len >= 4 && htonl(0x5f3759df) == *(uint32_t*)data) {    //上层使用的是基于simp协议的序列化组件simp_buffer
             header = (simp_header*)data;
             header->length = htonl((uint32_t)(len-sizeof(simp_header)));
         } else {
-            m_simp_buf.resize(sizeof(simp_header));
-            m_simp_buf.append(data, len);
-            header = (simp_header*)&m_simp_buf[0];
-            header->length = htonl((uint32_t)len);
-            total_len = len+sizeof(simp_header);
+            m_write_buf.reset();
+            char *body = m_write_buf.stack_.End<char>();
+            m_write_buf.Push(len);
+            memcpy(body, data, len);
+            m_write_buf.append_zero();
+
+            header = (simp_header*)m_write_buf.GetString();
+            header->length = htonl((uint32_t)len+1);        //包含最后一个0字节
+            total_len = len+sizeof(simp_header)+1;
         }
 
         header->type = htons(cmd.type);
@@ -240,11 +271,11 @@ namespace crx
             const std::string &ip, uint16_t port, char *data, size_t len)
     {
         auto header = (simp_header*)data;
-        auto kvs = m_seria.dump(data+sizeof(simp_header), len-sizeof(simp_header));
+        m_read_doc.ParseInsitu(data+sizeof(simp_header));
         if (registry) {       //与registry建立的连接
             switch (m_app_cmd.cmd) {
-                case CMD_REG_NAME:      handle_reg_name(conn, header->token, kvs, xutil);   break;
-                case CMD_SVR_ONLINE:    handle_svr_online(header->token, kvs);              break;
+                case CMD_REG_NAME:      handle_reg_name(conn, header->token, xutil);   break;
+                case CMD_SVR_ONLINE:    handle_svr_online(header->token);              break;
                 default: {
                     log_error(g_lib_log, "invalid cmd = %d\n", m_app_cmd.cmd);
                     break;
@@ -262,9 +293,9 @@ namespace crx
         switch (m_app_cmd.cmd) {
             case CMD_HELLO: {
                 if (1 == m_app_cmd.type)
-                    handle_hello_request(conn, ip, port, header->token, kvs);
+                    handle_hello_request(conn, ip, port, header->token);
                 else if (2 == m_app_cmd.type)
-                    handle_hello_response(conn, header->token, kvs);
+                    handle_hello_response(conn, header->token);
                 break;
             }
             case CMD_GOODBYE:       handle_goodbye(conn);                               break;
@@ -275,13 +306,11 @@ namespace crx
         }
     }
 
-    void simpack_server_impl::handle_reg_name(int conn, unsigned char *token, std::map<std::string, mem_ref>& kvs,
-            std::shared_ptr<simpack_xutil>& xutil)
+    void simpack_server_impl::handle_reg_name(int conn, unsigned char *token, std::shared_ptr<simpack_xutil>& xutil)
     {
-        auto res_it = kvs.find("result");
-        uint8_t result = *(uint8_t*)res_it->second.data;
+        int result = m_read_doc["result"].GetInt();
         if (result) {    //失败
-            log_error(g_lib_log, "pronounce failed: %s\n", kvs["error_info"].data);
+            log_error(g_lib_log, "pronounce failed: %s\n", m_read_doc["error_info"].GetString());
             m_client.release(conn);
             return;
         }
@@ -295,41 +324,36 @@ namespace crx
             m_reg_conn = conn;
         }
 
-        auto role_it = kvs.find("role");        //registry一定会返回当前节点的role
-        std::string role(role_it->second.data, role_it->second.len);
-        log_info(g_lib_log, "pronounce succ: role=%s\n", role.c_str());
-        xutil->info.role = std::move(role);
+        const char *role = m_read_doc["role"].GetString();      //r当前节点的role
+        log_info(g_lib_log, "pronounce succ: role=%s\n", role);
+        xutil->info.role = role;
 
-        auto clients_it = kvs.find("clients");
-        if (kvs.end() != clients_it) {
-            std::string clients(clients_it->second.data, clients_it->second.len);
-            log_info(g_lib_log, "pronounce succ: clients=%s\n", clients.c_str());
-            auto client_ref = split(clients.c_str(), clients.size(), ",");
-            for (auto& ref : client_ref)
-                xutil->clients.emplace(ref.data, ref.len);
-        }
+        for (auto& cli : m_read_doc["clients"].GetArray())
+            xutil->clients.emplace(cli.GetString());
         memcpy(xutil->token, token, 16);    //保存该token用于与其他服务之间的通信
 
         //让registry通知所有连接该服务的主动方发起连接或是让本服务连接所有的被动方
-        m_seria.insert("name", xutil->info.name.c_str(), xutil->info.name.size());
-        auto ref = m_seria.get_string();
+        m_write_doc.SetObject();
+        Document::AllocatorType& alloc = m_write_doc.GetAllocator();
+        m_write_doc.AddMember("name", Value().SetString(xutil->info.name.c_str(),
+                (unsigned)xutil->info.name.size()), alloc);
+        m_write_doc.Accept(m_writer);
+
+        m_write_buf.append_zero();
         bzero(&m_app_cmd, sizeof(m_app_cmd));
         m_app_cmd.cmd = CMD_SVR_ONLINE;
-        send_package(3, m_reg_conn, m_app_cmd, true, xutil->token, ref.data, ref.len);
-        m_seria.reset();
+        send_package(3, m_reg_conn, m_app_cmd, true, xutil->token, m_write_buf.GetString(), m_write_buf.GetSize());
+        m_write_buf.reset();
+        m_writer.Reset(m_write_buf);
     }
 
-    void simpack_server_impl::handle_svr_online(unsigned char *token, std::map<std::string, mem_ref>& kvs)
+    void simpack_server_impl::handle_svr_online(unsigned char *token)
     {
-        auto name_it = kvs.find("name");
-        std::string svr_name(name_it->second.data, name_it->second.len);
-
-        auto ip_it = kvs.find("ip");
-        std::string ip(ip_it->second.data, ip_it->second.len);
-        uint16_t port = ntohs(*(uint16_t*)kvs["port"].data);
+        const char *ip = m_read_doc["ip"].GetString();
+        uint16_t port = (uint16_t)m_read_doc["port"].GetInt();
 
         //握手
-        int conn = m_client.connect(ip.c_str(), port);
+        int conn = m_client.connect(ip, port);
         if (conn < 0) {
             log_error(g_lib_log, "connect to other service failed: %d\n", conn);
             return;
@@ -340,7 +364,7 @@ namespace crx
         auto xutil = std::make_shared<simpack_xutil>();
         tcp_ev->ext_data = xutil;
         xutil->info.conn = conn;
-        xutil->info.ip = std::move(ip);
+        xutil->info.ip = ip;
         xutil->info.port = port;
 
         if (m_reg_conn < 0 || m_reg_conn >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[m_reg_conn])
@@ -348,19 +372,25 @@ namespace crx
 
         auto reg_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[m_reg_conn]);
         auto reg_xutil = std::dynamic_pointer_cast<simpack_xutil>(reg_ev->ext_data);
-        m_seria.insert("name", reg_xutil->info.name.c_str(), reg_xutil->info.name.size());
-        m_seria.insert("role", reg_xutil->info.role.c_str(), reg_xutil->info.role.size());
 
-        auto ref = m_seria.get_string();
+        m_write_doc.SetObject();
+        Document::AllocatorType& alloc = m_write_doc.GetAllocator();
+        m_write_doc.AddMember("name", Value().SetString(reg_xutil->info.name.c_str(),
+                (unsigned)reg_xutil->info.name.size()), alloc);
+        m_write_doc.AddMember("role", Value().SetString(reg_xutil->info.role.c_str(),
+                (unsigned)reg_xutil->info.role.size()), alloc);
+        m_write_doc.Accept(m_writer);
+
+        m_write_buf.append_zero();
         bzero(&m_app_cmd, sizeof(m_app_cmd));
         m_app_cmd.cmd = CMD_HELLO;
         m_app_cmd.type = 1;
-        send_package(1, conn, m_app_cmd, true, token, ref.data, ref.len);
-        m_seria.reset();
+        send_package(1, conn, m_app_cmd, true, token, m_write_buf.GetString(), m_write_buf.GetSize());
+        m_write_buf.reset();
+        m_writer.Reset(m_write_buf);
     }
 
-    void simpack_server_impl::handle_hello_request(int conn, const std::string &ip, uint16_t port,
-            unsigned char *token, std::map<std::string, mem_ref>& kvs)
+    void simpack_server_impl::handle_hello_request(int conn, const std::string &ip, uint16_t port, unsigned char *token)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
         if (m_reg_conn < 0 || m_reg_conn >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[m_reg_conn])
@@ -373,18 +403,18 @@ namespace crx
             return;
         }
 
-        auto name_it = kvs.find("name");
-        std::string cli_name(name_it->second.data, name_it->second.len);
-
-        auto role_it = kvs.find("role");
-        std::string cli_role(role_it->second.data, role_it->second.len);
+        const char *cli_name = m_read_doc["name"].GetString();
+        const char *cli_role = m_read_doc["role"].GetString();
 
         bool client_valid = reg_xutil->clients.end() != reg_xutil->clients.find(cli_name);
         log_info(g_lib_log, "client %s[%s], conn=%d, ip=%s, port=%u say hello to me, valid=%d\n",
-                cli_name.c_str(), cli_role.c_str(), conn, ip.c_str(), port, client_valid);
+                cli_name, cli_role, conn, ip.c_str(), port, client_valid);
 
         unsigned char *new_token = nullptr;
         std::shared_ptr<simpack_xutil> ord_xutil;
+        m_write_doc.SetObject();
+        Document::AllocatorType& alloc = m_write_doc.GetAllocator();
+
         if (client_valid) {
             auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
             tcp_ev->ext_data = ord_xutil = std::make_shared<simpack_xutil>();
@@ -403,43 +433,51 @@ namespace crx
             new_token = ord_xutil->token;
 
             m_on_connect(ord_xutil->info);
-            m_seria.insert("name", reg_xutil->info.name.c_str(), reg_xutil->info.name.size());
-            m_seria.insert("role", reg_xutil->info.role.c_str(), reg_xutil->info.role.size());
+            m_write_doc.AddMember("name", Value().SetString(reg_xutil->info.name.c_str(),
+                    (unsigned)reg_xutil->info.name.size()), alloc);
+            m_write_doc.AddMember("role", Value().SetString(reg_xutil->info.role.c_str(),
+                    (unsigned)reg_xutil->info.role.size()), alloc);
         } else {
-            std::string error_info = "unknown name ";
-            error_info.append(cli_name).push_back(0);
-            m_seria.insert("error_info", error_info.c_str(), error_info.size());
+            std::string error_info = std::string("unknown name ")+cli_name;
+            m_write_doc.AddMember("error_info", Value().SetString(error_info.c_str(),
+                    (unsigned)error_info.size()), alloc);
         }
 
-        uint8_t result = (uint8_t)(client_valid ? 0 : 1);
-        m_seria.insert("result", (const char*)&result, sizeof(result));
+        m_write_doc.AddMember("result", client_valid ? 0 : 1, alloc);
+        m_write_doc.Accept(m_writer);
+        m_write_buf.append_zero();
+
         bzero(&m_app_cmd, sizeof(m_app_cmd));
         m_app_cmd.cmd = CMD_HELLO;
         m_app_cmd.type = 2;     //响应
-
-        auto ref = m_seria.get_string();
-        send_package(2, conn, m_app_cmd, true, new_token, ref.data, ref.len);
-        m_seria.reset();
+        send_package(2, conn, m_app_cmd, true, new_token, m_write_buf.GetString(), m_write_buf.GetSize());
+        m_write_buf.reset();
+        m_writer.Reset(m_write_buf);
 
         if (client_valid) {     //通知registry连接建立
-            m_seria.insert("client", ord_xutil->info.name.c_str(), ord_xutil->info.name.size());
-            m_seria.insert("server", reg_xutil->info.name.c_str(), reg_xutil->info.name.size());
+            m_write_doc.SetObject();
+            m_write_doc.AddMember("client", Value().SetString(ord_xutil->info.name.c_str(),
+                    (unsigned)ord_xutil->info.name.size()), alloc);
+            m_write_doc.AddMember("server", Value().SetString(reg_xutil->info.name.c_str(),
+                    (unsigned)reg_xutil->info.name.size()), alloc);
+            m_write_doc.Accept(m_writer);
+            m_write_buf.append_zero();
 
-            auto nfy_ref = m_seria.get_string();
             bzero(&m_app_cmd, sizeof(m_app_cmd));
             m_app_cmd.cmd = CMD_CONN_CON;
-            send_package(1, reg_xutil->info.conn, m_app_cmd, true, reg_xutil->token, nfy_ref.data, nfy_ref.len);
-            m_seria.reset();
+            send_package(1, reg_xutil->info.conn, m_app_cmd, true, reg_xutil->token,
+                    m_write_buf.GetString(), m_write_buf.GetSize());
+            m_write_buf.reset();
+            m_writer.Reset(m_write_buf);
         }
     }
 
-    void simpack_server_impl::handle_hello_response(int conn, unsigned char *token, std::map<std::string, mem_ref>& kvs)
+    void simpack_server_impl::handle_hello_response(int conn, unsigned char *token)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);
-        auto res_it = kvs.find("result");
-        uint8_t result = *(uint8_t*)res_it->second.data;
+        int result = m_read_doc["result"].GetInt();
         if (result) {
-            log_error(g_lib_log, "say hello with error response: %s\n", kvs["error_info"].data);
+            log_error(g_lib_log, "say hello with error response: %s\n", m_read_doc["error_info"].GetString());
             sch_impl->remove_event(conn);
             return;
         }
@@ -447,10 +485,8 @@ namespace crx
         auto tcp_ev = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
         auto xutil = std::dynamic_pointer_cast<simpack_xutil>(tcp_ev->ext_data);
         m_ordinary_conn.insert(conn);
-        auto name_it = kvs.find("name");
-        xutil->info.name = std::string(name_it->second.data, name_it->second.len);
-        auto role_it = kvs.find("role");
-        xutil->info.role = std::string(role_it->second.data, role_it->second.len);
+        xutil->info.name = m_read_doc["name"].GetString();
+        xutil->info.role = m_read_doc["role"].GetString();
         memcpy(xutil->token, token, 16);
 
         if ("__log_server__" == xutil->info.role) {
@@ -482,12 +518,19 @@ namespace crx
     void simpack_server_impl::say_goodbye(std::shared_ptr<simpack_xutil>& xutil)
     {
         //挥手
-        m_seria.insert("name", xutil->info.name.c_str(), xutil->info.name.size());
-        auto ref = m_seria.get_string();
+        m_write_doc.SetObject();
+        Document::AllocatorType& alloc = m_write_doc.GetAllocator();
+        m_write_doc.AddMember("name", Value().SetString(xutil->info.name.c_str(),
+                (unsigned)xutil->info.name.size()), alloc);
+        m_write_doc.Accept(m_writer);
+        m_write_buf.append_zero();
+
         bzero(&m_app_cmd, sizeof(m_app_cmd));
         m_app_cmd.cmd = CMD_GOODBYE;
-        send_package(3, xutil->info.conn, m_app_cmd, true, xutil->token, ref.data, ref.len);
-        m_seria.reset();
+        send_package(3, xutil->info.conn, m_app_cmd, true, xutil->token,
+                m_write_buf.GetString(), m_write_buf.GetSize());
+        m_write_buf.reset();
+        m_writer.Reset(m_write_buf);
 
         //通知服务下线之后断开对应连接
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_sch->m_impl);

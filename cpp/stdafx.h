@@ -28,7 +28,6 @@ namespace crx
 
 //////////////////////////////////////////////////////////////////////////
 //kbase library (self custome implementation)
-#include "../include/msgpack.hpp"
 #include "net_base.h"
 #include "scheduler_impl.h"
 #include "schutil_impl.h"

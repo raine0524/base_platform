@@ -5,7 +5,12 @@ project(base_platform)
 
 add_compile_options(-std=c++11)
 
-include_directories(include cpp)
+include_directories(
+        include cpp
+        extras/googletest/1.8.0/include
+)
+
+link_directories(extras/googletest/1.8.0/lib)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0 -Wno-unused-result \
 -D__FILENAME__='\"$(notdir $<)\"'")
@@ -32,6 +37,10 @@ set_target_properties(${LIB_NAME} PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${PROJECT_
 install(DIRECTORY include/ DESTINATION ${PROJECT_SOURCE_DIR}/deploy/depends/${LIB_NAME}/${LIB_VERSION}/include)
 set(LIBRARY_INSTALL_PATH ${PROJECT_SOURCE_DIR}/deploy/depends/${LIB_NAME}/${LIB_VERSION}/lib)
 install(TARGETS ${LIB_NAME} LIBRARY DESTINATION ${LIBRARY_INSTALL_PATH})
+
+# 安装googletest, cpp相关的项目都使用其作为测试框架
+set(GOOGLETEST_DIR_NAME googletest)
+install(DIRECTORY extras/${GOOGLETEST_DIR_NAME}/ DESTINATION ${PROJECT_SOURCE_DIR}/deploy/depends/${GOOGLETEST_DIR_NAME})
 
 set(CMAKE_INSTALL_RPATH ${LIBRARY_INSTALL_PATH})
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)

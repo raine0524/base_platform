@@ -8,7 +8,6 @@ public:
     log_server() = default;
     virtual ~log_server() override = default;
 
-public:
     bool init(int argc, char **argv) override;
 
     void destroy() override {}
@@ -25,7 +24,7 @@ private:
     void on_notify(const crx::server_info& info, const crx::server_cmd& cmd, char *data, size_t len);
 
 private:
-    crx::seria m_seria;
+    Document m_doc;
     crx::simpack_server m_server;
 
     std::string m_root_dir;

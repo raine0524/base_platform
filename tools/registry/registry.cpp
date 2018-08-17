@@ -10,10 +10,8 @@ void registry::tcp_server_callback(int conn, const std::string& ip, uint16_t por
         }
 
         auto header = (crx::simp_header*)data;          //协议头
-        auto body = data+header_len;
-        auto body_len = len-header_len;
-        auto kvs = m_seria.dump(body, body_len);
-        if (kvs.empty()) {
+        m_read_doc.ParseInsitu(data+header_len);
+        if (m_read_doc.Empty()) {
             printf("empty request body\n");
             return;
         }
@@ -34,12 +32,12 @@ void registry::tcp_server_callback(int conn, const std::string& ip, uint16_t por
         }
 
         switch (cmd) {
-            case CMD_REG_NAME:      register_server(conn, ip, port, kvs);           break;
-            case CMD_SVR_ONLINE:    notify_server_online(conn, kvs);                break;
-            case CMD_CONN_CON:      notify_connect_msg(true, kvs);                  break;
-            case CMD_CONN_DES:      notify_connect_msg(false, kvs);                 break;
-            case CMD_GOODBYE:       server_offline(conn, kvs);                      break;
-            default:                printf("unknown cmd=%d\n", header->cmd);        break;
+            case CMD_REG_NAME:      register_server(conn, ip, port);            break;
+            case CMD_SVR_ONLINE:    notify_server_online(conn);                 break;
+            case CMD_CONN_CON:      notify_connect_msg(true);                   break;
+            case CMD_CONN_DES:      notify_connect_msg(false);                  break;
+            case CMD_GOODBYE:       server_offline(conn);                       break;
+            default:                printf("unknown cmd=%d\n", header->cmd);    break;
         }
     } else {
         auto conn_it = m_conn_node.find(conn);
@@ -55,42 +53,31 @@ void registry::tcp_server_callback(int conn, const std::string& ip, uint16_t por
     }
 }
 
-void registry::setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_t cmd)
+void registry::setup_header(size_t len, crx::simp_header *header, uint16_t cmd)
 {
-    header->length = htonl((uint32_t)(ref.len-sizeof(crx::simp_header)));
+    header->length = htonl((uint32_t)(len-sizeof(crx::simp_header)));
     header->cmd = htons(cmd);
     SET_BIT(header->ctl_flag, 0);       //由库处理
     SET_BIT(header->ctl_flag, 3);       //由registry发送
     header->ctl_flag = htonl(header->ctl_flag);
 }
 
-void registry::register_server(int conn, const std::string& ip, uint16_t port,
-                               std::map<std::string, crx::mem_ref>& kvs)
+void registry::register_server(int conn, const std::string& ip, uint16_t port)
 {
-    auto port_it = kvs.find("port");
-    if (kvs.end() == port_it) {
-        printf("pronounce without port\n");
-        return;
-    }
-    uint16_t listen = ntohs(*(uint16_t*)port_it->second.data);
-
-    auto name_it = kvs.find("name");
-    if (kvs.end() == name_it) {
-        printf("pronounce without name");
-        return;
-    }
-    std::string node_name(name_it->second.data, name_it->second.len);
-    printf("ip=%s, listen=%u, name=%s\n", ip.c_str(), listen, node_name.c_str());
+    uint16_t listen = (uint16_t)m_read_doc["port"].GetInt();
+    const char *node_name = m_read_doc["name"].GetString();
+    printf("ip=%s, listen=%u, name=%s\n", ip.c_str(), listen, node_name);
 
     auto node_it = m_node_idx.find(node_name);
     uint8_t result = 0;
     bool node_legal = false;
+
+    m_write_doc.SetObject();
+    Document::AllocatorType& alloc = m_write_doc.GetAllocator();
     if (m_node_idx.end() == node_it) {      //node illegal
         result = 1;
-        std::string error_info = "unknown name";
-        error_info.push_back(0);
-        m_seria.insert("error_info", error_info.c_str(), error_info.size());
-        printf("node %s illegal\n", node_name.c_str());
+        m_write_doc.AddMember("error_info", Value().SetString("unknown name"), alloc);
+        printf("node %s illegal\n", node_name);
     } else {
         //node legal
         auto& node = m_nodes[node_it->second];
@@ -100,31 +87,33 @@ void registry::register_server(int conn, const std::string& ip, uint16_t port,
             node->info.ip = std::move(ip);
             node->info.port = listen;
             m_conn_node[conn] = node_it->second;        //建立连接与节点信息的对应关系
-            m_seria.insert("role", node->info.role.c_str(), node->info.role.size());
+            m_write_doc.AddMember("role", Value().SetString(node->info.role.c_str(),
+                    (unsigned)node->info.role.size()), alloc);
 
-            std::string clients;
-            for (auto& client : node->clients)
-                clients.append(std::string(m_nodes[client]->info.name)+",");
-
-            if (',' == clients.back())
-                clients.pop_back();
-
-            if (!clients.empty())
-                m_seria.insert("clients", clients.c_str(), clients.size());
-            printf("%s pronounce succ\n", node_name.c_str());
+            m_write_doc.AddMember("clients", Value().SetArray(), alloc);
+            auto& clients = m_write_doc["clients"];
+            for (auto& client : node->clients) {
+                auto& cli_name = m_nodes[client]->info.name;
+                clients.PushBack(Value().SetString(cli_name.c_str(), (unsigned)cli_name.size()), alloc);
+            }
+            printf("%s pronounce succ\n", node_name);
         } else {        //node register ever
             result = 2;
-            std::string error_info = node_name;
-            error_info.append(" repeat register").push_back(0);
-            m_seria.insert("error_info", error_info.c_str(), error_info.size());
-            printf("node %s repeat resiter\n", node_name.c_str());
+            std::string error_info = std::string(node_name)+" repeat register";
+            m_write_doc.AddMember("error_info", Value().SetString(error_info.c_str(),
+                    (unsigned)error_info.size()), alloc);
+            printf("node %s repeat resiter\n", node_name);
         }
     }
 
-    m_seria.insert("result", (const char*)&result, sizeof(result));
-    auto ref = m_seria.get_string();
-    auto header = (crx::simp_header*)ref.data;
-    setup_header(ref, header, CMD_REG_NAME);
+    m_write_doc.AddMember("result", result, alloc);
+    m_write_doc.Accept(m_writer);
+
+    m_write_buf.append_zero();
+    const char *data = m_write_buf.GetString();
+    size_t len = m_write_buf.GetSize();
+    auto header = (crx::simp_header*)data;
+    setup_header(len, header, CMD_REG_NAME);
 
     if (node_legal) {
         crx::datetime dt = crx::get_datetime();
@@ -132,48 +121,51 @@ void registry::register_server(int conn, const std::string& ip, uint16_t port,
         MD5((const unsigned char*)time_with_name.c_str(), time_with_name.size(), header->token);
         memcpy(m_nodes[node_it->second]->token, header->token, 16);
     }
-    m_tcp_server.send_data(conn, ref.data, ref.len);
-    m_seria.reset();
+    m_tcp_server.send_data(conn, data, len);
+    m_write_buf.reset();
+    m_writer.Reset(m_write_buf);
 }
 
-void registry::notify_server_online(int conn, std::map<std::string, crx::mem_ref>& kvs)
+void registry::notify_server_online(int conn)
 {
-    auto name_it = kvs.find("name");
-    if (kvs.end() == name_it) {
-        printf("notify online without name\n");
-        return;
-    }
-    std::string node_name(name_it->second.data, name_it->second.len);
-
+    const char *node_name = m_read_doc["name"].GetString();
     auto node_it = m_node_idx.find(node_name);
     if (m_node_idx.end() == node_it) {
-        printf("server online: unknown name %s\n", node_name.c_str());
+        printf("server online: unknown name %s\n", node_name);
         return;
     }
 
     auto& node = m_nodes[node_it->second];
-    uint16_t net_port = htons(node->info.port);
     const char *lo_ip = "127.0.0.1";            //环回地址
+    m_write_doc.SetObject();
+    Document::AllocatorType& alloc = m_write_doc.GetAllocator();
+
     for (auto& client : node->clients) {        //通知所有已在线的主动连接方发起连接
         auto& cli_node = m_nodes[client];
         if (cli_node && -1 != cli_node->info.conn) {
-            m_seria.insert("name", node->info.name.c_str(), node->info.name.size());
             if (node->info.ip == cli_node->info.ip) {
-                m_seria.insert("ip", lo_ip, strlen(lo_ip));
+                m_write_doc.AddMember("ip", Value().SetString(lo_ip, (unsigned)strlen(lo_ip)), alloc);
             } else {        //两个节点在不同的物理主机上
                 if (lo_ip == node->info.ip)
-                    m_seria.insert("ip", m_local_ip.c_str(), m_local_ip.size());
+                    m_write_doc.AddMember("ip", Value().SetString(m_local_ip.c_str(),
+                            (unsigned)m_local_ip.size()), alloc);
                 else        //当前被动节点与registry处于不同的物理主机上
-                    m_seria.insert("ip", node->info.ip.c_str(), node->info.ip.size());
+                    m_write_doc.AddMember("ip", Value().SetString(node->info.ip.c_str(),
+                            (unsigned)node->info.ip.size()), alloc);
             }
-            m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
+            m_write_doc.AddMember("port", node->info.port, alloc);
+            m_write_doc.Accept(m_writer);
 
-            auto ref = m_seria.get_string();
-            auto header = (crx::simp_header*)ref.data;
-            setup_header(ref, header, CMD_SVR_ONLINE);
+            m_write_buf.append_zero();
+            const char *data = m_write_buf.GetString();
+            size_t len = m_write_buf.GetSize();
+
+            auto header = (crx::simp_header*)data;
+            setup_header(len, header, CMD_SVR_ONLINE);
             memcpy(header->token, node->token, 16);
-            m_tcp_server.send_data(cli_node->info.conn, ref.data, ref.len);
-            m_seria.reset();
+            m_tcp_server.send_data(cli_node->info.conn, data, len);
+            m_write_buf.reset();
+            m_writer.Reset(m_write_buf);
         }
     }
 
@@ -182,43 +174,37 @@ void registry::notify_server_online(int conn, std::map<std::string, crx::mem_ref
         if (!svr_node || -1 == svr_node->info.conn)
             continue;
 
-        m_seria.insert("name", svr_node->info.name.c_str(), svr_node->info.name.size());
         if (node->info.ip == svr_node->info.ip) {
-            m_seria.insert("ip", lo_ip, strlen(lo_ip));
+            m_write_doc.AddMember("ip", Value().SetString(lo_ip, (unsigned)strlen(lo_ip)), alloc);
         } else {        //两个节点在不同的物理主机上
             if (lo_ip == svr_node->info.ip)
-                m_seria.insert("ip", m_local_ip.c_str(), m_local_ip.size());
+                m_write_doc.AddMember("ip", Value().SetString(m_local_ip.c_str(),
+                        (unsigned)m_local_ip.size()), alloc);
             else        //当前被动节点与registry处于不同的物理主机上
-                m_seria.insert("ip", svr_node->info.ip.c_str(), svr_node->info.ip.size());
+                m_write_doc.AddMember("ip", Value().SetString(svr_node->info.ip.c_str(),
+                        (unsigned)svr_node->info.ip.size()), alloc);
         }
-        net_port = htons(svr_node->info.port);
-        m_seria.insert("port", (const char*)&net_port, sizeof(net_port));
+        m_write_doc.AddMember("port", svr_node->info.port, alloc);
+        m_write_doc.Accept(m_writer);
 
-        auto ref = m_seria.get_string();
-        auto header = (crx::simp_header*)ref.data;
-        setup_header(ref, header, CMD_SVR_ONLINE);
+        m_write_buf.append_zero();
+        const char *data = m_write_buf.GetString();
+        size_t len = m_write_buf.GetSize();
+
+        auto header = (crx::simp_header*)data;
+        setup_header(len, header, CMD_SVR_ONLINE);
         memcpy(header->token, svr_node->token, 16);
-        m_tcp_server.send_data(conn, ref.data, ref.len);
-        m_seria.reset();
+        m_tcp_server.send_data(conn, data, len);
+        m_write_buf.reset();
+        m_writer.Reset(m_write_buf);
     }
 }
 
-void registry::notify_connect_msg(bool online, std::map<std::string, crx::mem_ref>& kvs)
+void registry::notify_connect_msg(bool online)
 {
-    auto cli_it = kvs.find("client");
-    if (kvs.end() == cli_it) {
-        printf("(dis)connect message without client\n");
-        return;
-    }
-    std::string cli_name(cli_it->second.data, cli_it->second.len);
-
-    auto svr_it = kvs.find("server");
-    if (kvs.end() == svr_it) {
-        printf("(dis)connect message without server\n");
-        return;
-    }
-    std::string svr_name(svr_it->second.data, svr_it->second.len);
-    std::string conn_mangle = cli_name+"-"+svr_name;
+    const char *cli_name = m_read_doc["client"].GetString();
+    const char *svr_name = m_read_doc["server"].GetString();
+    std::string conn_mangle = std::string(cli_name)+"-"+svr_name;
 
     auto conn_it = m_conn_idx.find(conn_mangle);
     if (m_conn_idx.end() == conn_it) {
@@ -229,18 +215,12 @@ void registry::notify_connect_msg(bool online, std::map<std::string, crx::mem_re
     conn->online = online;
 }
 
-void registry::server_offline(int conn, std::map<std::string, crx::mem_ref>& kvs)
+void registry::server_offline(int conn)
 {
-    auto name_it = kvs.find("name");
-    if (kvs.end() == name_it) {
-        printf("server offline without name\n");
-        return;
-    }
-    std::string node_name(name_it->second.data, name_it->second.len);
-
+    const char *node_name = m_read_doc["name"].GetString();
     auto node_it = m_node_idx.find(node_name);
     if (m_node_idx.end() == node_it) {
-        printf("server offline with known name\n");
+        printf("server offline with unknown name=%s\n", node_name);
         return;
     }
 
@@ -258,7 +238,7 @@ void registry::server_offline(int conn, std::map<std::string, crx::mem_ref>& kvs
         }
 
         for (auto& server : node->servers) {
-            std::string conn_mangle = node_name+"-"+m_nodes[server]->info.name;
+            std::string conn_mangle = std::string(node_name)+"-"+m_nodes[server]->info.name;
             auto conn_it = m_conn_idx.find(conn_mangle);
             if (m_conn_idx.end() != conn_it)
                 m_conns[conn_it->second]->online = false;
@@ -285,7 +265,7 @@ bool registry::init(int argc, char *argv[])
         int file_size = crx::get_file_size(json_conf);
         std::string read_buffer(file_size+1, 0);
         m_fp = fopen(json_conf, "r");
-        rapidjson::FileReadStream is(m_fp, &read_buffer[0], read_buffer.size());
+        FileReadStream is(m_fp, &read_buffer[0], read_buffer.size());
         m_doc.ParseStream(is);
         fclose(m_fp);
         m_fp = fopen(json_conf, "w");
@@ -349,9 +329,9 @@ void registry::flush_json()
     fseek(m_fp, 0, SEEK_SET);
     ftruncate(m_fp->_fileno, 0);
 
-    rapidjson::FileWriteStream os(m_fp, m_write_buffer, sizeof(m_write_buffer));
-    m_writer.Reset(os);
-    m_doc.Accept(m_writer);
+    FileWriteStream os(m_fp, m_write_buffer, sizeof(m_write_buffer));
+    m_pretty_writer.Reset(os);
+    m_doc.Accept(m_pretty_writer);
     fflush(m_fp);
 }
 
@@ -400,10 +380,10 @@ void registry::add_node(std::vector<std::string>& args)
     }
     std::cout<<"[add_node] 节点 "<<name_it->second<<" 创建成功！"<<std::endl;
 
-    rapidjson::Document::AllocatorType& alloc = m_doc.GetAllocator();
-    m_doc["node"].AddMember(rapidjson::Value().SetString(name_it->second.c_str(),
-            (unsigned)name_it->second.size(), alloc), rapidjson::Value().SetObject(), alloc);
-    m_doc["node"][name_it->second.c_str()].AddMember("role", rapidjson::Value().SetString(role_it->second.c_str(),
+    Document::AllocatorType& alloc = m_doc.GetAllocator();
+    m_doc["node"].AddMember(Value().SetString(name_it->second.c_str(),
+            (unsigned)name_it->second.size(), alloc), Value().SetObject(), alloc);
+    m_doc["node"][name_it->second.c_str()].AddMember("role", Value().SetString(role_it->second.c_str(),
             (unsigned)role_it->second.size(), alloc), alloc);
     flush_json();
 }
@@ -512,12 +492,12 @@ void registry::cst_conn(std::vector<std::string>& args)
         m_conns[slot] = std::move(conn);
     }
 
-    rapidjson::Document::AllocatorType& alloc = m_doc.GetAllocator();
-    m_doc["conn"].AddMember(rapidjson::Value().SetString(conn_mangle1.c_str(),
-            (unsigned)conn_mangle1.size(), alloc), rapidjson::Value().SetObject(), alloc);
-    m_doc["conn"][conn_mangle1.c_str()].AddMember("cli", rapidjson::Value().SetString(args[0].c_str(),
+    Document::AllocatorType& alloc = m_doc.GetAllocator();
+    m_doc["conn"].AddMember(Value().SetString(conn_mangle1.c_str(),
+            (unsigned)conn_mangle1.size(), alloc), Value().SetObject(), alloc);
+    m_doc["conn"][conn_mangle1.c_str()].AddMember("cli", Value().SetString(args[0].c_str(),
             (unsigned)args[0].size(), alloc), alloc);
-    m_doc["conn"][conn_mangle1.c_str()].AddMember("svr", rapidjson::Value().SetString(args[1].c_str(),
+    m_doc["conn"][conn_mangle1.c_str()].AddMember("svr", Value().SetString(args[1].c_str(),
             (unsigned)args[1].size(), alloc), alloc);
     flush_json();
     std::cout<<"[cst_conn] 连接 "<<args[0]<<"(主动) <-----> "<<args[1]<<"(被动) 创建成功！"<<std::endl;

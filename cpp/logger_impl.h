@@ -15,8 +15,8 @@ namespace crx
         ,m_fmt_buf(1024, 0)
         ,m_log_buf(65536, 0)
         ,m_fp(nullptr)
-        ,m_seria(true)
         ,m_log_idx(0)
+        ,m_writer(m_write_buf)
         {
             bzero(&m_cmd, sizeof(m_cmd));
         }
@@ -52,8 +52,11 @@ namespace crx
         FILE *m_fp;
 
         server_cmd m_cmd;
-        seria m_seria;
         uint32_t m_log_idx;
         timer_wheel m_sec_wheel;
+
+        Document m_doc;
+        simp_buffer m_write_buf;
+        Writer<simp_buffer> m_writer;
     };
 }

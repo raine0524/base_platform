@@ -23,6 +23,16 @@ namespace crx
         server_cmd() { bzero(this, sizeof(server_cmd)); }
     };
 
+    class CRX_SHARE simp_buffer : public StringBuffer
+    {
+    public:
+        simp_buffer();
+
+        void append_zero();
+
+        void reset();
+    };
+
     class CRX_SHARE simpack_server : public kobj
     {
     public:

@@ -77,21 +77,28 @@ namespace crx
 
         ret += 29;
         if (impl->m_log_idx) {      //写远程日志
-            uint32_t net_idx = htonl(impl->m_log_idx);
-            impl->m_seria.insert("log_idx", (const char*)&net_idx, sizeof(net_idx));
-            impl->m_seria.insert("data", data, ret);
+            impl->m_doc.SetObject();
+            Document::AllocatorType& alloc = impl->m_doc.GetAllocator();
+            impl->m_doc.AddMember("log_idx", impl->m_log_idx, alloc);
+            impl->m_doc.AddMember("data", Value().SetString(data, (unsigned)ret), alloc);
+            impl->m_doc.Accept(impl->m_writer);
 
-            auto ref = impl->m_seria.get_string();
-            auto header = (simp_header*)ref.data;
+            impl->m_write_buf.append_zero();
+            const char *buf = impl->m_write_buf.GetString();
+            size_t len = impl->m_write_buf.GetSize();
+
+            auto header = (simp_header*)buf;
             header->cmd = impl->m_cmd.cmd = 1;
             header->type = impl->m_cmd.type = 3;    //notify
-            header->length = (uint32_t)(ref.len-sizeof(simp_header));
+            header->length = (uint32_t)(len-sizeof(simp_header));
 
             if (-1 != impl->m_simp_impl->m_log_conn)
-                impl->m_simp_impl->send_data(3, impl->m_simp_impl->m_log_conn, impl->m_cmd, ref.data, ref.len);
+                impl->m_simp_impl->send_data(3, impl->m_simp_impl->m_log_conn, impl->m_cmd, buf, len);
             else
-                impl->m_simp_impl->m_log_cache.append(ref.data, ref.len);
-            impl->m_seria.reset();
+                impl->m_simp_impl->m_log_cache.append(buf, len);
+
+            impl->m_write_buf.reset();
+            impl->m_writer.Reset(impl->m_write_buf);
         } else {        //本地
             impl->write_local_log(data, ret);
         }
@@ -175,26 +182,31 @@ namespace crx
             return;
         }
 
-        m_seria.insert("prefix", m_prefix.c_str(), m_prefix.size());
+        m_doc.SetObject();
+        Document::AllocatorType& alloc = m_doc.GetAllocator();
+        m_doc.AddMember("prefix", Value().SetString(m_prefix.c_str(), (unsigned)m_prefix.size()), alloc);
         m_log_idx = ++sch_impl->m_log_idx;
-        uint32_t net_idx = htonl(m_log_idx);
-        m_seria.insert("log_idx", (const char*)&net_idx, sizeof(net_idx));
-        uint32_t net_size = htonl((uint32_t)m_max_size);
-        m_seria.insert("max_size", (const char*)&net_size, sizeof(net_size));
+        m_doc.AddMember("log_idx", m_log_idx, alloc);
+        m_doc.AddMember("max_size", m_max_size, alloc);
+        m_doc.Accept(m_writer);
 
-        auto ref = m_seria.get_string();
-        auto header = (simp_header*)ref.data;
+        m_write_buf.append_zero();
+        const char *data = m_write_buf.GetString();
+        size_t len = m_write_buf.GetSize();
+
+        auto header = (simp_header*)data;
         header->cmd = m_cmd.cmd = 1;
         header->type = m_cmd.type = 1;     //request
-        header->length = (uint32_t)(ref.len-sizeof(simp_header));
+        header->length = (uint32_t)(len-sizeof(simp_header));
 
         auto simp_impl = std::dynamic_pointer_cast<simpack_server_impl>(impl);
-        simp_impl->m_log_req = std::string(ref.data, ref.len);
+        simp_impl->m_log_req = std::string(data, len);
         if (-1 != simp_impl->m_log_conn)
-            simp_impl->send_data(1, simp_impl->m_log_conn, m_cmd, ref.data, ref.len);
+            simp_impl->send_data(1, simp_impl->m_log_conn, m_cmd, data, len);
         else
-            simp_impl->m_log_cache.append(ref.data, ref.len);
-        m_seria.reset();
+            simp_impl->m_log_cache.append(data, len);
+        m_write_buf.reset();
+        m_writer.Reset(m_write_buf);
         m_simp_impl = simp_impl;
     }
 

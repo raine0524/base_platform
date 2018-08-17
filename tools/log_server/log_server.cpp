@@ -24,15 +24,10 @@ void log_server::on_request(const crx::server_info &info, const crx::server_cmd 
     if (1 != cmd.cmd)       //创建远程日志请求的cmd始终为1
         return;
 
-    auto kvs = m_seria.dump(data, len);
-    auto prefix_it = kvs.find("prefix");
-    std::string prefix(prefix_it->second.data, prefix_it->second.len);
-
-    auto size_it = kvs.find("max_size");
-    uint32_t max_size = ntohl(*(uint32_t*)size_it->second.data);
-
-    auto idx_it = kvs.find("log_idx");
-    uint32_t log_idx = ntohl(*(uint32_t*)idx_it->second.data);
+    m_doc.ParseInsitu(data);
+    const char *prefix = m_doc["prefix"].GetString();
+    int max_size = m_doc["max_size"].GetInt();
+    uint32_t log_idx = (uint32_t)m_doc["log_idx"].GetInt();
 
     auto& remote_logs = m_remote_logs[info.conn];
     if (remote_logs.end() != remote_logs.find(log_idx)) {
@@ -42,8 +37,8 @@ void log_server::on_request(const crx::server_info &info, const crx::server_cmd 
 
     std::string root_dir = m_root_dir+'@'+info.name;
     log_info(m_local_log, "[%d:%u] create remote log: prefix=%s, root_dir=%s, max_size=%u\n",
-             info.conn, log_idx, prefix.c_str(), root_dir.c_str(), max_size);
-    remote_logs[log_idx] = get_log(prefix.c_str(), root_dir.c_str(), max_size);
+            info.conn, log_idx, prefix, root_dir.c_str(), max_size);
+    remote_logs[log_idx] = get_log(prefix, root_dir.c_str(), max_size);
 }
 
 void log_server::on_notify(const crx::server_info &info, const crx::server_cmd &cmd, char *data, size_t len)
@@ -51,9 +46,8 @@ void log_server::on_notify(const crx::server_info &info, const crx::server_cmd &
     if (1 != cmd.cmd)       //写远程日志推送的cmd始终为1
         return;
 
-    auto kvs = m_seria.dump(data, len);
-    auto idx_it = kvs.find("log_idx");
-    uint32_t log_idx = ntohl(*(uint32_t*)idx_it->second.data);
+    m_doc.ParseInsitu(data);
+    uint32_t log_idx = (uint32_t)m_doc["log_idx"].GetInt();
 
     auto& remote_logs = m_remote_logs[info.conn];
     auto log_it = remote_logs.find(log_idx);
@@ -62,9 +56,9 @@ void log_server::on_notify(const crx::server_info &info, const crx::server_cmd &
         return;
     }
 
-    auto data_it = kvs.find("data");
+    auto& log_data = m_doc["data"];
     auto impl = std::dynamic_pointer_cast<crx::log_impl>(log_it->second.m_impl);
-    impl->write_local_log(data_it->second.data, data_it->second.len);
+    impl->write_local_log(log_data.GetString(), log_data.GetStringLength());
 }
 
 bool log_server::init(int argc, char **argv)

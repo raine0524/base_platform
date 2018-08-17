@@ -19,7 +19,7 @@ struct conn_info
 class registry : public crx::console
 {
 public:
-    registry() : m_fp(nullptr), m_seria(true) {}
+    registry() : m_fp(nullptr), m_writer(m_write_buf) {}
 
     virtual ~registry() override
     {
@@ -47,15 +47,15 @@ public:
 private:
     void tcp_server_callback(int conn, const std::string& ip, uint16_t port, char *data, size_t len);
 
-    void register_server(int conn, const std::string& ip, uint16_t port, std::map<std::string, crx::mem_ref>& kvs);
+    void register_server(int conn, const std::string& ip, uint16_t port);
 
-    void notify_server_online(int conn, std::map<std::string, crx::mem_ref>& kvs);
+    void notify_server_online(int conn);
 
-    void notify_connect_msg(bool online, std::map<std::string, crx::mem_ref>& kvs);
+    void notify_connect_msg(bool online);
 
-    void server_offline(int conn, std::map<std::string, crx::mem_ref>& kvs);
+    void server_offline(int conn);
 
-    void setup_header(crx::mem_ref& ref, crx::simp_header *header, uint16_t cmd);
+    void setup_header(size_t len, crx::simp_header *header, uint16_t cmd);
 
     bool check_connect_cmd(std::vector<std::string>& args);
 
@@ -63,8 +63,8 @@ private:
 
 private:
     char m_write_buffer[1024];
-    rapidjson::Document m_doc;
-    rapidjson::PrettyWriter<rapidjson::FileWriteStream> m_writer;
+    Document m_doc;
+    PrettyWriter<FileWriteStream> m_pretty_writer;
     FILE *m_fp;
 
     std::vector<std::shared_ptr<node_info>> m_nodes;    //所有节点
@@ -76,7 +76,9 @@ private:
     std::list<size_t> m_conn_uslots;                    //连接数组中未使用的槽
     std::map<std::string, size_t> m_conn_idx;
 
-    crx::seria m_seria;
+    Document m_read_doc, m_write_doc;
+    crx::simp_buffer m_write_buf;
+    Writer<crx::simp_buffer> m_writer;
     crx::tcp_server m_tcp_server;
     std::string m_local_ip;
 };

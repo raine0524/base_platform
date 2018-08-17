@@ -101,6 +101,20 @@
 #include <openssl/md5.h>
 #include <openssl/sha.h>
 
+//rapidjson
+#include "rapidjson/encodings.h"
+#include "rapidjson/document.h"
+#include "rapidjson/reader.h"
+#include "rapidjson/writer.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/filereadstream.h"
+#include "rapidjson/filewritestream.h"
+
+//googletest
+#include "gtest/gtest.h"
+#include "gmock/gmock.h"
+
 //mysql
 #include <mysql_driver.h>
 #include <mysql_connection.h>
@@ -111,16 +125,8 @@
 #include <cppconn/prepared_statement.h>
 #include <cppconn/statement.h>
 
-//rapidjson
-#include "rapidjson/document.h"
-#include "rapidjson/reader.h"
-#include "rapidjson/writer.h"
-#include "rapidjson/prettywriter.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/filereadstream.h"
-#include "rapidjson/filewritestream.h"
-
 using namespace std::placeholders;
+using namespace rapidjson;
 
 namespace crx
 {
@@ -179,7 +185,6 @@ namespace crx
 #include "kbase/base_util.h"
 #include "kbase/ini.h"
 #include "kbase/logger.h"
-#include "kbase/serialize.h"
 #include "kbase/schutil.h"
 #include "kbase/tcp_proto.h"
 #include "kbase/http_proto.h"
