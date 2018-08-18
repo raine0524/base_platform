@@ -113,6 +113,7 @@
 
 //googletest
 #include "gtest/gtest.h"
+#include "gmock/gmock.h"
 
 //mysql
 #include <mysql_driver.h>
