@@ -30,10 +30,14 @@ before_install:
   - GTEST_VER=1.8.0
   - sudo wget https://github.com/google/googletest/archive/release-"${GTEST_VER}".tar.gz
   - sudo tar xf release-"${GTEST_VER}".tar.gz
-  - cd googletest-release-"${GTEST_VER}"
+  - cd googletest-release-"${GTEST_VER}"/googletest
   - sudo cmake -DBUILD_SHARED_LIBS=ON .
   - sudo make
-  - sudo cp libgtest.so libgmock.so "${TRAVIS_BUILD_DIR}"/extras/googletest/"${GTEST_VER}"/lib
+  - sudo cp libgtest.so "${TRAVIS_BUILD_DIR}"/extras/googletest/"${GTEST_VER}"/lib
+  - cd ../googlemock
+  - sudo cmake -DBUILD_SHARED_LIBS=ON .
+  - sudo make
+  - sudo cp libgmock.so "${TRAVIS_BUILD_DIR}"/extras/googletest/"${GTEST_VER}"/lib
   - cd "${TRAVIS_BUILD_DIR}"
 
 install:
