@@ -29,13 +29,13 @@ before_install:
   - sudo apt-get update
 
   # google test
-  - sudo wget https://github.com/google/googletest/archive/release-$GTEST_VER.tar.gz
-  - sudo tar xf release-$GTEST_VER.tar.gz
-  - cd googletest-release-$GTEST_VER
+  - sudo wget https://github.com/google/googletest/archive/release-"${GTEST_VER}".tar.gz
+  - sudo tar xf release-"${GTEST_VER}".tar.gz
+  - cd googletest-release-"${GTEST_VER}"
   - sudo cmake -DBUILD_SHARED_LIBS=ON .
   - sudo make
-  - sudo cp libgtest.so libgmock.so $TRAVIS_BUILD_DIR/extras/googletest/$GTEST_VER/lib
-  - cd $$TRAVIS_BUILD_DIR
+  - sudo cp libgtest.so libgmock.so "${TRAVIS_BUILD_DIR}"/extras/googletest/"${GTEST_VER}"/lib
+  - cd "${TRAVIS_BUILD_DIR}"
 
 install:
   - sudo apt-get -y install zlib1g-dev
