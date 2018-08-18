@@ -2,9 +2,6 @@ language: cpp
 sudo: required
 dist: trusty    #ubuntu 14.04
 
-env:
-  - GTEST_VER=1.8.0
-
 compiler:
   - gcc
 os:
@@ -29,6 +26,7 @@ before_install:
   - sudo apt-get update
 
   # google test
+  - GTEST_VER=1.8.0
   - sudo wget https://github.com/google/googletest/archive/release-"${GTEST_VER}".tar.gz
   - sudo tar xf release-"${GTEST_VER}".tar.gz
   - cd googletest-release-"${GTEST_VER}"
