@@ -33,7 +33,20 @@ add_library(${LIB_NAME} SHARED ${SOURCE_FILES})
 target_link_libraries(${LIB_NAME} z pthread anl crypto)
 set_target_properties(${LIB_NAME} PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib64)
 
-# 安装基础库
+# 构建kbase相关测试用例
+enable_testing()
+set(TESTS_ROOT_DIR unit_test)
+set(KBASETEST_BIN_DIR ${PROJECT_BINARY_DIR}/${TESTS_ROOT_DIR}/${LIB_NAME})
+FILE(GLOB_RECURSE KBASETEST_SRC "${TESTS_ROOT_DIR}/${LIB_NAME}/*.cpp")
+foreach(FILE_PATH ${KBASETEST_SRC})
+    string(REGEX REPLACE ".+/(.+)\\..*" "\\1" FILE_NAME ${FILE_PATH})   #获取unit_test/kbase目录下cpp源文件的名称
+    add_executable(${FILE_NAME} ${FILE_PATH})
+    target_link_libraries(${FILE_NAME} ${LIB_NAME} gtest gmock)
+    set_target_properties(${FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${KBASETEST_BIN_DIR})
+    add_test(${FILE_NAME} ${KBASETEST_BIN_DIR}/${FILE_NAME})
+endforeach()
+
+# 通过测试用例后,安装基础库
 install(DIRECTORY include/ DESTINATION ${PROJECT_SOURCE_DIR}/deploy/depends/${LIB_NAME}/${LIB_VERSION}/include)
 set(LIBRARY_INSTALL_PATH ${PROJECT_SOURCE_DIR}/deploy/depends/${LIB_NAME}/${LIB_VERSION}/lib)
 install(TARGETS ${LIB_NAME} LIBRARY DESTINATION ${LIBRARY_INSTALL_PATH})
@@ -55,7 +68,7 @@ foreach(FILE_PATH ${TOOL_SRC})
     target_link_libraries(${FILE_NAME} ${LIB_NAME})
     set_target_properties(${FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${TOOLS_BIN_DIR})
 
-    FILE(GLOB CONFIG_FILES ${TOOLS_DIR_NAME}/${FILE_NAME}/*.ini ${TOOLS_DIR_NAME}/${FILE_NAME}/*.xml)
+    FILE(GLOB CONFIG_FILES ${TOOLS_DIR_NAME}/${FILE_NAME}/*.ini ${TOOLS_DIR_NAME}/${FILE_NAME}/*.json)
     install(PROGRAMS ${TOOLS_BIN_DIR}/${FILE_NAME} DESTINATION ${PROJECT_SOURCE_DIR}/deploy/toolkit/${FILE_NAME})
     install(FILES ${CONFIG_FILES} DESTINATION ${PROJECT_SOURCE_DIR}/deploy/toolkit/${FILE_NAME}/ini)
 endforeach()

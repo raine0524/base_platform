@@ -2,15 +2,13 @@
 
 proj_path=$(cd `dirname $0`; pwd)
 build_dir=cmake-build-debug
-deploy_pkg=release.tar.gz
 
-toolkit_dir=/root/deploy/toolkit
-cloud_host=$CLOUD_HOST
-cloud_pwd=$CLOUD_PWD
+deploy_dir=deploy
+deploy_pkg=release.tar.gz
 
 # build
 cd $proj_path
-rm -rf deploy
+rm -rf $deploy_dir
 mkdir -p $build_dir
 cd $build_dir
 rm -rf *
@@ -18,6 +16,13 @@ cmake ..
 cd -
 cmake --build $proj_path/$build_dir --target all -- -j 4
 cd -
+
+make
+ctest --output-on-failure
+if [ $? -ne 0 ]; then
+	echo "build or run test case failed!"
+	exit
+fi
 make install
 
 # pack
@@ -25,10 +30,17 @@ cd $proj_path
 if [ -f $deploy_pkg ] ; then
 	rm $deploy_pkg
 fi
-tar -czf $deploy_pkg deploy/
+
+cd $deploy_dir
+tar -czf ../$deploy_pkg *
+cd -
 exit
 
 # deploy & run
+toolkit_dir=/root/deploy/toolkit
+cloud_host=$CLOUD_HOST
+cloud_pwd=$CLOUD_PWD
+
 /usr/bin/expect << EOF
 set timeout -1
 spawn ssh -o StrictHostKeyChecking=no -l root $cloud_host
