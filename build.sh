@@ -21,7 +21,7 @@ make
 ctest --output-on-failure
 if [ $? -ne 0 ]; then
 	echo "build or run test case failed!"
-	exit
+	exit 1
 fi
 make install
 
@@ -34,7 +34,7 @@ fi
 cd $deploy_dir
 tar -czf ../$deploy_pkg *
 cd -
-exit
+exit 0
 
 # deploy & run
 toolkit_dir=/root/deploy/toolkit

@@ -5,7 +5,8 @@ project(base_platform)
 
 add_compile_options(-std=c++11)
 
-set(GOOGLETEST_VERSION 1.7.0)
+set(GOOGLETEST_VERSION 1.8.0)
+message("googletest version: ${GOOGLETEST_VERSION}")
 
 include_directories(
         include cpp
@@ -28,7 +29,7 @@ message("shared linker flags: ${CMAKE_SHARED_LINKER_FLAGS}")
 # library kbase
 set(LIB_NAME kbase)
 set(LIB_VERSION 1.0.0)
-message("library name: ${KBASE_NAME} version: ${KBASE_VERSION}")
+message("library name: ${LIB_NAME} version: ${LIB_VERSION}")
 
 FILE(GLOB_RECURSE SOURCE_FILES cpp/*.cpp)
 add_library(${LIB_NAME} SHARED ${SOURCE_FILES})
