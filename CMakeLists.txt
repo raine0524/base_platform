@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 project(base_platform)
 
-#set(CMAKE_VERBOSE_MAKEFILE ON)
+set(CMAKE_VERBOSE_MAKEFILE ON)
 
 add_compile_options(-std=c++11)
 
