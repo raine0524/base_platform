@@ -18,8 +18,7 @@ cmake --build $proj_path/$build_dir --target all -- -j 4
 cd -
 
 make
-#ctest --output-on-failure
-ctest --verbose
+ctest --output-on-failure
 if [ $? -ne 0 ]; then
 	echo "build or run test case failed!"
 	exit 1

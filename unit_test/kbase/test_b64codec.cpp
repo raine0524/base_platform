@@ -59,27 +59,7 @@ TEST(B64Codec, TestDecode64InvalidArgs)
     ASSERT_STREQ("", crx::base64_decode("AB==", 4).c_str());
     ASSERT_STREQ("", crx::base64_decode("AAB=", 4).c_str());
     ASSERT_STREQ("", crx::base64_decode("AA===", 5).c_str());
-
-    fcntl(0, 0);
 }
-
-class QuickTest : public testing::Test
-{
-protected:
-    virtual void SetUp()
-    {
-        m_start_time = time(nullptr);
-    }
-
-    virtual void TearDown()
-    {
-        time_t end_time = time(nullptr);
-        EXPECT_LE(end_time-m_start_time, 5) << "The test take too long.";
-    }
-
-protected:
-    time_t m_start_time;
-};
 
 int main(int argc, char *argv[])
 {

@@ -11,6 +11,7 @@ message("googletest version: ${GOOGLETEST_VERSION}")
 include_directories(
         include cpp
         extras/googletest/${GOOGLETEST_VERSION}/include
+        unit_test/sys_hook
 )
 
 link_directories(extras/googletest/${GOOGLETEST_VERSION}/lib)
@@ -53,7 +54,7 @@ FILE(GLOB_RECURSE KBASETEST_SRC "${TESTS_ROOT_DIR}/${LIB_NAME}/*.cpp")
 foreach(FILE_PATH ${KBASETEST_SRC})
     string(REGEX REPLACE ".+/(.+)\\..*" "\\1" FILE_NAME ${FILE_PATH})   #获取unit_test/kbase目录下cpp源文件的名称
     add_executable(${FILE_NAME} ${FILE_PATH})
-    target_link_libraries(${FILE_NAME} ${LIB_NAME} gtest gmock)
+    target_link_libraries(${FILE_NAME} ${LIB_NAME} ${HOOK_LIB_NAME} gtest gmock)
     set_target_properties(${FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${KBASETEST_BIN_DIR})
     add_test(NAME ${FILE_NAME} COMMAND ${KBASETEST_BIN_DIR}/${FILE_NAME})
     set_property(TEST ${FILE_NAME} PROPERTY ENVIRONMENT LD_PRELOAD=${HOOKLIB_BIN_DIR}/lib${HOOK_LIB_NAME}.so)

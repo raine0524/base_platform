@@ -37,3 +37,6 @@ namespace crx
 #include "logger_impl.h"
 #include "fs_monitor_impl.h"
 #include "console_impl.h"
+
+//mock system object
+#include "sys_hook.h"

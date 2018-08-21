@@ -77,18 +77,24 @@ namespace crx
         return retval;
     }
 
-    void setnonblocking(int fd)
+    int setnonblocking(int fd)
     {
-        if (fd < 0) return;
-        if (__glibc_unlikely(-1 == fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK)))
+        if (fd < 0) return -1;
+        if (__glibc_unlikely(-1 == fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK))) {
             log_error(g_lib_log, "setnonblocking %d failed: %s\n", fd, strerror(errno));
+            return -1;
+        }
+        return 0;
     }
 
-    void setcloseonexec(int fd)
+    int setcloseonexec(int fd)
     {
-        if (fd < 0) return;
-        if (__glibc_unlikely(-1 == fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC)))
+        if (fd < 0) return -1;
+        if (__glibc_unlikely(-1 == fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC))) {
             log_error(g_lib_log, "setcloseonexec %d failed: %s\n", fd, strerror(errno));
+            return -1;
+        }
+        return 0;
     }
 
     int64_t measure_time(std::function<void()> f)
@@ -340,8 +346,7 @@ namespace crx
         return p->tm_year*10000+p->tm_mon*100+p->tm_mday;
     }
 
-    int
-    get_file_size(const char *file)
+    int get_file_size(const char *file)
     {
         if (!file) return -1;
         if (__glibc_unlikely(access(file, F_OK))) {   //判断是否存在该文件
