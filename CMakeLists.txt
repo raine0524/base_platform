@@ -36,9 +36,18 @@ add_library(${LIB_NAME} SHARED ${SOURCE_FILES})
 target_link_libraries(${LIB_NAME} z pthread anl crypto)
 set_target_properties(${LIB_NAME} PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib64)
 
+# 构建hook library,从而提供mock system object的能力来支持一些功能性接口的测试
+set(TESTS_ROOT_DIR unit_test)
+set(HOOK_LIB_NAME sys_hook)
+set(HOOKLIB_BIN_DIR ${PROJECT_BINARY_DIR}/${TESTS_ROOT_DIR}/${HOOK_LIB_NAME})
+
+FILE(GLOB_RECURSE HOOK_SRCS ${TESTS_ROOT_DIR}/${HOOK_LIB_NAME}/*.cpp)
+add_library(${HOOK_LIB_NAME} SHARED ${HOOK_SRCS})
+target_link_libraries(${HOOK_LIB_NAME})
+set_target_properties(${HOOK_LIB_NAME} PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${HOOKLIB_BIN_DIR})
+
 # 构建kbase相关测试用例
 enable_testing()
-set(TESTS_ROOT_DIR unit_test)
 set(KBASETEST_BIN_DIR ${PROJECT_BINARY_DIR}/${TESTS_ROOT_DIR}/${LIB_NAME})
 FILE(GLOB_RECURSE KBASETEST_SRC "${TESTS_ROOT_DIR}/${LIB_NAME}/*.cpp")
 foreach(FILE_PATH ${KBASETEST_SRC})
@@ -46,7 +55,8 @@ foreach(FILE_PATH ${KBASETEST_SRC})
     add_executable(${FILE_NAME} ${FILE_PATH})
     target_link_libraries(${FILE_NAME} ${LIB_NAME} gtest gmock)
     set_target_properties(${FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${KBASETEST_BIN_DIR})
-    add_test(${FILE_NAME} ${KBASETEST_BIN_DIR}/${FILE_NAME})
+    add_test(NAME ${FILE_NAME} COMMAND ${KBASETEST_BIN_DIR}/${FILE_NAME})
+    set_property(TEST ${FILE_NAME} PROPERTY ENVIRONMENT LD_PRELOAD=${HOOKLIB_BIN_DIR}/lib${HOOK_LIB_NAME}.so)
 endforeach()
 
 # 通过测试用例后,安装基础库

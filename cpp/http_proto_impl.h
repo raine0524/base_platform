@@ -199,7 +199,7 @@ namespace crx
             int mask = conn->ws_header[1] & 0x80;
             if (mask) {         //计算原来的载荷数据,掩码/反掩码都采用同样的算法
                 for (int i = 0; i < conn->content_len; ++i)
-                    data[i] = data[i] ^ conn->mask_key[i%4];
+                    data[i] ^= conn->mask_key[i%4];
             }
             return conn->content_len;
         }

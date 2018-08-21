@@ -281,8 +281,13 @@ namespace crx
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_util_impls[EXT_DATA]);
-        if (!con_impl->m_is_service || con_impl->m_conn < 0)
+        if (!con_impl->m_is_service || con_impl->m_conn < 0) {
+            va_list val;
+            va_start(val, fmt);
+            vprintf(fmt, val);
+            va_end(val);
             return;
+        }
 
         va_list vl1, vl2;
         va_start(vl1, fmt);

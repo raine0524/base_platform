@@ -101,7 +101,7 @@ void registry::register_server(int conn, const std::string& ip, uint16_t port)
             result = 2;
             std::string error_info = std::string(node_name)+" repeat register";
             m_write_doc.AddMember("error_info", Value().SetString(error_info.c_str(),
-                    (unsigned)error_info.size()), alloc);
+                    (unsigned)error_info.size(), alloc), alloc);
             printf("node %s repeat resiter\n", node_name);
         }
     }
