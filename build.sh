@@ -15,9 +15,8 @@ rm -rf *
 cmake ..
 cd -
 cmake --build $proj_path/$build_dir --target all -- -j 4
-cd -
 
-make
+cd -
 ctest --output-on-failure
 if [ $? -ne 0 ]; then
 	echo "build or run test case failed!"

@@ -15,7 +15,7 @@ protected:
     }
 };
 
-TEST_F(FdFlagTest, FdNonBlockTest)
+TEST_F(FdFlagTest, FdNonBlock)
 {
     ASSERT_EQ(-1, crx::setnonblocking(-1));
     ASSERT_EQ(-1, crx::setnonblocking(0));

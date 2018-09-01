@@ -33,19 +33,17 @@ extern MockFileSystem *g_mock_fs;
 class MockSystemTime : public testing::Test
 {
 public:
-    void add_interval(int sec, int usec)
-    {
-        m_seed.tv_sec += sec;
-        m_seed.tv_usec += usec;
-    }
+    timeval m_curr_time;
 
-    timeval get_time()
+    void add_interval()
     {
-        return m_seed;
+        m_curr_time.tv_sec += m_interval.tv_sec;
+        m_curr_time.tv_usec += m_interval.tv_usec;
     }
 
 protected:
-    timeval m_seed;
+    std::random_device m_rand;
+    timeval m_interval;
 };
 
 extern MockSystemTime *g_mock_st;

@@ -224,7 +224,7 @@ namespace crx
 
     std::string charset_convert(const char *from_charset, const char *to_charset, const char *src_data, size_t src_len)
     {
-        if (!src_data || src_len == 0)
+        if (!from_charset || !to_charset || !src_data || src_len == 0)
             return "";
 
         /*

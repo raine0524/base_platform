@@ -13,7 +13,19 @@ int fcntl (int __fd, int __cmd, ...)
         int flag = va_arg(val, int);
         va_end(val);
         return g_mock_fs->set_flag(__fd, flag);
-    } else {
-        return 0;
     }
+    return 0;
+}
+
+int gettimeofday (struct timeval *__tv, __timezone_ptr_t __tz) __THROW
+{
+    if (g_mock_st) {
+        *__tv = g_mock_st->m_curr_time;
+        g_mock_st->add_interval();
+    } else {
+        typedef int (*gettime_pfn_t)(struct timeval *__tv, __timezone_ptr_t __tz);
+        static gettime_pfn_t g_sys_gettime = (gettime_pfn_t)dlsym(RTLD_NEXT, "gettimeofday");
+        g_sys_gettime(__tv, __tz);
+    }
+    return 0;
 }
