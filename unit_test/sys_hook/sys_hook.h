@@ -5,6 +5,10 @@
 class MockFileSystem : public testing::Test
 {
 public:
+    std::string m_readlink_val;
+    std::set<FILE*> m_open_files;
+    int m_fgets_curr, m_fgets_num;
+
     int get_flag(int fd)
     {
         auto it = m_fd_flags.find(fd);
@@ -25,6 +29,7 @@ public:
     }
 
 protected:
+    std::random_device m_rand;
     std::map<int, int> m_fd_flags;  //file desc/status flags
 };
 

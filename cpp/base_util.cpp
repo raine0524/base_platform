@@ -81,7 +81,8 @@ namespace crx
     {
         if (fd < 0) return -1;
         if (__glibc_unlikely(-1 == fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK))) {
-            log_error(g_lib_log, "setnonblocking %d failed: %s\n", fd, strerror(errno));
+            if (errno)
+                log_error(g_lib_log, "setnonblocking %d failed: %s\n", fd, strerror(errno));
             return -1;
         }
         return 0;
@@ -91,7 +92,8 @@ namespace crx
     {
         if (fd < 0) return -1;
         if (__glibc_unlikely(-1 == fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC))) {
-            log_error(g_lib_log, "setcloseonexec %d failed: %s\n", fd, strerror(errno));
+            if (errno)
+                log_error(g_lib_log, "setcloseonexec %d failed: %s\n", fd, strerror(errno));
             return -1;
         }
         return 0;
@@ -109,7 +111,7 @@ namespace crx
     std::string get_work_space()
     {
         std::string path(256, 0);
-        ssize_t ret = readlink("/proc/self/exe", &path[0], path.size());		//读取链接指向的真实文件路径
+        ssize_t ret = readlink("/proc/self/exe", &path[0], path.size()-1);		//读取链接指向的真实文件路径
         if (-1 == ret)
             path.clear();
         else
@@ -121,7 +123,8 @@ namespace crx
     {
         FILE *pf = popen(cmd_string, "r");		//执行shell命令，命令的输出通过管道返回
         if (__glibc_unlikely(nullptr == pf)) {
-            log_error(g_lib_log, "popen failed: %s\n", strerror(errno));
+            if (errno)
+                log_error(g_lib_log, "popen failed: %s\n", strerror(errno));
             return "";
         }
 
@@ -139,7 +142,8 @@ namespace crx
         int size = backtrace(buffer, 1024);		//获取函数调用栈中每个调用点的地址
         char **strings = backtrace_symbols(buffer, size);		//将地址转换为函数名及其在函数内部以十六进制表示的偏移量
         if (__glibc_unlikely(!strings)) {
-            log_error(g_lib_log, "backtrace_symbols failed: %s\n", strerror(errno));
+            if (errno)
+                log_error(g_lib_log, "backtrace_symbols failed: %s\n", strerror(errno));
             return;
         }
 
@@ -192,12 +196,13 @@ namespace crx
 
             auto str_vec = crx::split(res.data(), res.size(), "\n");
             if (str_vec.size() == 2) {		//将修饰后的函数名变换为源文件中对应的函数名
-                sprintf(cmd_string, "c++filt %s", str_vec[0].data);
+                auto symbol_mangle = std::string(str_vec[0].data, str_vec[0].len);
+                sprintf(cmd_string, "c++filt %s", symbol_mangle.c_str());
                 res = std::string(str_vec[1].data, str_vec[1].len) +" => "+run_shell_cmd(cmd_string);
             }
             fprintf(core_file, "%s", res.c_str());
         }
-        fprintf(core_file, "%s", "\n\n");
+        fprintf(core_file, "%s", "\n");
         fclose(core_file);
         free(strings);
     }
