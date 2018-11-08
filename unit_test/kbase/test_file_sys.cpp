@@ -125,6 +125,22 @@ TEST_F(FileSysTest, GetLocalAddr) {
     }
 }
 
+TEST_F(FileSysTest, GetFileSize)
+{
+    for (int i = 0; i < 16; i++) {
+        int seed = m_rand()%10000;
+        if (seed%2) {
+            if (i%2) {
+                ASSERT_EQ(m_file_size, crx::get_file_size("test"));
+            } else {
+                ASSERT_EQ(-1, crx::get_file_size("non_test"));
+            }
+        } else {
+            ASSERT_EQ(-1, crx::get_file_size(nullptr));
+        }
+    }
+}
+
 int main(int argc, char *argv[])
 {
     std::string server_name = argv[0];

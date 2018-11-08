@@ -50,6 +50,29 @@ TEST_F(SysTimeTest, GetDateTime)
     }
 }
 
+TEST_F(SysTimeTest, GetWeekDay)
+{
+    ASSERT_EQ(3, crx::get_week_day(20170621));
+    ASSERT_EQ(4, crx::get_week_day(20181108));
+    ASSERT_EQ(1, crx::get_week_day(20180604));
+    ASSERT_EQ(7, crx::get_week_day(20180225));
+    ASSERT_EQ(5, crx::get_week_day(20190712));
+    ASSERT_EQ(2, crx::get_week_day(20200505));
+    ASSERT_EQ(6, crx::get_week_day(20181222));
+}
+
+TEST_F(SysTimeTest, GetNthDay)
+{
+    ASSERT_EQ(20181115, crx::get_Nth_day(20181108, 7));
+    ASSERT_EQ(20180421, crx::get_Nth_day(20180223, 57));
+    ASSERT_EQ(20171223, crx::get_Nth_day(20180308, -75));
+    ASSERT_EQ(20170730, crx::get_Nth_day(20171213, -136));
+    ASSERT_EQ(20180302, crx::get_Nth_day(20170606, 269));
+    ASSERT_EQ(20180824, crx::get_Nth_day(20170915, 343));
+    ASSERT_EQ(20181216, crx::get_Nth_day(20200202, -413));
+    ASSERT_EQ(20000729, crx::get_Nth_day(20000202, 178));
+}
+
 int main(int argc, char *argv[])
 {
     testing::InitGoogleTest(&argc, argv);

@@ -342,15 +342,15 @@ namespace crx
     int get_Nth_day(unsigned int spec_day, int N)
     {
         tm spec_time;
-        spec_time.tm_year = spec_day/10000;
-        spec_time.tm_mon = (spec_day%10000)/100;
+        spec_time.tm_year = spec_day/10000-1900;
+        spec_time.tm_mon = (spec_day%10000)/100-1;
         spec_time.tm_mday = spec_day%100;
         spec_time.tm_hour = 12;
         spec_time.tm_min = spec_time.tm_sec = 0;
         time_t spec_sec = mktime(&spec_time);
         spec_sec += N*24*3600;
         tm *p = localtime(&spec_sec);
-        return p->tm_year*10000+p->tm_mon*100+p->tm_mday;
+        return (p->tm_year+1900)*10000+(p->tm_mon+1)*100+p->tm_mday;
     }
 
     int get_file_size(const char *file)

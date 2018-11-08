@@ -96,7 +96,22 @@ int pclose(FILE *__stream)
 
 int access (const char *__name, int __type) __THROW
 {
-    return -1;
+    if (!strcmp("test", __name)) {
+        return 0;
+    } else {
+        return -1;
+    }
+}
+
+// hook stat
+int __xstat (int vers, const char *name, struct stat *buf) __THROW
+{
+    if (!strcmp("test", name)) {
+        buf->st_size = g_mock_fs->get_file_size();
+        return 0;
+    } else {
+        return -1;
+    }
 }
 
 int mkdir (const char *__path, __mode_t __mode) __THROW

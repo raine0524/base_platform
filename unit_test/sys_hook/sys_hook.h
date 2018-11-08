@@ -28,9 +28,16 @@ public:
         return 0;
     }
 
+    int get_file_size()
+    {
+        m_file_size = m_rand()%10000;
+        return m_file_size;
+    }
+
 protected:
     std::random_device m_rand;
     std::map<int, int> m_fd_flags;  //file desc/status flags
+    int m_file_size;
 };
 
 extern MockFileSystem *g_mock_fs;
