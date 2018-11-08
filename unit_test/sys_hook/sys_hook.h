@@ -7,7 +7,7 @@ class MockFileSystem : public testing::Test
 public:
     std::string m_readlink_val;
     std::set<FILE*> m_open_files;
-    int m_fgets_curr, m_fgets_num;
+    int m_fgets_curr, m_fgets_num, m_mkdir_num;
 
     int get_flag(int fd)
     {

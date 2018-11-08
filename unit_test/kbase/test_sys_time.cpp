@@ -37,6 +37,19 @@ TEST_F(SysTimeTest, MeasureTime)
     }
 }
 
+TEST_F(SysTimeTest, GetDateTime)
+{
+    for (int i = 0; i < 16; i++) {
+        timeval tv = {m_rand()%10000, m_rand()%10000};
+        crx::datetime dt = crx::get_datetime(&tv);
+        ASSERT_EQ(dt.time_stamp, tv.tv_sec*1000+tv.tv_usec/1000);
+
+        m_interval = {m_rand()%10000, m_rand()%10000};
+        dt = crx::get_datetime(nullptr);
+        ASSERT_EQ(dt.time_stamp, (m_curr_time.tv_sec-m_interval.tv_sec)*1000+(m_curr_time.tv_usec-m_interval.tv_usec)/1000);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     testing::InitGoogleTest(&argc, argv);

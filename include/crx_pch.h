@@ -45,6 +45,7 @@
 #include <memory>
 #include <functional>
 #include <future>
+#include <regex>
 
 #include <set>
 #include <unordered_set>

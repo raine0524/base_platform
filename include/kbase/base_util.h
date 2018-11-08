@@ -29,10 +29,11 @@ namespace crx
     void CRX_SHARE dump_segment();
 
     //一次创建多级目录，所有目录的都采用相同的mode
-    void CRX_SHARE mkdir_multi(const char *path, mode_t mode = 0755);
+    int CRX_SHARE mkdir_multi(const char *path, mode_t mode = 0755);
 
     //字符集转换
-    std::string CRX_SHARE charset_convert(const char *from_charset, const char *to_charset, const char *src_data, size_t src_len);
+    std::string CRX_SHARE charset_convert(const char *from_charset, const char *to_charset,
+            const char *src_data, size_t src_len);
 
     //获取本机地址(mac/ip等)
     std::string CRX_SHARE get_local_addr(ADDR_TYPE type, const char *net_card = "eth0");
@@ -73,5 +74,5 @@ namespace crx
 
     //对根目录进行深度优先遍历，对于所有取得的文件都执行f函数调用
     void  CRX_SHARE depth_first_traverse_dir(const char *root_dir, std::function<void(std::string&)> f,
-                                             bool with_path = true, bool filter_dir = true);
+            bool with_path = true, bool filter_dir = true);
 }

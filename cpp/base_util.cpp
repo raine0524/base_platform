@@ -207,14 +207,15 @@ namespace crx
         free(strings);
     }
 
-    void mkdir_multi(const char *path, mode_t mode /*= 0755*/)
+    int mkdir_multi(const char *path, mode_t mode /*= 0755*/)
     {
-        if (!path) return;
+        if (!path) return -1;
         std::string temp_path = path;
         if ('/' != temp_path.back())	//若原始路径不是以'/'结尾，则构造一个'/'结尾的目录路径
             temp_path.append("/");
 
-        const char *pch = temp_path.c_str();
+        //根目录总是存在的
+        const char *pch = ('/' == temp_path.front()) ? temp_path.c_str()+1 : temp_path.c_str();
         while (true) {
             pch = strstr(pch, "/");		//从上次查找处继续搜索下一个'/'
             if (!pch) break;
@@ -225,11 +226,12 @@ namespace crx
                 mkdir(middle_dir.c_str(), mode);
             pch++;
         }
+        return 0;
     }
 
     std::string charset_convert(const char *from_charset, const char *to_charset, const char *src_data, size_t src_len)
     {
-        if (!from_charset || !to_charset || !src_data || src_len == 0)
+        if (!from_charset || !to_charset || !src_data || !src_len)
             return "";
 
         /*

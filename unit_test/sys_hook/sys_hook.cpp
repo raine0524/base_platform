@@ -93,3 +93,14 @@ int pclose(FILE *__stream)
         return g_sys_pclose(__stream);
     }
 }
+
+int access (const char *__name, int __type) __THROW
+{
+    return -1;
+}
+
+int mkdir (const char *__path, __mode_t __mode) __THROW
+{
+    g_mock_fs->m_mkdir_num++;
+    return 1;
+}
