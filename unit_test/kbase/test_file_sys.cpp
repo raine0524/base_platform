@@ -208,10 +208,6 @@ TEST_F(FileSysTest, ConvertIPAddr)
     ASSERT_STREQ(server_addr, ip_addr.c_str());
 
     std::vector<std::string> addr_res;
-    server_addr = "not.exist.url";
-    ASSERT_TRUE(crx::convert_ipaddr(server_addr, ip_addr));
-    addr_res.push_back(std::move(ip_addr));
-
     server_addr = "www.baidu.com";
     ASSERT_TRUE(crx::convert_ipaddr(server_addr, ip_addr));
     addr_res.push_back(std::move(ip_addr));
