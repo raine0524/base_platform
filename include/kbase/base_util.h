@@ -57,10 +57,10 @@ namespace crx
      * @n 查找在原始字符串中出现的第n+1个模式串，若查找首次出现的模式串的位置，则n设为0
      * @return value: 若找到则返回符合要求的模式串在原始串中的位置(从0开始)，未找到则返回-1
      */
-    int CRX_SHARE find_nth_pos(const std::string& src, const char *pattern, int n);
+    int CRX_SHARE find_nth_pos(const std::string &src, const char *pattern, int n);
 
     //将字符串前后的空格及制表符去除
-    std::string CRX_SHARE &trim(std::string& s);
+    std::string CRX_SHARE &trim(std::string &s);
 
     //将字符串s按照分隔符delimiters进行分隔
     std::vector<mem_ref> CRX_SHARE split(const char *src, size_t len, const char *delim);
@@ -70,9 +70,9 @@ namespace crx
      * 则该函数执行server = ip_addr并返回true(使用glibc库中的gethostbyname进行域名解析，该函数将阻塞当前执行流
      * 且是不可重入的.在tcp_client类中的connect接口采用异步的方式进行域名解析)
      */
-    bool CRX_SHARE convert_ipaddr(const char *server, std::string& ip_addr);
+    bool CRX_SHARE convert_ipaddr(const char *server, std::string &ip_addr);
 
     //对根目录进行深度优先遍历，对于所有取得的文件都执行f函数调用
-    void  CRX_SHARE depth_first_traverse_dir(const char *root_dir, std::function<void(std::string&)> f,
+    void CRX_SHARE depth_first_traverse_dir(const char *root_dir, std::function<void(std::string &)> f,
             bool with_path = true, bool filter_dir = true);
 }

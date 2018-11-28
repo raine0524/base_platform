@@ -3,6 +3,8 @@
 MockFileSystem *g_mock_fs = nullptr;
 MockSystemTime *g_mock_st = nullptr;
 
+std::random_device g_rand;
+
 int fcntl(int __fd, int __cmd, ...)
 {
     if (F_GETFD == __cmd || F_GETFL == __cmd) {
@@ -45,7 +47,7 @@ FILE *popen(const char *__command, const char *__modes)
     if (!__command || !__modes)
         return nullptr;
 
-    if (!strcmp("test", __command)) {
+    if (!strcmp("__popen_test", __command)) {
         auto fp = (FILE*)0x88;
         g_mock_fs->m_open_files.insert(fp);
         return fp;
@@ -56,13 +58,13 @@ FILE *popen(const char *__command, const char *__modes)
     }
 }
 
-char *fgets(char *__restrict __s, int __n, FILE *__restrict __stream)
+char *fgets(char *__restrict __s, int __n, FILE *__stream)
 {
     if ((void*)0x88 == __stream) {
         if (!__stream || g_mock_fs->m_fgets_curr == g_mock_fs->m_fgets_num)
             return nullptr;
 
-        if (g_mock_fs->m_open_files.end() == g_mock_fs->m_open_files.find((FILE*)__stream))
+        if (g_mock_fs->m_open_files.end() == g_mock_fs->m_open_files.find(__stream))
             return nullptr;
 
         if (g_mock_fs->m_fgets_curr <= g_mock_fs->m_fgets_num-2) {
@@ -96,7 +98,7 @@ int pclose(FILE *__stream)
 
 int access (const char *__name, int __type) __THROW
 {
-    if (!strcmp("test", __name)) {
+    if (strstr(__name, "test")) {
         return 0;
     } else {
         return -1;
@@ -106,11 +108,20 @@ int access (const char *__name, int __type) __THROW
 // hook stat
 int __xstat (int vers, const char *name, struct stat *buf) __THROW
 {
-    if (!strcmp("test", name)) {
+    if (!strncmp(name, "__filesize_test", 15)) {
         buf->st_size = g_mock_fs->get_file_size();
         return 0;
+    } else if (strstr(name, "__readdir_test")) {
+        if (g_rand()%10 >= 4) {
+            buf->st_mode = 33204;       // file
+            g_mock_fs->m_traverse_fname = name;
+        } else {
+            buf->st_mode = 16893;       // dir
+        }
     } else {
-        return -1;
+        typedef int (*xstat_pfn_t)(int vers, const char *name, struct stat *buf);
+        static xstat_pfn_t g_sys_xstat = (xstat_pfn_t)dlsym(RTLD_NEXT, "__xstat");
+        return g_sys_xstat(vers, name, buf);
     }
 }
 
@@ -118,4 +129,53 @@ int mkdir (const char *__path, __mode_t __mode) __THROW
 {
     g_mock_fs->m_mkdir_num++;
     return 1;
+}
+
+DIR *opendir (const char *__name)
+{
+    if (!strncmp(__name, "__depth_test", 4)) {
+        g_mock_fs->m_opendir_cnt++;
+        if (g_mock_fs->m_opendir_cnt >= 10) {
+            return nullptr;
+        } else {
+            DIR *ret = reinterpret_cast<DIR*>(g_mock_fs->m_opendir_cnt);
+            g_mock_fs->m_dir_ent[ret];
+            return ret;
+        }
+    } else {
+        typedef DIR* (*opendir_pfn_t) (const char *__name);
+        static opendir_pfn_t g_sys_opendir = (opendir_pfn_t)dlsym(RTLD_NEXT, "opendir");
+        return g_sys_opendir(__name);
+    }
+}
+
+struct dirent *readdir (DIR *__dirp)
+{
+    auto it = g_mock_fs->m_dir_ent.find(__dirp);
+    if (g_mock_fs->m_dir_ent.end() != it) {
+        if (g_rand()%10 <= 2)
+            return nullptr;
+
+        dirent *ent = &it->second;
+        std::string file_name = "test"+std::to_string(g_mock_fs->m_readdir_cnt++)+"__readdir_test";
+        strcpy(ent->d_name, file_name.c_str());
+        return ent;
+    } else {
+        typedef dirent* (*readdir_pfn_t) (DIR *__dirp);
+        static readdir_pfn_t g_sys_readdir = (readdir_pfn_t)dlsym(RTLD_NEXT, "readdir");
+        return g_sys_readdir(__dirp);
+    }
+}
+
+int closedir (DIR *__dirp)
+{
+    auto it = g_mock_fs->m_dir_ent.find(__dirp);
+    if (g_mock_fs->m_dir_ent.end() != it) {
+        g_mock_fs->m_dir_ent.erase(__dirp);
+    } else {
+        typedef int (*closedir_pfn_t) (DIR *__dirp);
+        static closedir_pfn_t g_sys_closedir = (closedir_pfn_t)dlsym(RTLD_NEXT, "closedir");
+        return g_sys_closedir(__dirp);
+    }
+    return 0;
 }

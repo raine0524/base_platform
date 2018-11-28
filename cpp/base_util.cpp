@@ -292,7 +292,7 @@ namespace crx
                         (unsigned char)ifr.ifr_hwaddr.sa_data[3],
                         (unsigned char)ifr.ifr_hwaddr.sa_data[4],
                         (unsigned char)ifr.ifr_hwaddr.sa_data[5]);
-            } else if (ADDR_IP == type) {
+            } else {        // ADDR_IP == type
                 struct sockaddr_in *addr = (struct sockaddr_in*)&ifr.ifr_addr;
                 strcpy(buffer, inet_ntoa(addr->sin_addr));
             }
@@ -446,12 +446,16 @@ namespace crx
         }
 
         ip_addr.resize(32);     //取addr_list列表中的第一个地址转化为ip地址
+        std::string oval = ip_addr;
         inet_ntop(hent->h_addrtype, hent->h_addr_list[0], &ip_addr[0], (socklen_t)ip_addr.size());
-        return true;
+        if (ip_addr == oval)
+            return false;
+        else
+            return true;
     }
 
     void depth_first_traverse_dir(const char *root_dir, std::function<void(std::string&)> f,
-                                  bool with_path /*= true*/, bool filter_dir /*= true*/)
+            bool with_path /*= true*/, bool filter_dir /*= true*/)
     {
         DIR *dir = opendir(root_dir);
         if (__glibc_unlikely(!dir)) {

@@ -2,12 +2,18 @@
 
 #include "stdafx.h"
 
+extern std::random_device g_rand;
+
 class MockFileSystem : public testing::Test
 {
 public:
     std::string m_readlink_val;
     std::set<FILE*> m_open_files;
     int m_fgets_curr, m_fgets_num, m_mkdir_num;
+
+    std::map<DIR*, dirent> m_dir_ent;
+    int m_opendir_cnt, m_readdir_cnt;
+    std::string m_traverse_fname;
 
     int get_flag(int fd)
     {
@@ -30,12 +36,11 @@ public:
 
     int get_file_size()
     {
-        m_file_size = m_rand()%10000;
+        m_file_size = g_rand()%10000;
         return m_file_size;
     }
 
 protected:
-    std::random_device m_rand;
     std::map<int, int> m_fd_flags;  //file desc/status flags
     int m_file_size;
 };
@@ -54,7 +59,6 @@ public:
     }
 
 protected:
-    std::random_device m_rand;
     timeval m_interval;
 };
 
