@@ -19,7 +19,7 @@ namespace crx
 
         sigset_t m_mask;
         signalfd_siginfo m_fd_info;
-        std::map<int, std::function<void(uint64_t)>> m_sig_cb;
+        std::map<int, std::function<void(int, uint64_t)>> m_sig_cb;
     };
 
     class timer_impl : public eth_event

@@ -95,7 +95,7 @@ namespace crx
     public:
         tcp_client_impl(SOCK_TYPE type = NORM_TRANS) : m_util(type) {}
 
-        void name_resolve_callback(uint64_t sigval)
+        void name_resolve_callback(int signo, uint64_t sigval)
         {
             m_util.m_sch->co_yield(sigval);
         }

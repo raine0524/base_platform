@@ -59,9 +59,21 @@ void SchedulerTest::check_satellites(std::shared_ptr<crx::scheduler_impl>& impl)
         ASSERT_TRUE(sates.is_share == co_impl->is_share);
         ASSERT_EQ(sates.main_rand, sates.copy_rand);
     }
+
+    auto avail_cos = m_sch.get_avail_cos();
+    for (auto& co : avail_cos) {
+        if (0 != co->co_id) {
+            ASSERT_EQ(crx::CO_SUSPEND, co->status);
+            std::string co_comment = "co_helper_"+std::to_string(co->co_id);
+            ASSERT_STREQ(co_comment.c_str(), co->comment);
+        } else {        // main co
+            ASSERT_EQ(crx::CO_RUNNING, co->status);
+            ASSERT_STREQ("main_coroutine", co->comment);
+        }
+    }
 }
 
-TEST_F(SchedulerTest, CoCreate)
+TEST_F(SchedulerTest, CoCreateYield)
 {
     auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
     int test_cos = 2500+g_rand()%1000;
@@ -114,7 +126,7 @@ TEST_F(SchedulerTest, CoCreate)
 void SchedulerTest::co_test_adder(crx::scheduler *sch, size_t co_id)
 {
     int calc_num = m_test_num/m_adder_cnt;
-    int yield_cnt = g_rand()%10+50;       // 尝试切50次左右
+    int yield_cnt = g_rand()%5+20;       // 尝试切20次左右
     int yield_calc = calc_num/yield_cnt, j = 0;
     for (int i = 0; i < calc_num; i++) {
         m_accu_sum++;
@@ -139,12 +151,12 @@ TEST_F(SchedulerTest, CoAdder)
     for (int i = 0; i < 10; i++) {      // 循环测试10次
         m_accu_sum = 0;
         m_adder_comp = 0;
-        m_adder_cnt = g_rand()%10+50;       // 创建50个左右的加法器adder
-        m_test_num = g_rand()%1000000+10000000;     // 计算1千万次左右
+        m_adder_cnt = g_rand()%5+20;       // 创建20个左右的加法器adder
+        m_test_num = g_rand()%100000+1000000;     // 计算1百万次左右
         m_test_num = m_test_num/m_adder_cnt*m_adder_cnt;
 
         for (int j = 0; j < m_adder_cnt; j++) {
-            size_t co_id = m_sch.co_create(std::bind(&SchedulerTest::co_test_adder, this, _1, _2));
+            size_t co_id = m_sch.co_create(std::bind(&SchedulerTest::co_test_adder, this, _1, _2), g_rand()%5 <= 2);
             m_sch.co_yield(co_id);
         }
 
@@ -152,6 +164,7 @@ TEST_F(SchedulerTest, CoAdder)
         impl->main_coroutine(&m_sch);
         ASSERT_EQ(m_accu_sum, m_test_num);
     }
+    close(impl->m_epoll_fd);
 }
 
 int main(int argc, char *argv[])

@@ -7,8 +7,8 @@ namespace crx
     class CRX_SHARE sigctl : public kobj
     {
     public:
-        //增加监听信号及其回调函数
-        void add_sig(int signo, std::function<void(uint64_t)> callback);
+        //增加监听信号及其回调函数，回调函数中的两个参数分别是：1-信号值 2-构造并发送信号时的回调参数
+        void add_sig(int signo, std::function<void(int, uint64_t)> callback);
 
         //移除监听信号
         void remove_sig(int signo);

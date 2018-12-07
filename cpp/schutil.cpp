@@ -32,7 +32,7 @@ namespace crx
             if (__glibc_likely(ret == st_size)) {
                 auto it = m_sig_cb.find(m_fd_info.ssi_signo);
                 if (m_sig_cb.end() != it)
-                    it->second(m_fd_info.ssi_ptr);
+                    it->second(m_fd_info.ssi_signo, m_fd_info.ssi_ptr);
             } else {
                 if (-1 == ret && EAGAIN != errno)
                     log_error(g_lib_log, "read failed: %s\n", strerror(errno));
@@ -43,7 +43,7 @@ namespace crx
         }
     }
 
-    void sigctl::add_sig(int signo, std::function<void(uint64_t)> callback)
+    void sigctl::add_sig(int signo, std::function<void(int, uint64_t)> callback)
     {
         if (!m_impl) return;
         auto impl = std::dynamic_pointer_cast<sigctl_impl>(m_impl);

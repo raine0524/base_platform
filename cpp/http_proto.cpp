@@ -30,7 +30,7 @@ namespace crx
             impl = http_impl;
 
             auto ctl = get_sigctl();    //基于tcp_client::connect接口的连接操作在遇到名字解析时将发生协程的切换操作
-            ctl.add_sig(SIGRTMIN+14, std::bind(&http_impl_t<tcp_client_impl>::name_resolve_callback, http_impl.get(), _1));
+            ctl.add_sig(SIGRTMIN+14, std::bind(&http_impl_t<tcp_client_impl>::name_resolve_callback, http_impl.get(), _1, _2));
         }
 
         http_client obj;
