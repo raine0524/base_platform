@@ -53,6 +53,7 @@ namespace crx
     enum
     {
         SIG_CTL = 0,
+        TMR_WHL,
         TCP_CLI,
         TCP_SVR,
         HTTP_CLI,

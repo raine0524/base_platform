@@ -365,8 +365,8 @@ namespace crx
         }
 
         signal(SIGPIPE, SIG_IGN);       //向已经断开连接的管道和套接字写数据时只返回错误,不主动退出进程
-        if (!sch_impl->m_sec_wheel.m_impl)       //创建一个秒盘
-            sch_impl->m_sec_wheel = get_timer_wheel(1000, 60);
+        if (!sch_impl->m_sec_wheel.m_impl)       //创建一个定时轮
+            sch_impl->m_sec_wheel = get_timer_wheel();
         sch_impl->m_sec_wheel.add_handler(5*1000, std::bind(&scheduler_impl::periodic_trim_memory, sch_impl.get()));
 
         //打印帮助信息

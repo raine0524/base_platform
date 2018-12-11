@@ -63,16 +63,10 @@ namespace crx
         sigctl get_sigctl();
 
         //获取timer实例(手动释放,多次申请将返回多个不同的实例)
-        timer get_timer(std::function<void()> f);
+        timer get_timer(std::function<void(int64_t)> f, int64_t cb_arg = 0);
 
-        /*
-         * 获取定时轮timer_wheel实例(自动释放,多次申请将返回多个不同实例)
-         * @interval 表示一个tick的间隔，单位为毫秒，使用时最好将该值设置在20ms以上，因为系统定时器本身的灵敏度在10ms以上，
-         * 在系统负荷较高的情况下，定时事件触发所需处理的事件数量较多，若该值设置的较小将导致不够灵敏
-         * @slot 定时轮的槽数
-         * 一个经典的定时轮是表盘，interval为1000(1s)，slot为60(0~59)
-         */
-        timer_wheel get_timer_wheel(uint64_t interval, size_t slot);
+        //[单例] 获取定时轮timer_wheel实例(自动释放)
+        timer_wheel get_timer_wheel();
 
         //获取event实例(手动释放,多次申请将返回多个不同实例)
         event get_event(std::function<void(int)> f);

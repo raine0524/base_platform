@@ -15,6 +15,11 @@ public:
     int m_opendir_cnt, m_readdir_cnt;
     std::string m_traverse_fname;
 
+    bool m_hook_ewait;
+    int m_ewait_fd;
+
+    MockFileSystem() : m_hook_ewait(false) {}
+
     int get_flag(int fd)
     {
         auto it = m_fd_flags.find(fd);

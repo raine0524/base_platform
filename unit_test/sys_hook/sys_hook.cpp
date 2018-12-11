@@ -179,3 +179,27 @@ int closedir (DIR *__dirp)
     }
     return 0;
 }
+
+int epoll_wait (int __epfd, struct epoll_event *__events, int __maxevents, int __timeout)
+{
+    if (g_mock_fs->m_hook_ewait) {
+        __events[0].events = EPOLLIN;
+        __events[0].data.fd = g_mock_fs->m_ewait_fd;
+        return 1;
+    }
+
+    typedef int (*ewait_pfn_t) (int, struct epoll_event*, int, int);
+    static ewait_pfn_t g_sys_ewait = (ewait_pfn_t)dlsym(RTLD_NEXT, "epoll_wait");
+    return g_sys_ewait(__epfd, __events, __maxevents, __timeout);
+}
+
+ssize_t read (int __fd, void *__buf, size_t __nbytes)
+{
+    if (g_mock_fs->m_hook_ewait) {
+        return 1;
+    }
+
+    typedef ssize_t (*read_pfn_t) (int, void*, size_t);
+    static read_pfn_t g_sys_read = (read_pfn_t)dlsym(RTLD_NEXT, "read");
+    return g_sys_read(__fd, __buf, __nbytes);
+}

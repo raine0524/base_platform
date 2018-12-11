@@ -36,14 +36,19 @@ namespace crx
     {
     public:
         /*
-         * 增加定时轮处理器，定时轮将根据延迟以及一个tick的间隔时间选择适当的槽，将回调函数放在这个槽内，等到
-         * 指针指向这个槽之后，执行相应的回调函数
+         * 增加处理器，定时轮在延迟delay ms之后将执行相应的回调函数
+         *      **若需要处理指定时间点触发的事件以及周期为天及以上的事件时可以考虑使用crontab
+         *      **若需要处理精度更高的事件比如每隔10ms甚至每隔1ms触发的事件时，那么需要设计精度更高的专用定时器
+         *
+         * 在绝大多数场景下，timer_wheel已基本够用，但在负载较高的情况下定时轮可能不够灵敏，因此上层在使用时应限制
+         * 添加处理器个数的上限，特别是尽量避免处理一个请求就添加一个对应的处理器，能复用尽量复用，对于某些相对耗时的
+         * 重型请求尽量拆分，比如在一个协程中处理完一部分之后co_yield/co_sleep，等待上下文回切之后继续计算
          *
          * @delay 延迟时间，单位为毫秒
-         * @callback 回调函数
-         * @return 若延迟时间>interval*slot，那么处理器添加失败
+         * @f & arg 回调函数及回调参数
+         * @return 若延迟时间 delay > 23:59:59x1000 ms，那么处理器添加失败
          */
-        bool add_handler(uint64_t delay, std::function<void()> callback);
+        bool add_handler(size_t delay, std::function<void(int64_t)> f, int64_t arg = 0);
     };
 
     class CRX_SHARE event : public kobj

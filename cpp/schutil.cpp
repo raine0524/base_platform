@@ -82,7 +82,7 @@ namespace crx
         impl->handle_event(EPOLL_CTL_ADD, fd, EPOLLIN);
     }
 
-    timer scheduler::get_timer(std::function<void()> f)
+    timer scheduler::get_timer(std::function<void(int64_t)> f, int64_t cb_arg /*= 0*/)
     {
         auto tmr_impl = std::make_shared<timer_impl>();
         tmr_impl->fd = timerfd_create(CLOCK_REALTIME, TFD_NONBLOCK);    //创建一个非阻塞的定时器资源
@@ -91,6 +91,7 @@ namespace crx
             tmr_impl->sch_impl = sch_impl;
             tmr_impl->f = std::bind(&timer_impl::timer_callback, tmr_impl.get(), _1);
             tmr_impl->m_f = std::move(f);
+            tmr_impl->m_arg = cb_arg;
             sch_impl->add_event(tmr_impl);      //加入epoll监听事件
         } else {
             log_error(g_lib_log, "timerfd_create failed: %s\n", strerror(errno));
@@ -110,7 +111,7 @@ namespace crx
     {
         uint64_t cnt;
         read(fd, &cnt, sizeof(cnt));
-        m_f();
+        m_f(m_arg);
     }
 
     void timer::start(uint64_t delay, uint64_t interval)
@@ -156,44 +157,104 @@ namespace crx
         }
     }
 
-    timer_wheel scheduler::get_timer_wheel(uint64_t interval, size_t slot)
+    timer_wheel scheduler::get_timer_wheel()
     {
-        auto tw_impl = std::make_shared<timer_wheel_impl>();
-        tw_impl->m_timer = get_timer(std::bind(&timer_wheel_impl::timer_wheel_callback, tw_impl.get()));
-        if (tw_impl->m_timer.m_impl) {
-            tw_impl->m_timer.start(interval, interval);
-            tw_impl->m_slots.resize(slot);
-        } else {
-            tw_impl.reset();
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto& impl = sch_impl->m_util_impls[TMR_WHL];
+        if (!impl) {
+            auto tw_impl = std::make_shared<timer_wheel_impl>();
+            tw_impl->m_timer_vec.resize(4);
+            for (int i = 0; i < tw_impl->m_timer_vec.size(); i++) {
+                auto& slot = tw_impl->m_timer_vec[i];
+                slot.slot_idx = 0;
+                switch (i) {
+                    case 0:     //时钟盘
+                        slot.tick = 60*60*1000;
+                        slot.elems.resize(24);
+                        break;
+                    case 1:     //分钟盘
+                        slot.tick = 60*1000;
+                        slot.elems.resize(60);
+                        break;
+                    case 2:     //秒盘
+                        slot.tick = 1000;
+                        slot.elems.resize(60);
+                        break;
+                    case 3:     //微秒盘, 100ms一跳
+                        slot.tick = 100;
+                        slot.elems.resize(10);
+                        break;
+                    default:
+                        break;
+                }
+
+                slot.tmr = get_timer(std::bind(&timer_wheel_impl::timer_wheel_callback, tw_impl.get(), _1), i);
+                slot.tmr.start(slot.tick, slot.tick);
+            }
+            impl = tw_impl;
         }
 
-        timer_wheel tw;
-        tw.m_impl = tw_impl;
-        return tw;
+        timer_wheel obj;
+        obj.m_impl = impl;
+        return obj;
     }
 
-    void timer_wheel_impl::timer_wheel_callback()
+    void timer_wheel_impl::timer_wheel_callback(int64_t arg)
     {
-        m_slot_idx = (m_slot_idx+1)%m_slots.size();
-        for (auto& f : m_slots[m_slot_idx])
-            f();
-        m_slots[m_slot_idx].clear();
+        auto& slot = m_timer_vec[arg];
+        slot.slot_idx = (slot.slot_idx+1)%slot.elems.size();
+        for (auto& elem : slot.elems[slot.slot_idx]) {
+            if (elem.remain <= 0) {
+                elem.f(elem.arg);
+                continue;
+            }
+
+            for (int i = (int)arg+1; i < m_timer_vec.size(); i++) {
+                auto& this_slot = m_timer_vec[i];
+                if (elem.remain < this_slot.tick)
+                    continue;
+
+                int quotient = (int)(elem.remain*1.0/this_slot.tick);
+                int new_idx = (int)((this_slot.slot_idx+quotient)%this_slot.elems.size());
+                this_slot.elems[new_idx].emplace_back();
+
+                auto& new_elem = this_slot.elems[new_idx].back();
+                new_elem.remain = elem.remain-this_slot.tick*quotient;
+                new_elem.f = std::move(elem.f);
+                new_elem.arg = elem.arg;
+                break;
+            }
+        }
+        slot.elems[slot.slot_idx].clear();
     }
 
-    bool timer_wheel::add_handler(uint64_t delay, std::function<void()> callback)
+    bool timer_wheel::add_handler(size_t delay, std::function<void(int64_t)> f, int64_t arg /*= 0*/)
     {
-        if (!m_impl) return false;
+        if (!m_impl || delay >= 24*60*60*1000-1000)
+            return false;
+
+        delay = (size_t)((delay/100.0+1)*100.0);        //首先将延迟时间正则化
         auto tw_impl = std::dynamic_pointer_cast<timer_wheel_impl>(m_impl);
-        auto tm_impl = std::dynamic_pointer_cast<timer_impl>(tw_impl->m_timer.m_impl);
-        size_t tick = (size_t)std::ceil(delay/tm_impl->m_interval*1.0);
+        for (int i = 0; i < tw_impl->m_timer_vec.size(); i++) {
+            auto& this_slot = tw_impl->m_timer_vec[i];
+            if (delay < this_slot.tick)
+                continue;
 
-        bool ret = false;
-        size_t slot_size = tw_impl->m_slots.size();
-        if (tick <= slot_size) {
-            ret = true;
-            tw_impl->m_slots[(tw_impl->m_slot_idx+tick)%slot_size].push_back(std::move(callback));
+            int quotient = (int)(delay*1.0/this_slot.tick);
+            int new_idx = (int)((this_slot.slot_idx+quotient)%this_slot.elems.size());
+            this_slot.elems[new_idx].emplace_back();
+
+            auto& new_elem = this_slot.elems[new_idx].back();
+            new_elem.f = std::move(f);
+            new_elem.arg = arg;
+            new_elem.remain = delay-this_slot.tick*quotient;
+            for (int j = i+1; j < tw_impl->m_timer_vec.size(); j++) {
+                auto &nslot = tw_impl->m_timer_vec[j];
+                new_elem.remain += (nslot.elems.size() - nslot.slot_idx - 1) * nslot.tick;
+            }
+            break;
         }
-        return ret;
+        return true;
     }
 
     event scheduler::get_event(std::function<void(int)> f)

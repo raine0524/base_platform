@@ -30,21 +30,37 @@ namespace crx
         void timer_callback(uint32_t events);
 
         uint64_t m_delay, m_interval;        //分别对应于首次触发时的延迟时间以及周期性触发时的间隔时间
-        std::function<void()> m_f;
+        std::function<void(int64_t)> m_f;
+        int64_t m_arg;
+    };
+
+    struct wheel_elem
+    {
+        int64_t remain;     // unit: ms
+        std::function<void(int64_t)> f;
+        int64_t arg;
+    };
+
+    struct wheel_slot
+    {
+        timer tmr;
+        size_t slot_idx, tick;
+        std::vector<std::vector<wheel_elem>> elems;
     };
 
     class timer_wheel_impl : public impl
     {
     public:
-        timer_wheel_impl() : m_slot_idx(0) {}
+        virtual ~timer_wheel_impl()
+        {
+            for (auto& slot : m_timer_vec)
+                slot.tmr.detach();
+            m_timer_vec.clear();
+        }
 
-        virtual ~timer_wheel_impl() { m_timer.detach(); }
+        void timer_wheel_callback(int64_t arg);
 
-        void timer_wheel_callback();
-
-        timer m_timer;
-        size_t m_slot_idx;
-        std::vector<std::list<std::function<void()>>> m_slots;
+        std::vector<wheel_slot> m_timer_vec;     // 0-hour timer, 1-minute timer, 2-second timer, 3-mills timer
     };
 
     class event_impl : public eth_event
