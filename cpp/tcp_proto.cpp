@@ -134,7 +134,7 @@ namespace crx
                     tcp_conn->last_conn = fd;
                 }
             } else {
-                tcp_impl->m_util.m_timer_wheel.add_handler((uint64_t)timeout*1000,
+                tcp_impl->m_util.m_wheel.add_handler((uint64_t)timeout*1000,
                         std::bind(&tcp_client_conn::retry_connect, this));
             }
         }
@@ -213,8 +213,8 @@ namespace crx
         if (-1 == conn->fd)
             return -3;
 
-        if (!tcp_impl->m_util.m_timer_wheel.m_impl)             //复用该秒盘
-            tcp_impl->m_util.m_timer_wheel = sch_impl->m_sec_wheel;
+        if (!tcp_impl->m_util.m_wheel.m_impl)             //复用该秒盘
+            tcp_impl->m_util.m_wheel = sch_impl->m_wheel;
         if (NORM_TRANS == tcp_impl->m_util.m_type)
             conn->conn_sock.set_keep_alive(1, 60, 5, 3);
         conn->f = std::bind(&tcp_client_conn::tcp_client_callback, conn.get(), _1);

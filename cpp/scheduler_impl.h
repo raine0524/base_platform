@@ -110,7 +110,7 @@ namespace crx
 
         uint32_t m_log_idx;
         bool m_remote_log;
-        timer_wheel m_sec_wheel;
+        timer_wheel m_wheel;
         std::vector<std::shared_ptr<impl>> m_util_impls;
     };
 }

@@ -53,7 +53,7 @@ namespace crx
 
         server_cmd m_cmd;
         uint32_t m_log_idx;
-        timer_wheel m_sec_wheel;
+        timer_wheel m_wheel;
 
         Document m_doc;
         simp_buffer m_write_buf;

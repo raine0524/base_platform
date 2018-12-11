@@ -7,7 +7,7 @@ struct co_sates
     int main_rand, copy_rand;
 };
 
-class SchedulerTest : public testing::Test
+class SchedulerTest : public MockFileSystem
 {
 public:
     void co_test_helper(crx::scheduler *sch, size_t co_id);
@@ -19,6 +19,8 @@ public:
 protected:
     void SetUp() override
     {
+        g_mock_fs = this;
+        g_mock_fs->m_hook_ewait = false;
         auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
         std::function<void(crx::scheduler *sch, size_t co_id)> stub;
         impl->co_create(stub, &m_sch, true, false, "main_coroutine");

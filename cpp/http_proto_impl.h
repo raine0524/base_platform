@@ -36,7 +36,7 @@ namespace crx
         this->async_write(ping_pong, sizeof(ping_pong));
 
         auto sch_impl = this->sch_impl.lock();
-        sch_impl->m_sec_wheel.add_handler(30*1000, std::bind(&http_conn_t<CONN_TYPE>::websocket_ping, this));
+        sch_impl->m_wheel.add_handler(30*1000, std::bind(&http_conn_t<CONN_TYPE>::websocket_ping, this));
     }
 
     template <typename IMPL_TYPE>
@@ -93,7 +93,7 @@ namespace crx
                          {"Upgrade", "websocket"},
                          {"Sec-WebSocket-Accept", sha1_b64}};
                 http_response(sch_impl, fd, nullptr, 0, DST_NONE, 101, &ext_headers);
-                sch_impl->m_sec_wheel.add_handler(30*1000,
+                sch_impl->m_wheel.add_handler(30*1000,
                         std::bind(&http_conn_t<CONN_TYPE>::websocket_ping, conn.get()));
             }
         } else {

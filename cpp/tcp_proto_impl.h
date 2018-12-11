@@ -85,7 +85,7 @@ namespace crx
         SOCK_TYPE m_type;
 
         //tcp_client需要一个秒盘做重连，tcp_server需要一个分钟盘做会话管理
-        timer_wheel m_timer_wheel;
+        timer_wheel m_wheel;
         std::function<int(int, char*, size_t)> m_protocol_hook;      //协议钩子
         std::function<void(int, const std::string&, uint16_t, char*, size_t)> m_f;    //收到tcp数据流时触发的回调函数
     };

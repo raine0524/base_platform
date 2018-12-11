@@ -78,7 +78,7 @@ namespace crx
         if (__glibc_unlikely(0 == sch_impl->m_running_co))
             return;
 
-        sch_impl->m_sec_wheel.add_handler((uint64_t)seconds*1000,
+        sch_impl->m_wheel.add_handler((uint64_t)seconds*1000,
                 std::bind(&scheduler::co_yield, this, sch_impl->m_running_co, WAIT_EVENT));
         co_yield(0);        //切换到主协程
     }
@@ -262,7 +262,7 @@ namespace crx
     void scheduler_impl::periodic_trim_memory()
     {
         malloc_trim(0);     //强制收回glibc缓存的堆内存
-        m_sec_wheel.add_handler(5*1000, std::bind(&scheduler_impl::periodic_trim_memory, this));
+        m_wheel.add_handler(5*1000, std::bind(&scheduler_impl::periodic_trim_memory, this));
     }
 
     //异步读的一个原则是只要可读就一直读，直到errno被置为EAGAIN提示等待更多数据可读

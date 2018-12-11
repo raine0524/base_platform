@@ -167,11 +167,11 @@ namespace crx
         if (!create_log_file(log_path.c_str()))
             return;
 
-        if (!m_sec_wheel.m_impl)
-            m_sec_wheel = sch_impl->m_sec_wheel;
+        if (!m_wheel.m_impl)
+            m_wheel = sch_impl->m_wheel;
 
         //每隔3秒刷一次缓冲
-        m_sec_wheel.add_handler(3*1000, std::bind(&log_impl::flush_log_buffer, this));
+        m_wheel.add_handler(3*1000, std::bind(&log_impl::flush_log_buffer, this));
     }
 
     void log_impl::get_remote_log(std::shared_ptr<scheduler_impl>& sch_impl)
@@ -265,7 +265,7 @@ namespace crx
                 impl->m_ev_array[fd].reset();
         } else {
             fflush(m_fp);       //周期性的刷日志
-            m_sec_wheel.add_handler(3*1000, std::bind(&log_impl::flush_log_buffer, this));
+            m_wheel.add_handler(3*1000, std::bind(&log_impl::flush_log_buffer, this));
         }
     }
 }
