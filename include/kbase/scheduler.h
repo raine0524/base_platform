@@ -51,14 +51,6 @@ namespace crx
         //获取当前调度器中所有可用的协程，可用指协程状态为CO_READY, CO_RUNNING, CO_SUSPEND之一
         std::vector<std::shared_ptr<coroutine>> get_avail_cos();
 
-        /*
-         * 获取日志实例(手动释放,多次申请将返回多个不同实例)
-         * @prefix 日志文件的前缀
-         * @root_dir 设置日志的根目录，将在根目录基础上按照年/月/日逐级构造子目录
-         * @max_size 文件切割大小(单位为MB)
-         */
-        log get_log(const char *prefix, const char *root_dir = "log_files", int max_size = 10);
-
         //[单例] 获取系统信号监听及处理实例(自动释放)
         sigctl get_sigctl();
 
@@ -133,20 +125,5 @@ namespace crx
          */
         http_server get_http_server(int port,
                 std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> f);
-
-        //[单例] 获取simpack服务实例(自动释放)，主要用于分布式系统中可控服务节点之间的通信
-        simpack_server
-        get_simpack_server(std::function<void(const crx::server_info&)> on_connect,
-                           std::function<void(const crx::server_info&)> on_disconnect,
-                           std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t)> on_request,
-                           std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t)> on_response,
-                           std::function<void(const crx::server_info&, const crx::server_cmd&, char*, size_t)> on_notify);
-
-        /*
-         * [单例] 获取文件系统监控实例(自动释放)，回调函数中的参数依次为
-         * ①触发监控事件的文件
-         * ②监控文件的掩码，用于确定触发事件的类型
-         */
-        fs_monitor get_fs_monitor(std::function<void(const char*, uint32_t)> f);
     };
 }

@@ -50,7 +50,7 @@ namespace crx
         if (curr_co->is_share && yield_co->is_share && CO_SUSPEND == yield_co->status) {
             sch_impl->m_next_co = (int)co_id;
             if (__glibc_unlikely(-1 == swapcontext(&curr_co->ctx, &main_co->ctx)))      //先切换回主协程
-                log_error(g_lib_log, "swapcontext failed: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "swapcontext failed: %s\n", strerror(errno));
         } else {
             //待切换的协程使用的是共享栈模式并且当前处于挂起状态，恢复其栈空间至主协程的缓冲区中
             if (yield_co->is_share && CO_SUSPEND == yield_co->status)
@@ -59,7 +59,7 @@ namespace crx
             sch_impl->m_next_co = -1;
             yield_co->status = CO_RUNNING;
             if (__glibc_unlikely(-1 == swapcontext(&curr_co->ctx, &yield_co->ctx)))
-                log_error(g_lib_log, "swapcontext failed: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "swapcontext failed: %s\n", strerror(errno));
         }
 
         //此时位于主协程中，且主协程用于帮助从一个使用共享栈的协程切换到另一个使用共享栈的协程中
@@ -68,7 +68,7 @@ namespace crx
             memcpy(&main_co->stack[0]+STACK_SIZE-next_co->size, next_co->stack.data(), next_co->size);
             next_co->status = CO_RUNNING;
             if (__glibc_unlikely(-1 == swapcontext(&main_co->ctx, &next_co->ctx)))
-                log_error(g_lib_log, "swapcontext failed: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "swapcontext failed: %s\n", strerror(errno));
         }
     }
 
@@ -177,7 +177,7 @@ namespace crx
             int cnt = epoll_wait(m_epoll_fd, &events[0], EPOLL_SIZE, 10);   //时间片设置为10ms，与Linux内核使用的时间片相近
 
             if (-1 == cnt) {    //epoll_wait有可能因为中断操作而返回，然而此时并没有任何监听事件触发
-                log_warn(g_lib_log, "epoll_wait interrupt without events trigger: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_WARN, "epoll_wait interrupt without events trigger: %s\n", strerror(errno));
                 continue;
             }
 
@@ -214,12 +214,6 @@ namespace crx
                 std::make_heap(m_unused_cos.begin(), m_unused_cos.end(), std::greater<size_t>());
             }
         }
-
-        auto& impl = m_util_impls[SIMP_SVR];
-        if (impl) {
-            auto simp_impl = std::dynamic_pointer_cast<simpack_server_impl>(impl);
-            simp_impl->stop();
-        }
     }
 
     void scheduler_impl::handle_event(int op, int fd, uint32_t event)
@@ -229,7 +223,7 @@ namespace crx
         ev.data.fd = fd;
 
         if (__glibc_unlikely(-1 == epoll_ctl(m_epoll_fd, op, fd, &ev)))
-            log_error(g_lib_log, "epoll_ctl failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "epoll_ctl failed: %s\n", strerror(errno));
     }
 
     void scheduler_impl::add_event(std::shared_ptr<eth_event> ev, uint32_t event /*= EPOLLIN*/)
@@ -279,7 +273,7 @@ namespace crx
                 if (EAGAIN == errno) {		//等待缓冲区可读
                     return 1;
                 } else {		//异常状态
-                    log_error(g_lib_log, "read error: %s\n", strerror(errno));
+                    g_lib_log.printf(LVL_ERROR, "read error: %s\n", strerror(errno));
                     return -1;
                 }
             }

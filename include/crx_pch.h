@@ -129,11 +129,11 @@
 using namespace std::placeholders;
 using namespace rapidjson;
 
+extern std::string g_server_name;
+
 namespace crx
 {
     static const long int nano_per_sec = 1000*1000*1000;
-
-    extern std::string g_server_name;
 
     enum CRX_SHARE ADDR_TYPE
     {
@@ -189,7 +189,6 @@ namespace crx
 #include "kbase/schutil.h"
 #include "kbase/tcp_proto.h"
 #include "kbase/http_proto.h"
-#include "kbase/simpack.h"
 #include "kbase/fs_monitor.h"
 #include "kbase/scheduler.h"
 #include "kbase/console.h"

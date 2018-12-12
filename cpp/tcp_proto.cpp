@@ -35,7 +35,7 @@ namespace crx
                 } else if (EPIPE == errno) {        //对端关闭
                     sts = 0;
                 } else {        //发生异常
-                    log_error(g_lib_log, "write failed: %s\n", strerror(errno));
+                    g_lib_log.printf(LVL_ERROR, "write failed: %s\n", strerror(errno));
                     sts = -1;
                 }
             } else if (ret < cache_data.size()) {      //写了一部分，等待缓冲区可写
@@ -60,7 +60,7 @@ namespace crx
                 } else if (EPIPE == errno) {    //对端关闭
                     sts = 0;
                 } else {        //发生异常
-                    log_error(g_lib_log, "write failed: %s\n", strerror(errno));
+                    g_lib_log.printf(LVL_ERROR, "write failed: %s\n", strerror(errno));
                     sts = -1;
                 }
 
@@ -149,11 +149,11 @@ namespace crx
     {
         if (__glibc_unlikely(-1 == connect(conn_sock.m_sock_fd, (struct sockaddr*)&conn_sock.m_addr.trans,
                 sizeof(conn_sock.m_addr.trans)) && EINPROGRESS != errno))
-            log_error(g_lib_log, "retry connect failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "retry connect failed: %s\n", strerror(errno));
 
         cnt = retry > 0 ? (cnt+1) : cnt;
-        log_info(g_lib_log, "try to connect conn=%d, ip=%s, port=%d, timeout=%d\n",
-                 fd, ip_addr.c_str(), conn_sock.m_port, timeout);
+        g_lib_log.printf(LVL_INFO, "try to connect conn=%d, ip=%s, port=%d, timeout=%d\n",
+                fd, ip_addr.c_str(), conn_sock.m_port, timeout);
     }
 
     int tcp_client::connect(const char *server, uint16_t port, int retry /*= 0*/, int timeout /*= 0*/)
@@ -190,14 +190,14 @@ namespace crx
             conn->sigev.sigev_notify = SIGEV_SIGNAL;
             int addr_ret = getaddrinfo_a(GAI_NOWAIT, conn->name_reqs, 1, &conn->sigev);
             if (__glibc_unlikely(addr_ret)) {
-                log_error(g_lib_log, "getaddrinfo_a(%s) failed: %s\n",
+                g_lib_log.printf(LVL_ERROR, "getaddrinfo_a(%s) failed: %s\n",
                         conn->domain_name.c_str(), gai_strerror(addr_ret));
                 return -1;
             }
             tcp_impl->m_util.m_sch->co_yield(0);
 
             if (__glibc_unlikely(!req->ar_result)) {
-                log_error(g_lib_log, "name %s resolve failed\n", conn->domain_name.c_str());
+                g_lib_log.printf(LVL_ERROR, "name %s resolve failed\n", conn->domain_name.c_str());
                 return -2;
             }
 
@@ -290,7 +290,7 @@ namespace crx
                 client_fd = accept(fd, (struct sockaddr*)&m_accept_addr, &m_addr_len);
             if (-1 == client_fd) {
                 if (EAGAIN != errno)
-                    log_error(g_lib_log, "accept socket failed: %s\n", strerror(errno));
+                    g_lib_log.printf(LVL_ERROR, "accept socket failed: %s\n", strerror(errno));
                 break;
             }
 

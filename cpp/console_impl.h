@@ -4,6 +4,33 @@
 
 namespace crx
 {
+#pragma pack(1)
+    /*
+     * simp协议的头部，此处是对ctl_flag字段更详细的表述：
+     *          -->第0位: 1-表示当前请求由库这一层处理  0-表示路由给上层应用
+     *          -->第1位: 1-表示推送notify 0-非推送
+     *          -->第2位: 当为非推送时这一位有效 1-request 0-response
+     *          -->第3位: 1-表示registry发送的数据 0-其他服务发送
+     *          -->第31位: 1-加密(暂不支持) 0-非加密
+     *          其余字段暂时保留
+     */
+    struct simp_header
+    {
+        uint32_t magic_num;         //魔数，4个字节依次为0x5f3759df
+        uint32_t length;            //body部分长度，整个一帧的大小为sizeof(simp_header)+length
+        uint16_t type;              //表明数据的类型
+        uint16_t cmd;               //若是请求类型的数据,指明哪一个请求
+        uint32_t ctl_flag;          //控制字段
+        unsigned char token[16];    //请求携带token，表明请求合法(token=md5(current_timestamp+name))
+
+        simp_header()
+        {
+            bzero(this, sizeof(simp_header));
+            magic_num = htonl(0x5f3759df);
+        }
+    };
+#pragma pack()
+
     struct console_cmd
     {
         std::string cmd;        //命令

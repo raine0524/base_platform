@@ -21,7 +21,7 @@ namespace crx
     class eth_event : public impl
     {
     public:
-        eth_event() :fd(-1) {}
+        eth_event() : fd(-1) {}
         virtual ~eth_event()
         {
             if (-1 != fd && STDIN_FILENO != fd)
@@ -50,6 +50,32 @@ namespace crx
         }
     };
 
+    class logger_impl : public impl
+    {
+    public:
+        logger_impl()
+        :m_sch_impl(nullptr)
+        ,m_last_sec(-1)
+        ,m_last_date(-1)
+        ,m_fmt_buf(1024, 0)
+        ,m_log_buf(65536, 0)
+        ,m_fp(nullptr) {}
+
+        void init_logger();
+
+        void rotate_log();
+
+        void flush_log_buffer();
+
+        std::string m_log_file;
+        scheduler_impl *m_sch_impl;
+        datetime m_now;
+
+        int64_t m_last_sec, m_last_date;
+        std::string m_fmt_buf, m_fmt_tmp, m_log_buf;
+        FILE *m_fp;
+    };
+
     enum
     {
         SIG_CTL = 0,
@@ -58,7 +84,6 @@ namespace crx
         TCP_SVR,
         HTTP_CLI,
         HTTP_SVR,
-        SIMP_SVR,
         FS_MONI,
         EXT_DATA,
         IDX_MAX,
@@ -71,8 +96,9 @@ namespace crx
         :m_running_co(0)
         ,m_next_co(-1)
         ,m_epoll_fd(-1)
-        ,m_log_idx(0)
-        ,m_remote_log(false)
+        ,m_log_lvl(LVL_DEBUG)
+        ,m_log_root("logs")
+        ,m_back_cnt(100)
         {
             m_util_impls.resize(IDX_MAX);
         }
@@ -98,8 +124,9 @@ namespace crx
 
         void periodic_trim_memory();
 
+        std::shared_ptr<logger_impl> get_logger(const char *prefix);
+
     public:
-        std::string m_ini_file;
         int m_running_co, m_next_co;
         std::vector<std::shared_ptr<coroutine_impl>> m_cos;     //第一个协程为主协程，且在进程的生命周期内常驻内存
         std::vector<size_t> m_unused_cos;                       //those coroutines that unused
@@ -108,8 +135,10 @@ namespace crx
         int m_epoll_fd;		//epoll线程描述符及等待线程终止信号的事件描述符
         std::vector<std::shared_ptr<eth_event>> m_ev_array;
 
-        uint32_t m_log_idx;
-        bool m_remote_log;
+        LOG_LEVEL m_log_lvl;
+        std::string m_log_root;
+        int m_back_cnt;
+
         timer_wheel m_wheel;
         std::vector<std::shared_ptr<impl>> m_util_impls;
     };

@@ -2,22 +2,32 @@
 
 #include "crx_pch.h"
 
-#define log_error(log_ins, fmt, args...)    log_ins.printf("[ERROR] [%s|%s|%d] " fmt, __FILENAME__, __func__, __LINE__, ##args)
+enum LOG_LEVEL
+{
+    LVL_DEBUG = 0,
+    LVL_INFO,
+    LVL_WARN,
+    LVL_ERROR,
+    LVL_FATAL,
+};
 
-#define log_warn(log_ins, fmt, args...)     log_ins.printf("[WARN] [%s|%s|%d] "  fmt, __FILENAME__, __func__, __LINE__, ##args)
+#define log_debug(fmt, args...)     g_app_log.printf(LVL_DEBUG, "[DEBUG] " fmt, ##args)
 
-#define log_info(log_ins, fmt, args...)     log_ins.printf("[INFO] [%s|%s|%d] "  fmt, __FILENAME__, __func__, __LINE__, ##args)
+#define log_info(fmt, args...)      g_app_log.printf(LVL_INFO, "[INFO] "  fmt, ##args)
 
-#define log_debug(log_ins, fmt, args...)    log_ins.printf("[DEBUG] [%s|%s|%d] " fmt, __FILENAME__, __func__, __LINE__, ##args)
+#define log_warn(fmt, args...)      g_app_log.printf(LVL_WARN, "[WARN] "  fmt, ##args)
+
+#define log_error(fmt, args...)     g_app_log.printf(LVL_ERROR, "[ERROR] " fmt, ##args)
+
+#define log_fatal(fmt, args...)     g_app_log.printf(LVL_FATAL, "[FATAL] " fmt, ##args)
 
 namespace crx
 {
-    class CRX_SHARE log : public kobj
+    class CRX_SHARE logger : public kobj
     {
     public:
-        void printf(const char *fmt, ...);
-
-        //分离日志
-        void detach();
+        void printf(LOG_LEVEL level, const char *fmt, ...);
     };
 }
+
+extern crx::logger g_app_log;

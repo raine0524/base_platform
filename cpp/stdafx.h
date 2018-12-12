@@ -15,10 +15,10 @@ enum CTL_CMD
     CMD_MAX_VAL,
 };
 
+extern crx::logger g_lib_log;
+
 namespace crx
 {
-    extern log g_lib_log;
-
     extern std::unordered_map<int, std::string> g_ext_type;
 
     extern std::map<std::string, std::string> g_ws_headers;
@@ -33,9 +33,6 @@ namespace crx
 #include "schutil_impl.h"
 #include "tcp_proto_impl.h"
 #include "http_proto_impl.h"
-#include "simpack_impl.h"
-#include "logger_impl.h"
-#include "fs_monitor_impl.h"
 #include "console_impl.h"
 
 //mock system object

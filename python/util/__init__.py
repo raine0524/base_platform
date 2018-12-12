@@ -3,6 +3,7 @@ import logging
 import logging.handlers
 import struct
 
+
 def log_config(prefix):
     logger = logging.getLogger(prefix)
     logger.setLevel(logging.INFO)
@@ -15,15 +16,17 @@ def log_config(prefix):
         os.makedirs(log_path)
 
     # config logger with handler & formatter
-    log_file = os.path.join(log_path, prefix+'.log')
-    file_handler = logging.handlers.TimedRotatingFileHandler(log_file, when='midnight', interval=1, backupCount=30, delay=True)
+    log_file = os.path.join(log_path, prefix + '.log')
+    file_handler = logging.handlers.TimedRotatingFileHandler(log_file, when='midnight', interval=1, backupCount=30,
+                                                             delay=True)
     file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', '%Y/%m/%d %H:%M:%S'))
     logger.addHandler(file_handler)
+
 
 def dump_mem(mem):
     if isinstance(mem, str):
         xs = bytearray()
-        for c in mem:       #每个unicode字符用两个字节编码
+        for c in mem:  # 每个unicode字符用两个字节编码
             two_bytes = ord(c).to_bytes(2, byteorder='little')
             for each in two_bytes:
                 xs.append(each)
@@ -38,6 +41,7 @@ def dump_mem(mem):
         print(" ".join("0x{:02x}".format(c) for c in float_bytes))
     else:
         raise TypeError('unsupport type %s' % type(mem))
+
 
 if __name__ == '__main__':
     dump_mem('东西12')

@@ -16,6 +16,7 @@ from util import log_config
 
 logger = logging.getLogger('plot')
 
+
 class plot_mgr(Process):
     def __init__(self, queue):
         Process.__init__(self)
@@ -159,7 +160,7 @@ class plot_mgr(Process):
             func_num = len(funcs)
             self.xs = [list() for _ in range(func_num)]
             self.ys = [list() for _ in range(func_num)]
-            if 3 == self.dim:    #3维需要用到z轴
+            if 3 == self.dim:  # 3维需要用到z轴
                 self.zs = [list() for _ in range(func_num)]
 
             for index, func in enumerate(funcs):
@@ -223,9 +224,9 @@ class plot_mgr(Process):
 
 def lorenz(point3d, s=10, r=28, b=2.667):
     dot = [0 for _ in range(3)]
-    dot[0] = s*(point3d[1]-point3d[0])
-    dot[1] = r*point3d[0]-point3d[1]-point3d[0]*point3d[2]
-    dot[2] = point3d[0]*point3d[1]-b*point3d[2]
+    dot[0] = s * (point3d[1] - point3d[0])
+    dot[1] = r * point3d[0] - point3d[1] - point3d[0] * point3d[2]
+    dot[2] = point3d[0] * point3d[1] - b * point3d[2]
     return dot
 
 
@@ -246,14 +247,14 @@ if __name__ == '__main__':
         cm['axis'] = {'x': [-4.0, 4.0], 'y': [-0.5, 50.0]}
         cm['label'] = {'x': 'x-axis', 'y': 'y-axis'}
         cm['funcs'] = [{'init': [[0, -4.0, math.exp(-4.0)]], 'line': 0, 'point': 0, 'col': 0, 'desc': '$e^x$'},
-                   {'init': [[0, -4.0, 2**-4.0]], 'line': 1, 'point': 1, 'col': 1, 'desc': '$2^x$'}]
+                       {'init': [[0, -4.0, 2 ** -4.0]], 'line': 1, 'point': 1, 'col': 1, 'desc': '$2^x$'}]
         q.put([1, cm])
 
-        dt = 8.0/50
-        x = -4+dt
-        inter_index = int(random.random()*49)
+        dt = 8.0 / 50
+        x = -4 + dt
+        inter_index = int(random.random() * 49)
         print('clear figure when index = %d' % inter_index)
-        save_index = int(random.random()*49)
+        save_index = int(random.random() * 49)
         print('save figure when index = %d' % save_index)
         for i in range(49):
             am = dict()
@@ -261,7 +262,7 @@ if __name__ == '__main__':
                 q.put([2, {}])
                 continue
 
-            am['funcs'] = [[[x, math.exp(x)]], [[x, 2**x]]]
+            am['funcs'] = [[[x, math.exp(x)]], [[x, 2 ** x]]]
             if i == save_index:
                 am['save'] = 'a/b/test'
 
@@ -283,9 +284,9 @@ if __name__ == '__main__':
         curr_point = [0.0 for _ in range(3)]
         for i in range(10000):
             axis_dot = lorenz(last_point)
-            curr_point[0] = last_point[0]+axis_dot[0]*0.01
-            curr_point[1] = last_point[1]+axis_dot[1]*0.01
-            curr_point[2] = last_point[2]+axis_dot[2]*0.01
+            curr_point[0] = last_point[0] + axis_dot[0] * 0.01
+            curr_point[1] = last_point[1] + axis_dot[1] * 0.01
+            curr_point[2] = last_point[2] + axis_dot[2] * 0.01
             am['funcs'] = [[curr_point]]
             q.put([3, am])
             last_point = curr_point

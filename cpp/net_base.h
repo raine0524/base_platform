@@ -56,7 +56,7 @@ namespace crx
 
             m_sock_fd = socket(domain, type, proto);    //创建套接字
             if (__glibc_unlikely(-1 == m_sock_fd)) {
-                log_error(g_lib_log, "socket create failed: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "socket create failed: %s\n", strerror(errno));
                 return -1;
             }
 
@@ -70,11 +70,11 @@ namespace crx
                 //允许重用ip地址
                 socklen_t opt_val = 1;
                 if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val))))
-                    log_error(g_lib_log, "setsockopt %d *SO_REUSEADDR* failed: %s\n", m_sock_fd, strerror(errno));
+                    g_lib_log.printf(LVL_ERROR, "setsockopt %d *SO_REUSEADDR* failed: %s\n", m_sock_fd, strerror(errno));
 
                 //允许重用端口
                 if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_SOCKET, SO_REUSEPORT, &opt_val, sizeof(opt_val))))
-                    log_error(g_lib_log, "setsockopt %d *SO_REUSEPORT* failed: %s\n", m_sock_fd, strerror(errno));
+                    g_lib_log.printf(LVL_ERROR, "setsockopt %d *SO_REUSEPORT* failed: %s\n", m_sock_fd, strerror(errno));
 
                 m_addr.trans.sin_family = AF_INET;
                 if (USR_SERVER == utype && !ip_addr)
@@ -91,19 +91,19 @@ namespace crx
                     //无论传输层协议是tcp还是udp，在server端都需要首先进行绑定操作
                     if (__glibc_unlikely(-1 == bind(m_sock_fd, (struct sockaddr*)&m_addr, addr_len))) {
                         if (NORM_TRANS == m_type)
-                            log_error(g_lib_log, "bind socket %d failed: %s\n", m_sock_fd, strerror(errno));
+                            g_lib_log.printf(LVL_ERROR, "bind socket %d failed: %s\n", m_sock_fd, strerror(errno));
                         throw -2;
                     }
 
                     //若传输层使用的是tcp协议，则由于tcp是面向连接的，因此需要监听任意ip地址的连接请求
                     if (PRT_TCP == ptype && __glibc_unlikely(-1 == listen(m_sock_fd, 128))) {
-                        log_error(g_lib_log, "listen socket %d failed: %s\n", m_sock_fd, strerror(errno));
+                        g_lib_log.printf(LVL_ERROR, "listen socket %d failed: %s\n", m_sock_fd, strerror(errno));
                         throw -3;
                     }
                 } else if (PRT_TCP == ptype && -1 == connect(m_sock_fd, (struct sockaddr*)&m_addr, addr_len)) {
                     //tcp客户端需要执行连接操作
                     if (__glibc_unlikely(EINPROGRESS != errno)) {
-                        log_error(g_lib_log, "connect socket %d failed: %s\n", m_sock_fd, strerror(errno));
+                        g_lib_log.printf(LVL_ERROR, "connect socket %d failed: %s\n", m_sock_fd, strerror(errno));
                         throw -4;
                     }
                 }
@@ -125,22 +125,22 @@ namespace crx
         void set_tcp_nodelay(socklen_t opt_val)
         {
             if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, IPPROTO_TCP, TCP_NODELAY, &opt_val, sizeof(opt_val))))
-                log_error(g_lib_log, "setsockopt %d *TCP_NODELAY* failed: %s\n", m_sock_fd, strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "setsockopt %d *TCP_NODELAY* failed: %s\n", m_sock_fd, strerror(errno));
         }
 
         void set_keep_alive(int val, int idle, int interval, int count)
         {
             if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val))))
-                log_error(g_lib_log, "setsockopt %d *SO_KEEPALIVE* failed: %s\n", m_sock_fd, strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "setsockopt %d *SO_KEEPALIVE* failed: %s\n", m_sock_fd, strerror(errno));
 
             if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_TCP, TCP_KEEPIDLE, &idle, sizeof(idle))))
-                log_error(g_lib_log, "setsockopt %d *TCP_KEEPIDLE* failed: %s\n", m_sock_fd, strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "setsockopt %d *TCP_KEEPIDLE* failed: %s\n", m_sock_fd, strerror(errno));
 
             if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_TCP, TCP_KEEPINTVL, &interval, sizeof(interval))))
-                log_error(g_lib_log, "setsockopt %d *TCP_KEEPINTVL* failed: %s\n", m_sock_fd, strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "setsockopt %d *TCP_KEEPINTVL* failed: %s\n", m_sock_fd, strerror(errno));
 
             if (__glibc_unlikely(-1 == setsockopt(m_sock_fd, SOL_TCP, TCP_KEEPCNT, &count, sizeof(count))))
-                log_error(g_lib_log, "setsockopt %d *TCP_KEEPCNT* failed: %s\n", m_sock_fd, strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "setsockopt %d *TCP_KEEPCNT* failed: %s\n", m_sock_fd, strerror(errno));
         }
 
     private:
@@ -152,7 +152,7 @@ namespace crx
 
             //获取和该套接字相关的一系列地址信息，此处只需要sockaddr_in结构体中的端口字段sin_port
             if (__glibc_unlikely(-1 == getsockname(m_sock_fd, (struct sockaddr*)&addr, &len)))
-                log_error(g_lib_log, "socket %d getsockname failed: %s\n", m_sock_fd, strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "socket %d getsockname failed: %s\n", m_sock_fd, strerror(errno));
             else
                 m_port = ntohs(addr.sin_port);		//将端口从网络字节序转换为本机字节序
         }

@@ -9,6 +9,7 @@ app = Flask(__name__)
 
 ploters = dict()
 
+
 @app.route('/plot/create', methods=['POST'])
 def plot_create():
     fig_name = request.headers.get('Figure-Name')
@@ -24,6 +25,7 @@ def plot_create():
     queue.put([1, request.json])
     return make_response(jsonify({'status': 0}), 200)
 
+
 @app.route('/plot/destroy', methods=['GET'])
 def plot_destroy():
     fig_name = request.headers.get('Figure-Name')
@@ -34,6 +36,7 @@ def plot_destroy():
         ploters.pop(fig_name)
         return make_response(jsonify({'status': 0}), 200)
 
+
 @app.route('/plot/clear')
 def plot_clear():
     fig_name = request.headers.get('Figure-Name')
@@ -42,6 +45,7 @@ def plot_clear():
     else:
         ploters[fig_name]['queue'].put([2, {}])
         return make_response(jsonify({'status': 0}), 200)
+
 
 @app.route('/plot/append', methods=['POST'])
 def plot_append():

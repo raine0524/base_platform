@@ -1,10 +1,39 @@
 #include "stdafx.h"
 
+std::string g_server_name;		//当前服务的名称
+
+crx::logger g_lib_log, g_app_log;
+
 namespace crx
 {
-    std::string g_server_name;		//当前服务的名称
+    int simpack_protocol(char *data, size_t len)
+    {
+        if (len < sizeof(simp_header))      //还未取到simp协议头
+            return 0;
 
-    crx::log g_lib_log;
+        uint32_t magic_num = ntohl(*(uint32_t *)data);
+        if (0x5f3759df != magic_num) {
+            size_t i = 1;
+            for (; i < len; ++i) {
+                magic_num = ntohl(*(uint32_t*)(data+i));
+                if (0x5f3759df == magic_num)
+                    break;
+            }
+
+            if (i < len)        //在后续流中找到该魔数，截断之前的无效流
+                return -(int)i;
+            else        //未找到，截断整个无效流
+                return -(int)len;
+        }
+
+        auto header = (simp_header*)data;
+        int ctx_len = ntohl(header->length)+sizeof(simp_header);
+
+        if (len < ctx_len)
+            return 0;
+        else
+            return ctx_len;
+    }
 
     console_impl::console_impl(console *c)
     :m_c(c)
@@ -311,10 +340,10 @@ namespace crx
         CPU_SET(which, &mask);
         if (syscall(__NR_gettid) == getpid()) {     //main thread
             if (__glibc_unlikely(sched_setaffinity(0, sizeof(mask), &mask) < 0))
-                log_error(g_lib_log, "bind core failed: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "bind core failed: %s\n", strerror(errno));
         } else {
             if (__glibc_unlikely(pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask) < 0))
-                log_error(g_lib_log, "bind core failed: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "bind core failed: %s\n", strerror(errno));
         }
     }
 
@@ -345,14 +374,18 @@ namespace crx
             return EXIT_SUCCESS;
 
         if (!access(conf, F_OK)) {      //解析日志配置
-            sch_impl->m_ini_file = conf;
             ini ini_parser;
             ini_parser.load(conf);
-            if (ini_parser.has_section("log")) {
-                ini_parser.set_section("log");
-                sch_impl->m_remote_log = ini_parser.get_int("remote") != 0;
+            if (ini_parser.has_section("logger")) {
+                ini_parser.set_section("logger");
+                sch_impl->m_log_lvl = (LOG_LEVEL)ini_parser.get_int("level");
+                sch_impl->m_log_root = ini_parser.get_str("root_dir");
+                sch_impl->m_back_cnt = ini_parser.get_int("backup_cnt");
             }
-            g_lib_log = get_log("kbase");
+
+            mkdir_multi(sch_impl->m_log_root.c_str());
+            g_lib_log.m_impl = sch_impl->get_logger("kbase");
+            g_app_log.m_impl = sch_impl->get_logger(g_server_name.c_str());
         }
 
         //处理绑核操作

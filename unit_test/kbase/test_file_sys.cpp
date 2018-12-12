@@ -239,7 +239,7 @@ TEST_F(FileSysTest, DepthFirstTraverseDir)
 
 int main(int argc, char *argv[]) {
     std::string server_name = argv[0];
-    crx::g_server_name = server_name.substr(server_name.rfind('/') + 1);
+    g_server_name = server_name.substr(server_name.rfind('/') + 1);
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

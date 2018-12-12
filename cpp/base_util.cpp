@@ -82,7 +82,7 @@ namespace crx
         if (fd < 0) return -1;
         if (__glibc_unlikely(-1 == fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK))) {
             if (errno)
-                log_error(g_lib_log, "setnonblocking %d failed: %s\n", fd, strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "setnonblocking %d failed: %s\n", fd, strerror(errno));
             return -1;
         }
         return 0;
@@ -93,7 +93,7 @@ namespace crx
         if (fd < 0) return -1;
         if (__glibc_unlikely(-1 == fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC))) {
             if (errno)
-                log_error(g_lib_log, "setcloseonexec %d failed: %s\n", fd, strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "setcloseonexec %d failed: %s\n", fd, strerror(errno));
             return -1;
         }
         return 0;
@@ -124,7 +124,7 @@ namespace crx
         FILE *pf = popen(cmd_string, "r");		//执行shell命令，命令的输出通过管道返回
         if (__glibc_unlikely(nullptr == pf)) {
             if (errno)
-                log_error(g_lib_log, "popen failed: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "popen failed: %s\n", strerror(errno));
             return "";
         }
 
@@ -143,7 +143,7 @@ namespace crx
         char **strings = backtrace_symbols(buffer, size);		//将地址转换为函数名及其在函数内部以十六进制表示的偏移量
         if (__glibc_unlikely(!strings)) {
             if (errno)
-                log_error(g_lib_log, "backtrace_symbols failed: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "backtrace_symbols failed: %s\n", strerror(errno));
             return;
         }
 
@@ -244,10 +244,10 @@ namespace crx
 
         iconv_t cd = iconv_open(to_charset, from_charset);
         if (__glibc_unlikely(cd == (void*)-1))
-            log_error(g_lib_log, "iconv_open failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "iconv_open failed: %s\n", strerror(errno));
 
         if (__glibc_unlikely(-1 == iconv(cd, (char**)&src_data, &src_len, &outbuf, &outbytes)))
-            log_error(g_lib_log, "iconv failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "iconv failed: %s\n", strerror(errno));
         res.resize(res.size()-outbytes);
         iconv_close(cd);
         return res;
@@ -269,7 +269,7 @@ namespace crx
 
         int sock_fd = socket(AF_INET, SOCK_STREAM, 0);      //获取MAC或者IP地址都需要用到socket套接字
         if (__glibc_unlikely(-1 == sock_fd)) {
-            log_error(g_lib_log, "socket create failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "socket create failed: %s\n", strerror(errno));
             return local_addr;
         }
 
@@ -279,7 +279,7 @@ namespace crx
 
         try {
             if (__glibc_unlikely(-1 == ioctl(sock_fd, cmd, &ifr))) {      //根据不同的cmd获取不同的ifr结构体
-                log_error(g_lib_log, "ioctl failed: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "ioctl failed: %s\n", strerror(errno));
                 throw -1;
             }
 
@@ -441,7 +441,7 @@ namespace crx
 
         //只转换ipv4协议格式的ip地址
         if (AF_INET != hent->h_addrtype || !hent->h_addr_list[0]) {
-            log_error(g_lib_log, "addr type %d != *AF_INET* or empty addr list\n", hent->h_addrtype);
+            g_lib_log.printf(LVL_ERROR, "addr type %d != *AF_INET* or empty addr list\n", hent->h_addrtype);
             return false;
         }
 
@@ -459,7 +459,7 @@ namespace crx
     {
         DIR *dir = opendir(root_dir);
         if (__glibc_unlikely(!dir)) {
-            log_error(g_lib_log, "opendir failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "opendir failed: %s\n", strerror(errno));
             return;
         }
 
@@ -472,7 +472,7 @@ namespace crx
             std::string file_name = root_dir;
             file_name = file_name+"/"+ent->d_name;
             if (__glibc_unlikely(-1 == stat(file_name.c_str(), &st))) {
-                log_error(g_lib_log, "stat failed: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "stat failed: %s\n", strerror(errno));
                 return;
             }
 

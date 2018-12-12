@@ -15,7 +15,7 @@ namespace crx
                 sch_impl->add_event(sig_impl);
                 impl = sig_impl;
             } else {
-                log_error(g_lib_log, "signalfd failed: %s\n", strerror(errno));
+                g_lib_log.printf(LVL_ERROR, "signalfd failed: %s\n", strerror(errno));
             }
         }
 
@@ -35,9 +35,9 @@ namespace crx
                     it->second(m_fd_info.ssi_signo, m_fd_info.ssi_ptr);
             } else {
                 if (-1 == ret && EAGAIN != errno)
-                    log_error(g_lib_log, "read failed: %s\n", strerror(errno));
+                    g_lib_log.printf(LVL_ERROR, "read failed: %s\n", strerror(errno));
                 else if (ret > 0)
-                    log_error(g_lib_log, "invalid size: %ld\n", ret);
+                    g_lib_log.printf(LVL_ERROR, "invalid size: %ld\n", ret);
                 break;      //file closed & wait more data is normal
             }
         }
@@ -74,10 +74,10 @@ namespace crx
             sigdelset(&m_mask, signo);
 
         if (__glibc_unlikely(-1 == sigprocmask(SIG_SETMASK, &m_mask, nullptr)))
-            log_error(g_lib_log, "sigprocmask failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "sigprocmask failed: %s\n", strerror(errno));
 
         if (__glibc_unlikely(-1 == signalfd(fd, &m_mask, SFD_NONBLOCK)))
-            log_error(g_lib_log, "signalfd failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "signalfd failed: %s\n", strerror(errno));
 
         impl->handle_event(EPOLL_CTL_ADD, fd, EPOLLIN);
     }
@@ -94,7 +94,7 @@ namespace crx
             tmr_impl->m_arg = cb_arg;
             sch_impl->add_event(tmr_impl);      //加入epoll监听事件
         } else {
-            log_error(g_lib_log, "timerfd_create failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "timerfd_create failed: %s\n", strerror(errno));
             tmr_impl.reset();
         }
 
@@ -144,7 +144,7 @@ namespace crx
         time_setting.it_interval.tv_sec = interval_nanos/nano_per_sec;              //设置时间间隔
         time_setting.it_interval.tv_nsec = interval_nanos%nano_per_sec;
         if (__glibc_unlikely(-1 == timerfd_settime(impl->fd, TFD_TIMER_ABSTIME, &time_setting, nullptr)))
-            log_error(g_lib_log, "timerfd_settime failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "timerfd_settime failed: %s\n", strerror(errno));
     }
 
     void timer::detach()
@@ -268,7 +268,7 @@ namespace crx
             ev_impl->m_f = std::move(f);
             sch_impl->add_event(ev_impl);
         } else {
-            log_error(g_lib_log, "eventfd failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "eventfd failed: %s\n", strerror(errno));
             ev_impl.reset();
         }
 
@@ -321,7 +321,7 @@ namespace crx
             ui_impl->m_f = std::move(f);
             sch_impl->add_event(ui_impl);
         } else {
-            log_error(g_lib_log, "get_udp_ins failed of create socket(%d)\n", ui_impl->fd);
+            g_lib_log.printf(LVL_ERROR, "get_udp_ins failed of create socket(%d)\n", ui_impl->fd);
             ui_impl.reset();
         }
 
@@ -344,7 +344,7 @@ namespace crx
 
             if (-1 == ret) {
                 if (EAGAIN != errno)
-                    log_error(g_lib_log, "recvfrom failed: %s\n", strerror(errno));
+                    g_lib_log.printf(LVL_ERROR, "recvfrom failed: %s\n", strerror(errno));
                 break;
             }
 
@@ -372,7 +372,7 @@ namespace crx
         impl->m_send_addr.sin_port = htons(port);
         if (__glibc_unlikely(-1 == sendto(impl->fd, data, len, 0,
                 (struct sockaddr*)&impl->m_send_addr, sizeof(struct sockaddr))))
-            log_error(g_lib_log, "sendto failed: %s\n", strerror(errno));
+            g_lib_log.printf(LVL_ERROR, "sendto failed: %s\n", strerror(errno));
     }
 
     void udp_ins::detach()
