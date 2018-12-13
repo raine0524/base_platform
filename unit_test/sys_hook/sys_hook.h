@@ -14,7 +14,7 @@ public:
     std::string m_traverse_fname;
 
     bool m_hook_ewait;
-    int m_ewait_fd;
+    std::vector<std::pair<int, int>> m_efd_cnt;
 
     MockFileSystem() : m_hook_ewait(false) {}
 

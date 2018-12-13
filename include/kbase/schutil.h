@@ -52,7 +52,7 @@ namespace crx
     class CRX_SHARE event : public kobj
     {
     public:
-        void send_signal(int signal);       //发送事件信号
+        void send_signal(int64_t signal);       //发送事件信号
 
         void detach();      //分离事件
     };

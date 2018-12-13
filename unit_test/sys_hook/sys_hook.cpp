@@ -183,9 +183,16 @@ int closedir (DIR *__dirp)
 int epoll_wait (int __epfd, struct epoll_event *__events, int __maxevents, int __timeout)
 {
     if (g_mock_fs->m_hook_ewait) {
-        __events[0].events = EPOLLIN;
-        __events[0].data.fd = g_mock_fs->m_ewait_fd;
-        return 1;
+        int ev_cnt = 0;
+        for (auto& pair : g_mock_fs->m_efd_cnt) {
+            for (int i = 0; i < pair.second; i++) {
+                assert(ev_cnt < __maxevents);
+                __events[ev_cnt].events = EPOLLIN;
+                __events[ev_cnt].data.fd = pair.first;
+                ev_cnt++;
+            }
+        }
+        return ev_cnt;
     }
 
     typedef int (*ewait_pfn_t) (int, struct epoll_event*, int, int);

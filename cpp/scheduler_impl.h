@@ -2,7 +2,7 @@
 
 namespace crx
 {
-    static const int EPOLL_SIZE = 256;
+    static const int EPOLL_SIZE = 512;
 
     static const int STACK_SIZE = 256*1024;     //栈大小设置为256K
 
@@ -82,7 +82,6 @@ namespace crx
         TCP_SVR,
         HTTP_CLI,
         HTTP_SVR,
-        FS_MONI,
         EXT_DATA,
         IDX_MAX,
     };

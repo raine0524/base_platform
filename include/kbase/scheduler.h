@@ -59,7 +59,7 @@ namespace crx
         timer_wheel get_timer_wheel();
 
         //获取event实例(手动释放,多次申请将返回多个不同实例)
-        event get_event(std::function<void(int)> f);
+        event get_event(std::function<void(int64_t)> f);
 
         /*
          * 获取udp实例(手动释放,多次申请将返回多个不同实例)

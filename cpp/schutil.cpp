@@ -233,14 +233,14 @@ namespace crx
         if (!m_impl || delay >= 24*60*60*1000-1000)
             return false;
 
-        delay = (size_t)((delay/100.0+1)*100.0);        //首先将延迟时间正则化
+        delay = (delay/100+1)*100;        //首先将延迟时间正则化
         auto tw_impl = std::dynamic_pointer_cast<timer_wheel_impl>(m_impl);
         for (int i = 0; i < tw_impl->m_timer_vec.size(); i++) {
             auto& this_slot = tw_impl->m_timer_vec[i];
             if (delay < this_slot.tick)
                 continue;
 
-            int quotient = (int)(delay*1.0/this_slot.tick);
+            int quotient = (int)(delay/this_slot.tick);
             int new_idx = (int)((this_slot.slot_idx+quotient)%this_slot.elems.size());
             this_slot.elems[new_idx].emplace_back();
 
@@ -249,7 +249,7 @@ namespace crx
             new_elem.arg = arg;
             new_elem.remain = delay-this_slot.tick*quotient;
             for (int j = i+1; j < tw_impl->m_timer_vec.size(); j++) {
-                auto &nslot = tw_impl->m_timer_vec[j];
+                auto& nslot = tw_impl->m_timer_vec[j];
                 new_elem.remain += (nslot.elems.size() - nslot.slot_idx - 1) * nslot.tick;
             }
             break;
@@ -257,7 +257,7 @@ namespace crx
         return true;
     }
 
-    event scheduler::get_event(std::function<void(int)> f)
+    event scheduler::get_event(std::function<void(int64_t)> f)
     {
         auto ev_impl = std::make_shared<event_impl>();
         ev_impl->fd = eventfd(0, EFD_NONBLOCK);			//创建一个非阻塞的事件资源
@@ -286,7 +286,7 @@ namespace crx
         m_signals.clear();
     }
 
-    void event::send_signal(int signal)
+    void event::send_signal(int64_t signal)
     {
         if (!m_impl) return;
         auto impl = std::dynamic_pointer_cast<event_impl>(m_impl);
