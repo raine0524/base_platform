@@ -67,7 +67,7 @@ namespace crx
 
         void flush_log_buffer();
 
-        std::string m_log_file;
+        std::string m_prefix, m_log_file;
         scheduler_impl *m_sch_impl;
         datetime m_now;
 
