@@ -1,7 +1,5 @@
 #pragma once
 
-#include "stdafx.h"
-
 extern std::random_device g_rand;
 
 class MockFileSystem : public testing::Test

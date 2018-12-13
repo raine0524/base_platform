@@ -1,7 +1,5 @@
 #pragma once
 
-#include "stdafx.h"
-
 namespace crx
 {
     enum APP_PRT    //应用层协议的类型

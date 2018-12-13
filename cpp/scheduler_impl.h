@@ -1,7 +1,5 @@
 #pragma once
 
-#include "stdafx.h"
-
 namespace crx
 {
     static const int EPOLL_SIZE = 256;

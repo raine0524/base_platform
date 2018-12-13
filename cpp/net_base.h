@@ -1,7 +1,5 @@
 #pragma once
 
-#include "stdafx.h"
-
 namespace crx
 {
     enum SOCK_TYPE

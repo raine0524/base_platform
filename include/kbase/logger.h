@@ -1,7 +1,5 @@
 #pragma once
 
-#include "crx_pch.h"
-
 enum LOG_LEVEL
 {
     LVL_DEBUG = 0,

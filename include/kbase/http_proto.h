@@ -1,7 +1,5 @@
 #pragma once
 
-#include "crx_pch.h"
-
 namespace crx
 {
     enum EXT_DST

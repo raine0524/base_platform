@@ -1,7 +1,5 @@
 #pragma once
 
-#include "stdafx.h"
-
 namespace crx
 {
     class sigctl_impl : public eth_event

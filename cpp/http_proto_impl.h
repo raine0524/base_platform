@@ -1,7 +1,5 @@
 #pragma once
 
-#include "stdafx.h"
-
 namespace crx
 {
     template <typename CONN_TYPE>

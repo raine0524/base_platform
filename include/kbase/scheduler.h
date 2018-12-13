@@ -1,7 +1,5 @@
 #pragma once
 
-#include "crx_pch.h"
-
 namespace crx
 {
     enum CO_STATUS
