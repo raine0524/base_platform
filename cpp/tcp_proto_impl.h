@@ -82,8 +82,6 @@ namespace crx
         APP_PRT m_app_prt;
         SOCK_TYPE m_type;
 
-        //tcp_client需要一个秒盘做重连，tcp_server需要一个分钟盘做会话管理
-        timer_wheel m_wheel;
         std::function<int(int, char*, size_t)> m_protocol_hook;      //协议钩子
         std::function<void(int, const std::string&, uint16_t, char*, size_t)> m_f;    //收到tcp数据流时触发的回调函数
     };
@@ -109,6 +107,9 @@ namespace crx
 
         void read_tcp_stream(uint32_t events);
 
+        void check_conn_expired();
+
+        timeval m_last_read;
         tcp_server_impl *tcp_impl;
     };
 
@@ -162,6 +163,7 @@ namespace crx
         } else {
             conn_ins->tcp_impl->m_util.m_f(conn_ins->fd, conn_ins->ip_addr, conn_ins->conn_sock.m_port,
                     &conn_ins->stream_buffer[0], conn_ins->stream_buffer.size());
+            conn_ins->stream_buffer.clear();
         }
     }
 }

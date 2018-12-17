@@ -134,8 +134,7 @@ namespace crx
                     tcp_conn->last_conn = fd;
                 }
             } else {
-                tcp_impl->m_util.m_wheel.add_handler((uint64_t)timeout*1000,
-                        std::bind(&tcp_client_conn::retry_connect, this));
+                impl->m_wheel.add_handler((uint64_t)timeout*1000, std::bind(&tcp_client_conn::retry_connect, this));
             }
         }
 
@@ -213,8 +212,6 @@ namespace crx
         if (-1 == conn->fd)
             return -3;
 
-        if (!tcp_impl->m_util.m_wheel.m_impl)             //复用该秒盘
-            tcp_impl->m_util.m_wheel = sch_impl->m_wheel;
         if (NORM_TRANS == tcp_impl->m_util.m_type)
             conn->conn_sock.set_keep_alive(1, 60, 5, 3);
         conn->f = std::bind(&tcp_client_conn::tcp_client_callback, conn.get(), _1);
@@ -310,6 +307,7 @@ namespace crx
             conn->is_connect = true;
             conn->conn_sock.m_sock_fd = client_fd;
 
+            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_util.m_sch->m_impl);
             if (NORM_TRANS == m_util.m_type) {
                 conn->ip_addr = inet_ntoa(m_accept_addr.sin_addr);        //将地址转换为点分十进制格式的ip地址
                 conn->conn_sock.m_port = ntohs(m_accept_addr.sin_port);   //将端口由网络字节序转换为主机字节序
@@ -321,9 +319,11 @@ namespace crx
                  * 具体参见链接描述: https://blog.csdn.net/ctthuangcheng/article/details/8596818
                  */
                 conn->conn_sock.set_keep_alive(1, 60, 5, 3);
+
+                gettimeofday(&conn->m_last_read, nullptr);
+                sch_impl->m_wheel.add_handler(65*1000, std::bind(&tcp_server_conn::check_conn_expired, conn.get()));
             }
 
-            auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_util.m_sch->m_impl);
             if (UNIX_DOMAIN == m_util.m_type) {
                 auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_util_impls[EXT_DATA]);
                 if (-1 != con_impl->m_conn)     //console控制台同一时刻只允许一个连接请求
@@ -334,12 +334,28 @@ namespace crx
         }
     }
 
+    void tcp_server_conn::check_conn_expired()
+    {
+        timeval curr_time = {0};
+        gettimeofday(&curr_time, nullptr);
+        int64_t diff = curr_time.tv_sec-m_last_read.tv_sec;
+        if (diff >= 60) {
+            g_lib_log.printf(LVL_INFO, "connection [%s:%d](%d) expired for timeout=%ld\n",
+                    ip_addr.c_str(), conn_sock.m_port, fd, diff);
+            release();
+        } else {
+            auto impl = sch_impl.lock();
+            impl->m_wheel.add_handler(65*1000, std::bind(&tcp_server_conn::check_conn_expired, this));
+        }
+    }
+
     void tcp_server_conn::read_tcp_stream(uint32_t events)
     {
         int sts = INT_MAX;
         if (events & EPOLLIN) {
             sts = async_read(fd, stream_buffer);
             handle_stream(fd, this);
+            gettimeofday(&m_last_read, nullptr);
         } else if (events & EPOLLOUT) {        //EPOLLOUT == event
             sts = async_write(nullptr, 0);
         }
@@ -356,17 +372,6 @@ namespace crx
     {
         auto impl = std::dynamic_pointer_cast<tcp_server_impl>(m_impl);
         return impl->conn_sock.m_port;
-    }
-
-    void tcp_server::release(int conn)
-    {
-        auto tcp_impl = std::dynamic_pointer_cast<tcp_server_impl>(m_impl);
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(tcp_impl->m_util.m_sch->m_impl);
-        if (conn < 0 || conn >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[conn])
-            return;
-
-        auto svr_conn = std::dynamic_pointer_cast<tcp_event>(sch_impl->m_ev_array[conn]);
-        svr_conn->release();
     }
 
     void tcp_server::send_data(int conn, const char *data, size_t len)

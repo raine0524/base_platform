@@ -104,7 +104,8 @@ namespace crx
 
         //server
         if (!data && !len) {        //shell进程已关闭,释放此处连接资源
-            m_server.release(conn);
+            auto svr_impl = std::dynamic_pointer_cast<tcp_event>(m_server.m_impl);
+            svr_impl->release();
             m_conn = -1;
             return;
         }
