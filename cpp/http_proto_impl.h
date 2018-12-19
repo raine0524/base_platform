@@ -9,6 +9,8 @@ namespace crx
         http_conn_t(SOCK_TYPE type)
         :CONN_TYPE(type)
         ,content_len(-1)
+        ,notify_over(false)
+        ,continue_ping(true)
         ,proto_upgrade(false)
         {
             notify_buffer.reserve(1024);
@@ -19,6 +21,7 @@ namespace crx
         int status, content_len;
         const char *method, *url;   //请求方法/url(以"/"开始的字符串)
         std::map<std::string, const char*> headers;
+        bool notify_over, continue_ping;
 
         bool proto_upgrade;         //表明是否已由http协议升级为websocket
         char ws_header[2];          //websocket header
@@ -33,8 +36,10 @@ namespace crx
         ping_pong[0] = (char)0x89;
         this->async_write(ping_pong, sizeof(ping_pong));
 
-        auto sch_impl = this->sch_impl.lock();
-        sch_impl->m_wheel.add_handler(30*1000, std::bind(&http_conn_t<CONN_TYPE>::websocket_ping, this));
+        if (continue_ping) {
+            auto sch_impl = this->sch_impl.lock();
+            sch_impl->m_wheel.add_handler(30*1000, std::bind(&http_conn_t<CONN_TYPE>::websocket_ping, this));
+        }
     }
 
     template <typename IMPL_TYPE>
@@ -45,6 +50,7 @@ namespace crx
 
         std::function<void(int, int, std::map<std::string, const char*>&, char*, size_t)> m_http_cli;
         std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> m_http_svr;
+        std::function<void(int, char*, size_t)> m_ws_cb;
     };
 
     void http_response(std::shared_ptr<scheduler_impl>& sch_impl, int fd, const char *ext_data, size_t ext_len,
@@ -53,7 +59,6 @@ namespace crx
     template <typename IMPL_TYPE, typename CONN_TYPE>
     void tcp_callback_for_http(bool client, IMPL_TYPE impl, int fd, char *data, size_t len)
     {
-        if (!data || !len) return;      //tcp连接开启/关闭时同样将调用回调函数
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(impl->m_util.m_sch->m_impl);
         if (fd < 0 || fd >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[fd])
             return;
@@ -61,12 +66,31 @@ namespace crx
         size_t cb_len = 0;
         char *cb_data = nullptr;
         auto conn = std::dynamic_pointer_cast<http_conn_t<CONN_TYPE>>(sch_impl->m_ev_array[fd]);
+
+        if (!data && !len) {        //tcp连接关闭时同样将调用回调函数
+            if (!conn->notify_over) {
+                if (conn->proto_upgrade) {
+                    impl->m_ws_cb(fd, cb_data, cb_len);
+                } else {
+                    conn->headers["Connection"] = "close";
+                    if (client)
+                        impl->m_http_cli(fd, conn->status, conn->headers, cb_data, cb_len);
+                    else
+                        impl->m_http_svr(fd, conn->method, conn->url, conn->headers, cb_data, cb_len);
+                }
+            }
+            return;
+        }
+
         if (len != 1 || '\n' != *data) {
             cb_data = data;
             cb_len = (size_t) conn->content_len;
         }
 
         auto conn_it = conn->headers.find("Connection");
+        if (conn->headers.end() != conn_it && !strcmp("close", conn_it->second))
+            conn->notify_over = true;
+
         auto upgrade_it = conn->headers.find("Upgrade");
 
         //将当前连接升级为websocket
@@ -77,7 +101,8 @@ namespace crx
             if (!client) {      //升级请求只支持GET方法且必须存在Sec-WebSocket-Key字段
                 auto ws_key_it = conn->headers.find("Sec-WebSocket-Key");
                 if (strcmp("GET", conn->method) || conn->headers.end() == ws_key_it) {
-                    conn->release();
+                    std::map<std::string, std::string> ext_headers = {{"Connection", "close"}};
+                    http_response(sch_impl, fd, nullptr, 0, DST_NONE, 101, &ext_headers);
                     return;
                 }
 
@@ -99,12 +124,17 @@ namespace crx
             if (conn->proto_upgrade) {
                 int opcode = conn->ws_header[0] & 0xF;
                 if (0 <= opcode && opcode < 3) {
-                    conn->headers["ws_header"] = conn->ws_header;
+                    // todo: 暂时不做任何处理
                 } else {        //与websocket的控制逻辑相关,不需要执行回调
                     need_cb = false;
                     char ping_pong[2] = {0};
                     if (8 == opcode) {
-                        conn->release();
+                        conn->notify_over = true;
+                        conn->continue_ping = false;
+                        impl->m_ws_cb(fd, nullptr, 0);
+
+                        if (client)     // 客户端收到链路断开通知后释放连接，而server则托管给定时轮释放
+                            conn->release();
                         return;
                     } else if (9 == opcode) {
                         ping_pong[0] = (char)0x8A;
@@ -114,10 +144,14 @@ namespace crx
             }
 
             if (need_cb) {
-                if (client)
-                    impl->m_http_cli(fd, conn->status, conn->headers, cb_data, cb_len);
-                else
-                    impl->m_http_svr(fd, conn->method, conn->url, conn->headers, cb_data, cb_len);
+                if (conn->proto_upgrade) {
+                    impl->m_ws_cb(fd, cb_data, cb_len);
+                } else {
+                    if (client)
+                        impl->m_http_cli(fd, conn->status, conn->headers, cb_data, cb_len);
+                    else
+                        impl->m_http_svr(fd, conn->method, conn->url, conn->headers, cb_data, cb_len);
+                }
             }
         }
 

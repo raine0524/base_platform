@@ -9,6 +9,12 @@ namespace crx
         DST_QSTRING,		//query string格式
     };
 
+    enum WS_TYPE
+    {
+        WS_TEXT,    //文本帧
+        WS_BIN,     //二进制帧
+    };
+
     class CRX_SHARE http_client : public tcp_client
     {
     public:
@@ -34,15 +40,16 @@ namespace crx
         //发送一次POST请求
         void POST(int conn, const char *post_page, std::map<std::string, std::string> *extra_headers,
                   const char *ext_data, size_t ext_len, EXT_DST ed = DST_JSON);
-
-        //将连接 conn 升级为websocket协议
-        void upgrade_websocket(int conn);
     };
 
-    enum WS_TYPE
+    class CRX_SHARE ws_client : public http_client
     {
-        WS_TEXT,    //文本帧
-        WS_BIN,     //二进制帧
+    public:
+        //将连接 conn 升级为websocket协议
+        int connect_with_upgrade(const char *server, uint16_t port);
+
+        //websocket发送数据的请求接口，请求数据的大小控制在32k以下
+        void send_data(int conn, const char *ext_data, size_t ext_len, WS_TYPE wt = WS_TEXT);
     };
 
     class CRX_SHARE http_server : public tcp_server
@@ -51,8 +58,12 @@ namespace crx
         //发送http响应
         void response(int conn, const char *ext_data, size_t ext_len, EXT_DST ed = DST_JSON,
                 int status = 200, std::map<std::string, std::string> *extra_headers = nullptr);
+    };
 
-        //推送数据,必须确保推送数据的连接已升级为websocket,推送数据的大小控制在32k以下
-        void notify(int conn, const char *ext_data, size_t ext_len, WS_TYPE wt = WS_TEXT);
+    class CRX_SHARE ws_server : public http_server
+    {
+    public:
+        //发送数据(响应或推送),其大小控制在32k以下
+        void send_data(int conn, const char *ext_data, size_t ext_len, WS_TYPE wt = WS_TEXT);
     };
 }

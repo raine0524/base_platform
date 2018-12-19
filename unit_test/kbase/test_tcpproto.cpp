@@ -34,10 +34,8 @@ protected:
 void TcpProtoTest::tcp_test_helper(bool client, int conn, const std::string& ip, uint16_t port, char *data, size_t len)
 {
     auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
-    if (!data) {        //连接打开/关闭同样将通知上层
-        if (!len) {
-            impl->m_go_done = false;
-        }
+    if (!data && !len) {        //连接关闭同样将通知上层
+        impl->m_go_done = false;
         return;
     }
 
@@ -68,10 +66,7 @@ TEST_F(TcpProtoTest, TestTCP)
         }
 
         m_tcp_client.release(m_cli_conn);
-        sch_impl->main_coroutine(&m_sch);
-
         ASSERT_TRUE(sch_impl->m_ev_array.size() <= m_cli_conn || !sch_impl->m_ev_array[m_cli_conn].get());
-        ASSERT_TRUE(sch_impl->m_ev_array.size() <= m_svr_conn || !sch_impl->m_ev_array[m_svr_conn].get());
     }
 }
 

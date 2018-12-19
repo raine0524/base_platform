@@ -82,6 +82,8 @@ namespace crx
         TCP_SVR,
         HTTP_CLI,
         HTTP_SVR,
+        WS_CLI,
+        WS_SVR,
         EXT_DATA,
         IDX_MAX,
     };

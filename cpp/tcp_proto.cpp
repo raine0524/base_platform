@@ -89,14 +89,10 @@ namespace crx
 
     void tcp_event::release()
     {
-        if (is_connect && !cache_data.empty()) {     //处于连接状态且存在待写数据
+        if (is_connect && !cache_data.empty())      //处于连接状态且存在待写数据
             release_conn = true;
-            return;
-        }
-
-        //处于非连接状态或不存在待写数据,直接移除事件
-        auto impl = sch_impl.lock();
-        impl->remove_event(fd);
+        else
+            sch_impl.lock()->remove_event(fd);      //处于非连接状态或不存在待写数据,直接移除事件
     }
 
     void tcp_client_conn::tcp_client_callback(uint32_t events)
@@ -105,7 +101,6 @@ namespace crx
         if (!is_connect) {
             sts = async_read(fd, stream_buffer);        //首次回调时先通过读获取当前套接字的状态
             if (__glibc_likely(sts > 0)) {      //连接成功
-                tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, (size_t)last_conn);       //通知上层连接开启
                 is_connect = true;
                 sts = async_write(nullptr, 0);
             }
@@ -131,7 +126,6 @@ namespace crx
                     auto tcp_conn = std::dynamic_pointer_cast<tcp_client_conn>(impl->m_ev_array[conn]);
                     tcp_conn->cache_data = std::move(cache_data);       //将当前缓存数据及扩展数据移入新的tcp_event上
                     tcp_conn->ext_data = std::move(ext_data);
-                    tcp_conn->last_conn = fd;
                 }
             } else {
                 impl->m_wheel.add_handler((uint64_t)timeout*1000, std::bind(&tcp_client_conn::retry_connect, this));
@@ -139,7 +133,8 @@ namespace crx
         }
 
         if (is_connect) {       //该套接字已经成功连接过对端，此时只能移除该套接字，无法复用
-            tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);       //通知上层连接关闭
+            if (!release_conn)
+                tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);       //通知上层连接关闭
             impl->remove_event(fd);
         }
     }
@@ -230,6 +225,7 @@ namespace crx
 
         auto cli_conn = std::dynamic_pointer_cast<tcp_client_conn>(sch_impl->m_ev_array[conn]);
         cli_conn->retry = 0;
+        tcp_impl->m_util.m_f(conn, cli_conn->ip_addr, cli_conn->conn_sock.m_port, nullptr, 0);  //通知上层连接关闭
         cli_conn->release();
     }
 
@@ -243,10 +239,7 @@ namespace crx
             return;
 
         auto tcp_conn = std::dynamic_pointer_cast<tcp_client_conn>(sch_impl->m_ev_array[conn]);
-        if (!tcp_conn->is_connect)      //还未建立连接
-            tcp_conn->cache_data.append(data, len);
-        else
-            tcp_conn->async_write(data, len);
+        tcp_conn->async_write(data, len);
     }
 
     tcp_server scheduler::get_tcp_server(int port, std::function<void(int, const std::string&, uint16_t, char*, size_t)> f)
@@ -339,10 +332,13 @@ namespace crx
         timeval curr_time = {0};
         gettimeofday(&curr_time, nullptr);
         int64_t diff = curr_time.tv_sec-m_last_read.tv_sec;
-        if (diff >= 60) {
-            g_lib_log.printf(LVL_INFO, "connection [%s:%d](%d) expired for timeout=%ld\n",
+        if (diff >= 60 && cache_data.empty()) {
+            g_lib_log.printf(LVL_INFO, "connection [%s:%d](%d) expired for timeout=%ld with empty cache data\n",
                     ip_addr.c_str(), conn_sock.m_port, fd, diff);
-            release();
+
+            //发生超时且不存在待写数据就释放服务端的连接
+            tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);
+            sch_impl.lock()->remove_event(fd);
         } else {
             auto impl = sch_impl.lock();
             impl->m_wheel.add_handler(65*1000, std::bind(&tcp_server_conn::check_conn_expired, this));
@@ -360,12 +356,11 @@ namespace crx
             sts = async_write(nullptr, 0);
         }
 
-        if (sts > 0)
-            return;
-
-        //读写操作检测到异常或发现对端已关闭连接
-        tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);
-        sch_impl.lock()->remove_event(fd);
+        //非unix域的普通tcp连接由定时轮周期性的维护, sts <= 0表示读写操作检测到异常或发现对端已关闭连接
+        if (UNIX_DOMAIN == tcp_impl->m_util.m_type && sts <= 0) {
+            tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);
+            sch_impl.lock()->remove_event(fd);
+        }
     }
 
     uint16_t tcp_server::get_port()

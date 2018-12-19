@@ -43,7 +43,6 @@ namespace crx
         tcp_client_conn(SOCK_TYPE type)
         :tcp_event(type)
         ,cnt(0)
-        ,last_conn(1)
         {
             name_reqs[0] = new gaicb;
             bzero(name_reqs[0], sizeof(gaicb));
@@ -67,7 +66,7 @@ namespace crx
 
         std::shared_ptr<tcp_client_impl> tcp_impl;
         std::string domain_name;        //连接对端使用的主机地址
-        int retry, timeout, cnt, last_conn;
+        int retry, timeout, cnt;
     };
 
     class tcp_impl_xutil

@@ -123,5 +123,21 @@ namespace crx
          */
         http_server get_http_server(int port,
                 std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> f);
+
+        /*
+         * [单例] 获取websocket客户端实例(自动释放)，回调函数中的参数依次为
+         * ①指定的连接
+         * ②响应数据
+         * websocket是基于http请求升级而成的一种应用层协议，此处将websocket从http中剥离出来，且收发数据使用各自独立的接口
+         */
+        ws_client get_ws_client(std::function<void(int, char*, size_t)> f);
+
+        /*
+         * [单例] 获取websocket服务实例(自动释放)，回调函数中的参数依次为
+         * ①指定的连接
+         * ②请求数据
+         * 之所以需要将http升级为websocket协议，是因为在某些特殊的场景中需要server向client推送数据，而http协议无法满足此类需求
+         */
+        ws_server get_ws_server(int port, std::function<void(int, char*, size_t)> f);
     };
 }

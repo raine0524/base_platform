@@ -89,12 +89,11 @@ namespace crx
 
     void console_impl::tcp_callback(bool client, int conn, const std::string& ip_addr, uint16_t port, char *data, size_t len)
     {
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
         if (client) {
-            if (data)
+            if (data) {
                 std::cout<<data+sizeof(simp_header)<<std::flush;
-
-            if (!data && !len) {        //对端连接已关闭
-                auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
+            } else if (!len) {      //对端连接已关闭
                 sch_impl->m_go_done = false;        //退出当前shell进程
                 if (m_close_exp)
                     printf("\n后台服务 %s 异常关闭\n", g_server_name.c_str());
@@ -104,8 +103,6 @@ namespace crx
 
         //server
         if (!data && !len) {        //shell进程已关闭,释放此处连接资源
-            auto svr_impl = std::dynamic_pointer_cast<tcp_event>(m_server.m_impl);
-            svr_impl->release();
             m_conn = -1;
             return;
         }

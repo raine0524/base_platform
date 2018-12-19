@@ -23,8 +23,8 @@ namespace crx
                 auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
                 auto& this_http_cli = this_sch_impl->m_util_impls[HTTP_CLI];
                 auto this_http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(this_http_cli);
-                tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_client_impl>>,
-                        tcp_client_conn>(true, this_http_impl, fd, data, len);
+                tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_client_impl>>, tcp_client_conn>(
+                        true, this_http_impl, fd, data, len);
             };
             http_impl->m_http_cli = std::move(f);		//保存回调函数
             impl = http_impl;
@@ -73,11 +73,7 @@ namespace crx
         } else {
             http_request += "\r\n";
         }
-
-        if (!http_conn->is_connect)     //还未建立连接
-            http_conn->cache_data.append(http_request);
-        else
-            http_conn->async_write(http_request.c_str(), http_request.size());
+        http_conn->async_write(http_request.c_str(), http_request.size());
     }
 
     void http_client::GET(int conn, const char *post_page, std::map<std::string, std::string> *extra_headers)
@@ -91,15 +87,77 @@ namespace crx
         request(conn, "POST", post_page, extra_headers, ext_data, ext_len, ed);
     }
 
+    ws_client scheduler::get_ws_client(std::function<void(int, char*, size_t)> f)
+    {
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto& impl = sch_impl->m_util_impls[WS_CLI];
+        if (!impl) {
+            auto http_cli_back = std::move(sch_impl->m_util_impls[HTTP_CLI]);
+            std::function<void(int, int, std::map<std::string, const char*>&, char*, size_t)> http_stub;
+            auto http_client = get_http_client(http_stub);
+            auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(http_client.m_impl);
+            http_impl->m_ws_cb = std::move(f);
+            http_impl->m_util.m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
+                auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                auto& this_ws_cli = this_sch_impl->m_util_impls[WS_CLI];
+                auto this_ws_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(this_ws_cli);
+                tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_client_impl>>, tcp_client_conn>(
+                        true, this_ws_impl, fd, data, len);
+            };
+            impl = std::move(http_client.m_impl);
+            sch_impl->m_util_impls[HTTP_CLI] = std::move(http_cli_back);
+        }
+
+        ws_client obj;
+        obj.m_impl = impl;
+        return obj;
+    }
+
     std::map<std::string, std::string> g_ws_headers =
             {{"Connection", "Upgrade"},
              {"Upgrade", "websocket"},
              {"Sec-WebSocket-Version", "13"},
              {"Sec-WebSocket-Key", "w4v7O6xFTi36lq3RNcgctw=="}};
 
-    void http_client::upgrade_websocket(int conn)
+    int ws_client::connect_with_upgrade(const char *server, uint16_t port)
     {
-        GET(conn, "/", &g_ws_headers);
+        int conn = connect(server, port);
+        if (conn > 0)
+            GET(conn, "/", &g_ws_headers);
+        return conn;
+    }
+
+    void ws_client::send_data(int conn, const char *ext_data, size_t ext_len, WS_TYPE wt /*= WS_TEXT*/)
+    {
+        auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(m_impl);
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(http_impl->m_util.m_sch->m_impl);
+
+        //判断当前连接是否有效
+        if (conn < 0 || conn >= sch_impl->m_ev_array.size() || !sch_impl->m_ev_array[conn])
+            return;
+
+        if (__glibc_unlikely(!ext_data || !ext_len))
+            return;
+
+        auto http_conn = std::dynamic_pointer_cast<http_conn_t<tcp_client_conn>>(sch_impl->m_ev_array[conn]);
+        std::string http_request(2, 0);
+        if (WS_TEXT == wt)
+            http_request[0] = (char)0x81;
+        else if (WS_BIN == wt)
+            http_request[0] = (char)0x82;
+
+        http_request[1] = 126;
+        http_request[1] |= 0x80;
+        uint16_t net_len = htons((uint16_t)ext_len);
+        http_request.append((const char*)&net_len, sizeof(net_len));
+
+        uint32_t mask_key = g_rand();
+        http_request.append((const char*)&mask_key, sizeof(mask_key));
+
+        http_request.append(ext_data, ext_len);
+        for (int i = 0; i < ext_len; i++)
+            http_request[8+i] ^=  http_request[i%4+4];
+        http_conn->async_write(http_request.c_str(), http_request.size());
     }
 
     http_server scheduler::get_http_server(int port,
@@ -129,8 +187,8 @@ namespace crx
                     auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
                     auto& this_http_svr = this_sch_impl->m_util_impls[HTTP_SVR];
                     auto this_http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(this_http_svr);
-                    tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_server_impl>>,
-                            tcp_server_conn>(false, this_http_impl, fd, data, len);
+                    tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_server_impl>>, tcp_server_conn>(
+                            false, this_http_impl, fd, data, len);
                 };
                 http_impl->m_http_svr = std::move(f);
 
@@ -228,7 +286,33 @@ namespace crx
         tcp_ev->async_write(http_response.c_str(), http_response.size());
     }
 
-    void http_server::notify(int conn, const char *ext_data, size_t ext_len, WS_TYPE wt /*= WS_TEXT*/)
+    ws_server scheduler::get_ws_server(int port, std::function<void(int, char*, size_t)> f)
+    {
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto& impl = sch_impl->m_util_impls[WS_SVR];
+        if (!impl) {
+            auto http_svr_back = std::move(sch_impl->m_util_impls[HTTP_SVR]);
+            std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> http_stub;
+            auto http_server = get_http_server(port, http_stub);
+            auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(http_server.m_impl);
+            http_impl->m_ws_cb = std::move(f);
+            http_impl->m_util.m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
+                auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+                auto& this_ws_svr = this_sch_impl->m_util_impls[WS_SVR];
+                auto this_ws_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(this_ws_svr);
+                tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_server_impl>>, tcp_server_conn>(
+                        false, this_ws_impl, fd, data, len);
+            };
+            impl = std::move(http_server.m_impl);
+            sch_impl->m_util_impls[HTTP_SVR] = std::move(http_svr_back);
+        }
+
+        ws_server obj;
+        obj.m_impl = impl;
+        return obj;
+    }
+
+    void ws_server::send_data(int conn, const char *ext_data, size_t ext_len, WS_TYPE wt /*= WS_TEXT*/)
     {
         auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(m_impl);
         auto sch_impl = http_impl->sch_impl.lock();
