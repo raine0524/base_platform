@@ -151,7 +151,7 @@ namespace crx
         uint16_t net_len = htons((uint16_t)ext_len);
         http_request.append((const char*)&net_len, sizeof(net_len));
 
-        uint32_t mask_key = g_rand();
+        uint32_t mask_key = rand();
         http_request.append((const char*)&mask_key, sizeof(mask_key));
 
         http_request.append(ext_data, ext_len);

@@ -73,7 +73,6 @@ namespace crx
          * @m_as_shell：若后台服务正在运行过程中再次启动该程序，则新的进程作为daemon进程的shell存在
          */
         bool m_is_service, m_as_shell, m_close_exp;
-        std::random_device m_random;
         std::vector<console_cmd> m_cmd_vec;
 
         int m_conn;     //无论何时都只能存在一个有效连接

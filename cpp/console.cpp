@@ -354,6 +354,7 @@ namespace crx
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_util_impls[EXT_DATA]);
 
+        srand((unsigned int)time(nullptr));
         sch_impl->m_epoll_fd = epoll_create(EPOLL_SIZE);
         if (__glibc_unlikely(-1 == sch_impl->m_epoll_fd)) {
             printf("epoll_create failed: %s\n", strerror(errno));
@@ -390,7 +391,7 @@ namespace crx
         int cpu_num = get_nprocs();
         if (-1 != bind_flag) {
             if (INT_MAX == bind_flag)
-                con_impl->bind_core(con_impl->m_random()%cpu_num);
+                con_impl->bind_core(rand()%cpu_num);
             else if (0 <= bind_flag && bind_flag < cpu_num)     //bind_flag的取值范围为0~cpu_num-1
                 con_impl->bind_core(bind_flag);
         }
