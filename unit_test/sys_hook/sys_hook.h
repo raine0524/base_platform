@@ -15,6 +15,7 @@ public:
 
     bool m_hook_ewait;
     std::vector<std::pair<int, int>> m_efd_cnt;
+    std::string m_write_data;
 
     MockFileSystem() : m_hook_ewait(false) {}
 

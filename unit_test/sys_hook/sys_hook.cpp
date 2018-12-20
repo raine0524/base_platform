@@ -203,7 +203,12 @@ int epoll_wait (int __epfd, struct epoll_event *__events, int __maxevents, int _
 ssize_t read (int __fd, void *__buf, size_t __nbytes)
 {
     if (g_mock_fs->m_hook_ewait) {
-        return 1;
+        if (!g_mock_fs->m_write_data.empty()) {
+            memcpy(__buf, g_mock_fs->m_write_data.c_str(), g_mock_fs->m_write_data.size());
+            return g_mock_fs->m_write_data.size();
+        } else {
+            return 1;
+        }
     }
 
     typedef ssize_t (*read_pfn_t) (int, void*, size_t);
