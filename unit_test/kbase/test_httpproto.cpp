@@ -14,6 +14,7 @@ protected:
     void SetUp() override
     {
         g_mock_fs = this;
+        srand((unsigned int)time(nullptr));
         auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
         impl->m_epoll_fd = epoll_create(crx::EPOLL_SIZE);
         m_http_client = m_sch.get_http_client(std::bind(&HttpProtoTest::http_client_helper, this, _1, _2, _3, _4, _5));
@@ -74,13 +75,13 @@ TEST_F(HttpProtoTest, TestHTTP)
     auto sch_impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
     uint16_t svr_port = m_http_server.get_port();
     for (int i = 0; i < 16; i++) {
-        m_send_cnt = g_rand()%10000;
+        m_send_cnt = rand()%10000;
         int conn = m_http_client.connect("127.0.0.1", svr_port);
         for (int j = 0; j < 4096; j++) {
             m_ext_headers.clear();
             for (int k = 0; k < 5; k++) {
-                auto key = std::to_string(g_rand()%100);
-                auto value = std::to_string(g_rand()%100);
+                auto key = std::to_string(rand()%100);
+                auto value = std::to_string(rand()%100);
                 m_ext_headers[key] = value;
             }
 
@@ -117,7 +118,7 @@ TEST_F(HttpProtoTest, TestWebsocket)
     auto sch_impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
     uint16_t svr_port = m_ws_server.get_port();
     for (int i = 0; i < 16; i++) {
-        m_send_cnt = g_rand()%10000;
+        m_send_cnt = rand()%10000;
         int conn = m_ws_client.connect_with_upgrade("127.0.0.1", svr_port);
 
         auto send_data = m_send_data+std::to_string(++m_send_cnt);

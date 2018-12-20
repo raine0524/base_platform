@@ -17,6 +17,7 @@ protected:
     void SetUp() override
     {
         g_mock_fs = this;
+        srand((unsigned int)time(nullptr));
         auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
         impl->m_epoll_fd = epoll_create(crx::EPOLL_SIZE);
         m_send_data = "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 1234567890 ";
@@ -54,19 +55,19 @@ TEST_F(SchedUtilTest, TestSigCtl)
     ASSERT_TRUE(sc.m_impl.get());
 
     for (int i = 0; i < 8; i++) {
-        int signo = __SIGRTMIN+g_rand()%(_NSIG-__SIGRTMIN);     // 对实时信号进行测试
+        int signo = __SIGRTMIN+rand()%(_NSIG-__SIGRTMIN);     // 对实时信号进行测试
         sc.add_sig(signo, std::bind(&SchedUtilTest::sig_test_helper, this, _1, _2));
-        m_sig_num[signo] = g_rand()%100;
+        m_sig_num[signo] = rand()%100;
     }
 
     auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
     for (auto& pair : m_sig_num) {
         int origin = pair.second;
-        int send_cnt = g_rand()%5+5;
+        int send_cnt = rand()%5+5;
 
         for (int i = 0; i < send_cnt; i++) {
             sigval_t sv;
-            sv.sival_int = g_rand()%100;
+            sv.sival_int = rand()%100;
             origin += sv.sival_int;
             sigqueue(getpid(), pair.first, sv);
         }
@@ -76,7 +77,7 @@ TEST_F(SchedUtilTest, TestSigCtl)
     }
 
     for (auto it = m_sig_num.begin(); it != m_sig_num.end(); ) {
-        if (0 == g_rand()%2) {
+        if (0 == rand()%2) {
             sc.remove_sig(it->first);
             it = m_sig_num.erase(it);
         } else {
@@ -109,9 +110,9 @@ TEST_F(SchedUtilTest, TestTimer)
     auto tmr_impl = std::dynamic_pointer_cast<crx::timer_impl>(m_tmr.m_impl);
     m_efd_cnt.emplace_back(std::make_pair(tmr_impl->fd, 1));
     for (int i = 0; i < 256; i++) {
-        m_rand_adder = g_rand()%100;
+        m_rand_adder = rand()%100;
         int step_result = m_start_seed+m_rand_adder;
-        m_delay = g_rand()%10000+10000, m_interval = g_rand()%10000+10000;
+        m_delay = rand()%10000+10000, m_interval = rand()%10000+10000;
         m_tmr.start(m_delay, m_interval);
         sch_impl->main_coroutine(&m_sch);
         ASSERT_EQ(m_start_seed, step_result);
@@ -139,24 +140,24 @@ TEST_F(SchedUtilTest, TestTimerWheel)
     std::vector<int> tw_fds(tw_impl->m_timer_vec.size(), 0);
     for (int i = 0; i < tw_impl->m_timer_vec.size(); i++) {     // 0-24hour 1-60minutes 2-60seconds 3-10#100millis
         auto& slot = tw_impl->m_timer_vec[i];
-        slot.slot_idx = g_rand()%slot.elems.size();
+        slot.slot_idx = rand()%slot.elems.size();
         tw_fds[i] = std::dynamic_pointer_cast<crx::timer_impl>(slot.tmr.m_impl)->fd;
     }
 
     for (int i = 0; i < tw_fds.size(); i++) {       // 0-测试小时级别 1-测试分钟级别 2-测试秒级别 3-测试微妙级别
         for (int j = 0; j < 16; j++) {
-            m_rand_adder = g_rand()%100;
+            m_rand_adder = rand()%100;
             int step_result = m_start_seed+m_rand_adder;
 
             size_t delay = 0;
             for (int k = i; k < tw_fds.size(); k++) {
                 auto& slot = tw_impl->m_timer_vec[k];
                 if (0 == k)
-                    delay += (g_rand()%(slot.elems.size()-2)+1)*slot.tick;      // 避免delay被正则化为24小时这种极端情形
+                    delay += (rand()%(slot.elems.size()-2)+1)*slot.tick;      // 避免delay被正则化为24小时这种极端情形
                 else
-                    delay += (g_rand()%(slot.elems.size()-1)+1)*slot.tick;
+                    delay += (rand()%(slot.elems.size()-1)+1)*slot.tick;
             }
-            delay += g_rand()%100;
+            delay += rand()%100;
 
             for (int k = 0; k < tw_fds.size(); k++)
                 m_efd_cnt.emplace_back(std::make_pair(tw_fds[k], 0));
@@ -204,7 +205,7 @@ TEST_F(SchedUtilTest, TestEvent)
         auto ev = m_sch.get_event(std::bind(&SchedUtilTest::event_test_helper, this, _1));
         int ev_fd = std::dynamic_pointer_cast<crx::event_impl>(ev.m_impl)->fd;
         for (int j = 0; j < 256; j++) {
-            m_rand_adder = g_rand()%100;
+            m_rand_adder = rand()%100;
             int step_result = m_start_seed+m_rand_adder;
             ev.send_signal(m_rand_adder);
 
@@ -234,7 +235,7 @@ TEST_F(SchedUtilTest, TestUDP)
 {
     auto sch_impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
     for (int i = 0; i < 32; i++) {
-        m_send_cnt = g_rand()%10000;
+        m_send_cnt = rand()%10000;
         m_udp_client = m_sch.get_udp_ins(false, 0, std::bind(&SchedUtilTest::udp_test_helper, this, true, _1, _2, _3, _4));
         int cli_fd = std::dynamic_pointer_cast<crx::udp_ins_impl>(m_udp_client.m_impl)->fd;
         m_udp_server = m_sch.get_udp_ins(true, 0, std::bind(&SchedUtilTest::udp_test_helper, this, false, _1, _2, _3, _4));

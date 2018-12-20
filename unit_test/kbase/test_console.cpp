@@ -65,7 +65,7 @@ TEST_F(ConsoleTest, TestRunCmd)
     ASSERT_STREQ(con_impl->m_cmd_vec[2].cmd.c_str(), "test_adder");
 
     for (int i = 0; i < 8192; i++) {
-        int adder_a = g_rand()%10000, adder_b = g_rand()%10000;
+        int adder_a = rand()%10000, adder_b = rand()%10000;
         int result = adder_a+adder_b;
         g_mock_fs->m_write_data = "test_adder "+std::to_string(adder_a)+" "+std::to_string(adder_b)+"\n";
         sch_impl->main_coroutine(&m_con_helper);

@@ -20,6 +20,7 @@ protected:
     void SetUp() override
     {
         g_mock_fs = this;
+        srand((unsigned int)time(nullptr));
         g_mock_fs->m_hook_ewait = false;
         auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
         std::function<void(crx::scheduler *sch, size_t co_id)> stub;
@@ -78,35 +79,35 @@ void SchedulerTest::check_satellites(std::shared_ptr<crx::scheduler_impl>& impl)
 TEST_F(SchedulerTest, CoCreateYield)
 {
     auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
-    int test_cos = 2500+g_rand()%1000;
+    int test_cos = 2500+rand()%1000;
     for (int i = 1; i < test_cos; i++) {        // 首先创建一批co
-        bool is_share = g_rand()%2 == 1;
+        bool is_share = rand()%2 == 1;
         std::string co_comment = "co_helper_"+std::to_string(i);
         size_t co_id = m_sch.co_create(std::bind(&SchedulerTest::co_test_helper, this, _1, _2), is_share, co_comment.c_str());
 
         auto& sates = m_co_sates[co_id];
         sates.is_share = is_share;
         sates.comment = std::move(co_comment);
-        sates.main_rand = g_rand()%10000;
+        sates.main_rand = rand()%10000;
         m_sch.co_yield(co_id);
     }
     check_satellites(impl);
 
     for (int i = 0; i < 10; i++) {      // 来回测试，共测5次
-        int operate_cnt = g_rand()%500+1000;
+        int operate_cnt = rand()%500+1000;
         size_t total_cos = impl->m_cos.size()-1;        // 去掉main co
         for (int j = 0; j < operate_cnt; j++) {
             if (0 == i%2) {     // 移除一些co
                 size_t select_id = INT_MAX;
                 while (m_co_sates.end() == m_co_sates.find(select_id)) {
-                    select_id = g_rand()%total_cos+1;        // 找到存在的co
+                    select_id = rand()%total_cos+1;        // 找到存在的co
                 }
 
                 m_co_sates[select_id].go = false;
                 m_sch.co_yield(select_id);
                 m_co_sates.erase(select_id);
             } else {        // 添加一些co
-                bool is_share = g_rand()%2 == 1;
+                bool is_share = rand()%2 == 1;
                 std::string co_comment = "co_helper_";
                 if (impl->m_unused_cos.empty())
                     co_comment += std::to_string(impl->m_cos.size());
@@ -117,7 +118,7 @@ TEST_F(SchedulerTest, CoCreateYield)
                 auto& sates = m_co_sates[co_id];
                 sates.is_share = is_share;
                 sates.comment = std::move(co_comment);
-                sates.main_rand = g_rand()%10000;
+                sates.main_rand = rand()%10000;
                 m_sch.co_yield(co_id);
             }
         }
@@ -128,7 +129,7 @@ TEST_F(SchedulerTest, CoCreateYield)
 void SchedulerTest::co_test_adder(crx::scheduler *sch, size_t co_id)
 {
     int calc_num = m_test_num/m_adder_cnt;
-    int yield_cnt = g_rand()%5+20;       // 尝试切20次左右
+    int yield_cnt = rand()%5+20;       // 尝试切20次左右
     int yield_calc = calc_num/yield_cnt, j = 0;
     for (int i = 0; i < calc_num; i++) {
         m_accu_sum++;
@@ -153,12 +154,12 @@ TEST_F(SchedulerTest, CoAdder)
     for (int i = 0; i < 10; i++) {      // 循环测试10次
         m_accu_sum = 0;
         m_adder_comp = 0;
-        m_adder_cnt = g_rand()%5+20;       // 创建20个左右的加法器adder
-        m_test_num = g_rand()%100000+1000000;     // 计算1百万次左右
+        m_adder_cnt = rand()%5+20;       // 创建20个左右的加法器adder
+        m_test_num = rand()%100000+1000000;     // 计算1百万次左右
         m_test_num = m_test_num/m_adder_cnt*m_adder_cnt;
 
         for (int j = 0; j < m_adder_cnt; j++) {
-            size_t co_id = m_sch.co_create(std::bind(&SchedulerTest::co_test_adder, this, _1, _2), g_rand()%5 <= 2);
+            size_t co_id = m_sch.co_create(std::bind(&SchedulerTest::co_test_adder, this, _1, _2), rand()%5 <= 2);
             m_sch.co_yield(co_id);
         }
 

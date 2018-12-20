@@ -6,6 +6,7 @@ protected:
     virtual void SetUp()
     {
         g_mock_fs = this;
+        srand((unsigned int)time(nullptr));
         m_fd_flags[1] = 0x12;
     }
 
@@ -47,8 +48,8 @@ TEST_F(FileSysTest, RunShellCmd)
 {
     ASSERT_STREQ("", crx::run_shell_cmd(nullptr).c_str());
     for (int i = 0; i < 16; i++) {
-        int start = m_fgets_curr = g_rand() % 1000;
-        m_fgets_num = m_fgets_curr + g_rand() % 10;
+        int start = m_fgets_curr = rand() % 1000;
+        m_fgets_num = m_fgets_curr + rand() % 10;
         auto result = crx::run_shell_cmd("__popen_test");
 
         std::string expect_val;
@@ -67,9 +68,9 @@ TEST_F(FileSysTest, MkdirMulti)
     ASSERT_EQ(-1, crx::mkdir_multi(nullptr));
     for (int i = 0; i < 16; i++) {
         std::string path;
-        int level_num = g_rand() % 5 + 5;
+        int level_num = rand() % 5 + 5;
         for (int j = 0; j < level_num; j++)
-            path += std::string("/") + (char) (g_rand() % 26 + 'a');
+            path += std::string("/") + (char) (rand() % 26 + 'a');
 
         g_mock_fs->m_mkdir_num = 0;
         ASSERT_EQ(0, crx::mkdir_multi(path.c_str()));
@@ -129,7 +130,7 @@ TEST_F(FileSysTest, GetLocalAddr)
 TEST_F(FileSysTest, GetFileSize)
 {
     for (int i = 0; i < 16; i++) {
-        int seed = g_rand() % 10000;
+        int seed = rand() % 10000;
         if (seed % 2) {
             if (i % 2) {
                 ASSERT_EQ(m_file_size, crx::get_file_size("__filesize_test"));
@@ -155,7 +156,7 @@ TEST_F(FileSysTest, FindNthPos)
 
     std::string src_str = "abababababababa";
     for (int i = 0; i < 5; i++) {
-        int rand_idx = g_rand()%7;
+        int rand_idx = rand()%7;
         ASSERT_EQ(rand_idx*2, crx::find_nth_pos(src_str, "aba", rand_idx));
     }
 }

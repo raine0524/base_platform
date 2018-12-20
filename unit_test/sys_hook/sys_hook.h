@@ -1,7 +1,5 @@
 #pragma once
 
-extern std::random_device g_rand;
-
 class MockFileSystem : public testing::Test
 {
 public:
@@ -40,7 +38,7 @@ public:
 
     int get_file_size()
     {
-        m_file_size = g_rand()%10000;
+        m_file_size = rand()%10000;
         return m_file_size;
     }
 
