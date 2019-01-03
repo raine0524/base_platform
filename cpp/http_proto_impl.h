@@ -19,8 +19,8 @@ namespace crx
         void websocket_ping();
 
         int status, content_len;
-        const char *method, *url;   //请求方法/url(以"/"开始的字符串)
-        std::map<std::string, const char*> headers;
+        std::string method, url;    //请求方法/url(以"/"开始的字符串)
+        std::map<std::string, std::string> headers;
         bool notify_over, continue_ping;
 
         bool proto_upgrade;         //表明是否已由http协议升级为websocket
@@ -48,8 +48,8 @@ namespace crx
     public:
         http_impl_t(SOCK_TYPE type) : IMPL_TYPE(type) {}
 
-        std::function<void(int, int, std::map<std::string, const char*>&, char*, size_t)> m_http_cli;
-        std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> m_http_svr;
+        std::function<void(int, int, std::map<std::string, std::string>&, char*, size_t)> m_http_cli;
+        std::function<void(int, const std::string&, const std::string&, std::map<std::string, std::string>&, char*, size_t)> m_http_svr;
         std::function<void(int, char*, size_t)> m_ws_cb;
     };
 
@@ -88,19 +88,19 @@ namespace crx
         }
 
         auto conn_it = conn->headers.find("Connection");
-        if (conn->headers.end() != conn_it && !strcmp("close", conn_it->second))
+        if (conn->headers.end() != conn_it && "close" == conn_it->second)
             conn->notify_over = true;
 
         auto upgrade_it = conn->headers.find("Upgrade");
 
         //将当前连接升级为websocket
-        if (conn->headers.end() != conn_it && !strcmp("Upgrade", conn_it->second) &&
-            conn->headers.end() != upgrade_it && !strcmp("websocket", upgrade_it->second)) {
+        if (conn->headers.end() != conn_it && "Upgrade" == conn_it->second &&
+            conn->headers.end() != upgrade_it && "websocket" == upgrade_it->second) {
             conn->proto_upgrade = true;
 
             if (!client) {      //升级请求只支持GET方法且必须存在Sec-WebSocket-Key字段
                 auto ws_key_it = conn->headers.find("Sec-WebSocket-Key");
-                if (strcmp("GET", conn->method) || conn->headers.end() == ws_key_it) {
+                if ("GET" != conn->method || conn->headers.end() == ws_key_it) {
                     std::map<std::string, std::string> ext_headers = {{"Connection", "close"}};
                     http_response(sch_impl, fd, nullptr, 0, DST_NONE, 101, &ext_headers);
                     return;
@@ -273,7 +273,7 @@ namespace crx
             char *delim_pos = strstr(data, "\r\n\r\n");
             if (!delim_pos || delim_pos > data+len-4) {     //还未取到分隔符或分隔符已超出查找范围
                 if (len > 8192)
-                    return -8192;      //在取到分隔符\r\n\r\n前已有超过8k的数据，截断保护缓冲
+                    return -8192;       //在取到分隔符\r\n\r\n前已有超过8k的数据，截断保护缓冲
                 else
                     return 0;           //等待更多数据到来
             }
@@ -304,21 +304,24 @@ namespace crx
                         conn->status = std::atoi(line_elem[1].data);		//记录中间的状态码
                     } else {
                         //请求行包含空格分隔的三个字段，例如：POST(请求方法) /request(url) HTTP/1.1(协议/版本)
-                        conn->method = line_elem[0].data;          //记录请求方法
-                        *(char*)(line_elem[0].data+line_elem[0].len) = 0;
-                        conn->url = line_elem[1].data;             //记录请求的url(以"/"开始的部分)
-                        *(char*)(line_elem[1].data+line_elem[1].len) = 0;
+                        conn->method = std::string(line_elem[0].data, line_elem[0].len);    //记录请求方法
+                        conn->url = std::string(line_elem[1].data, line_elem[1].len);       //记录请求的url(以"/"开始的部分)
                     }
                 } else {
                     auto header = split(line.data, line.len, ": ");		//头部字段键值对的分隔符为": "
-                    if (header.size() >= 2) {       //无效的头部字段直接丢弃，不符合格式的值发生截断
-                        *(char*)(header[1].data+header[1].len) = 0;
-                        conn->headers[std::string(header[0].data, header[0].len)] = header[1].data;
-                    }
+                    if (header.size() >= 2)       //无效的头部字段直接丢弃，不符合格式的值发生截断
+                        conn->headers[std::string(header[0].data, header[0].len)] =
+                                std::string(header[1].data, header[1].len);
                 }
             }
 
-            auto it = conn->headers.find("Content-Length");
+            auto it = conn->headers.find("Transfer-Encoding");
+            if (conn->headers.end() != it && "chunked" == it->second) {
+                conn->content_len = -2;
+                return -(int)(valid_header_len+4);
+            }
+
+            it = conn->headers.find("Content-Length");
             if (header_err || (client && conn->headers.end() == it)) {  //头部有误或响应行中未找到"Content-Length"字段，截断该头部
                 conn->headers.clear();
                 return -(int)(valid_header_len+4);
@@ -336,7 +339,13 @@ namespace crx
                 conn->content_len = 1;
                 return -(int)(valid_header_len+3);
             }
-            return -(int)(valid_header_len+4);
+            return -(int)(valid_header_len+4);      //http头部中含有Transfer-Encoding: chunked键值对
+        } else if (-2 == conn->content_len) {
+            char *delim_pos = strstr(data, "0\r\n\r\n");        //判断是否已取到最后一个分块
+            if (!delim_pos || delim_pos > data+len-5)
+                return 0;       //等待更多数据到来
+            else
+                return (int)(delim_pos-data+5);
         }
 
         if (len < conn->content_len)      //请求/响应体中不包含足够的数据，等待该连接上更多的数据到来

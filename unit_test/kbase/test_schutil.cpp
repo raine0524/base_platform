@@ -179,7 +179,10 @@ TEST_F(SchedUtilTest, TestTimerWheel)
 
             for (int k = inter_start+1; k < tw_fds.size(); k++) {
                 auto& nslot = tw_impl->m_timer_vec[k];
-                m_efd_cnt[k].second += nslot.elems.size()-nslot.slot_idx-1;
+                if (3 == k)
+                    m_efd_cnt[k].second += nslot.slot_idx+1;
+                else
+                    m_efd_cnt[k].second += nslot.slot_idx;
             }
 
             tw.add_handler(delay, std::bind(&SchedUtilTest::timer_wheel_helper, this, _1));

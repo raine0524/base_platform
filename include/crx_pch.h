@@ -179,6 +179,14 @@ namespace crx
         mem_ref() { bzero(this, sizeof(mem_ref)); }
         mem_ref(const char *s, size_t l) : data(s), len(l) {}
     };
+
+    struct CRX_SHARE endpoint
+    {
+        char ip_addr[16];
+        int port;
+
+        endpoint() : port(0) { bzero(ip_addr, sizeof(ip_addr)); }
+    };
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -189,5 +197,6 @@ namespace crx
 #include "kbase/schutil.h"
 #include "kbase/tcp_proto.h"
 #include "kbase/http_proto.h"
+#include "kbase/etcd_wrap.h"
 #include "kbase/scheduler.h"
 #include "kbase/console.h"

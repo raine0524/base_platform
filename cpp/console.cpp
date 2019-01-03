@@ -272,7 +272,12 @@ namespace crx
 
         if (!m_as_shell)        //以shell方式运行时不需要执行init/destroy操作
             m_c->destroy();
-        sch_impl->m_go_done = false;
+
+        auto etcd_impl = std::dynamic_pointer_cast<etcd_client_impl>(sch_impl->m_util_impls[ETCD_CLI]);
+        if (!etcd_impl->m_worker_path.empty())
+            etcd_impl->m_get_wsts = 3;      // bye to etcd
+        else
+            sch_impl->m_go_done = false;
     }
 
     //打印帮助信息
@@ -345,6 +350,129 @@ namespace crx
         }
     }
 
+    void console_impl::parse_config(const char *config)
+    {
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
+        ini ini_parser;
+        ini_parser.load(config);
+        if (ini_parser.has_section("logger")) {     // 日志
+            ini_parser.set_section("logger");
+            sch_impl->m_log_lvl = (LOG_LEVEL)ini_parser.get_int("level");
+            sch_impl->m_log_root = ini_parser.get_str("root_dir");
+            sch_impl->m_back_cnt = ini_parser.get_int("backup_cnt");
+
+            mkdir_multi(sch_impl->m_log_root.c_str());
+            g_lib_log.m_impl = sch_impl->get_logger("kbase");
+            g_app_log.m_impl = sch_impl->get_logger(g_server_name.c_str());
+        }
+
+        auto etcd_impl = std::make_shared<etcd_client_impl>();
+        if (ini_parser.has_section("etcd")) {       // etcd
+            ini_parser.set_section("etcd");
+            etcd_impl->m_sch_impl = sch_impl;
+            etcd_impl->m_http_client = m_c->get_http_client(std::bind(&etcd_client_impl::http_client_callback,
+                    etcd_impl.get(), _1, _2, _3, _4, _5));
+
+            auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(etcd_impl->m_http_client.m_impl);
+            http_impl->m_util.m_f = [this](int fd, const std::string& ip_addr, uint16_t port, char *data, size_t len) {
+                auto this_sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
+                auto this_etcd_impl = std::dynamic_pointer_cast<etcd_client_impl>(this_sch_impl->m_util_impls[ETCD_CLI]);
+                auto this_http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(this_etcd_impl->m_http_client.m_impl);
+                tcp_callback_for_http<std::shared_ptr<http_impl_t<tcp_client_impl>>, tcp_client_conn>(
+                        true, this_http_impl, fd, data, len);
+            };
+
+            sch_impl->m_util_impls[HTTP_CLI].reset();
+
+            if (ini_parser.has_key("endpoints")) {
+                auto endpoints = ini_parser.get_str("endpoints");
+                auto ep_vec = split(endpoints.c_str(), endpoints.size(), ";");
+                for (auto& ep : ep_vec) {
+                    auto ip_port = split(ep.data, ep.len, ":");
+                    if (2 != ip_port.size())
+                        g_lib_log.printf(LVL_FATAL, "illegal endpoints: %v\n", endpoints.c_str());
+
+                    endpoint point;
+                    strncpy(point.ip_addr, ip_port[0].data, ip_port[0].len);
+                    point.port = atoi(ip_port[1].data);
+                    etcd_impl->m_endpoints.push_back(point);
+                }
+            }
+
+            std::string service_name, node_name;
+            if (ini_parser.has_key("node_name"))
+                node_name = ini_parser.get_str("node_name");
+
+            if (ini_parser.has_key("listen_addr")) {
+                std::string addr = ini_parser.get_str("listen_addr");
+                auto ip_port = split(addr.c_str(), addr.size(), ":");
+                if (2 != ip_port.size())
+                    g_lib_log.printf(LVL_FATAL, "illegal ip & port format: %v\n", addr.c_str());
+
+                strncpy(etcd_impl->m_worker_addr.ip_addr, ip_port[0].data, ip_port[0].len);
+                etcd_impl->m_worker_addr.port = atoi(ip_port[1].data);
+            }
+
+            if (ini_parser.has_key("worker_path")) {
+                etcd_impl->m_worker_path = ini_parser.get_str("worker_path");
+                if ('/' == etcd_impl->m_worker_path.back())
+                    etcd_impl->m_worker_path.pop_back();
+
+                auto pos = etcd_impl->m_worker_path.rfind('/');
+                if (std::string::npos == pos)
+                    g_lib_log.printf(LVL_FATAL, "illegal etcd worker path: %s\n", etcd_impl->m_worker_path.c_str());
+
+                service_name = etcd_impl->m_worker_path.substr(pos+1);
+                etcd_impl->m_worker_path = std::string("/v2/keys")+etcd_impl->m_worker_path+"/"+node_name;
+            }
+
+            if (!node_name.empty() && etcd_impl->m_worker_addr.ip_addr[0]
+                    && !etcd_impl->m_worker_path.empty()) {
+                rapidjson::Document doc;
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+
+                doc.SetObject();
+                auto& alloc = doc.GetAllocator();
+                doc.AddMember("service", rapidjson::Value().SetString(service_name.c_str(), (int)service_name.size(), alloc), alloc);
+                doc.AddMember("node", rapidjson::Value().SetString(node_name.c_str(), (int)node_name.size(), alloc), alloc);
+                doc.AddMember("ip", rapidjson::Value().SetString(etcd_impl->m_worker_addr.ip_addr,
+                        (int)strlen(etcd_impl->m_worker_addr.ip_addr)), alloc);
+                doc.AddMember("port", etcd_impl->m_worker_addr.port, alloc);
+
+                doc.Accept(writer);
+                etcd_impl->m_worker_value = std::string("value=")+buffer.GetString()+"&&ttl=5";
+                etcd_impl->periodic_heart_beat();
+            }
+
+            if (ini_parser.has_key("watch_paths")) {
+                auto paths = ini_parser.get_str("watch_paths");
+                auto path_vec = split(paths.c_str(), paths.size(), ";");
+                for (int i = 0; i < path_vec.size(); i++) {
+                    auto& path = path_vec[i];
+                    if ('/' == path.data[path.len-1])
+                        path.len -= 1;
+
+                    etcd_master_info info;
+                    info.valid = false;
+                    info.nonwait_path = std::string("/v2/keys")+std::string(path.data, path.len);
+                    info.wait_path = info.nonwait_path+"?wait=true&recursive=true";
+                    info.conn = -1;
+
+                    auto pos = info.nonwait_path.rfind('/');
+                    if (std::string::npos == pos)
+                        g_lib_log.printf(LVL_FATAL, "illegal etcd watch path: %s\n", info.nonwait_path.c_str());
+
+                    info.service_name = info.nonwait_path.substr(pos+1);
+                    info.rr_idx = 0;
+                    etcd_impl->m_master_infos.emplace_back(info);
+                    etcd_impl->periodic_wait_event(i);
+                }
+            }
+        }
+        sch_impl->m_util_impls[ETCD_CLI] = etcd_impl;
+    }
+
     int console::run(int argc, char *argv[], const char *conf /*= "ini/server.ini"*/, int bind_flag /*= -1*/)
     {
         //get server name
@@ -372,21 +500,6 @@ namespace crx
         if (con_impl->preprocess(argc, argv))
             return EXIT_SUCCESS;
 
-        if (!access(conf, F_OK)) {      //解析日志配置
-            ini ini_parser;
-            ini_parser.load(conf);
-            if (ini_parser.has_section("logger")) {
-                ini_parser.set_section("logger");
-                sch_impl->m_log_lvl = (LOG_LEVEL)ini_parser.get_int("level");
-                sch_impl->m_log_root = ini_parser.get_str("root_dir");
-                sch_impl->m_back_cnt = ini_parser.get_int("backup_cnt");
-            }
-
-            mkdir_multi(sch_impl->m_log_root.c_str());
-            g_lib_log.m_impl = sch_impl->get_logger("kbase");
-            g_app_log.m_impl = sch_impl->get_logger(g_server_name.c_str());
-        }
-
         //处理绑核操作
         int cpu_num = get_nprocs();
         if (-1 != bind_flag) {
@@ -399,7 +512,10 @@ namespace crx
         signal(SIGPIPE, SIG_IGN);       //向已经断开连接的管道和套接字写数据时只返回错误,不主动退出进程
         if (!sch_impl->m_wheel.m_impl)       //创建一个定时轮
             sch_impl->m_wheel = get_timer_wheel();
-        sch_impl->m_wheel.add_handler(5*1000, std::bind(&scheduler_impl::periodic_trim_memory, sch_impl.get()));
+//        sch_impl->m_wheel.add_handler(5*1000, std::bind(&scheduler_impl::periodic_trim_memory, sch_impl.get()));
+
+        if (!access(conf, F_OK))        //解析日志配置
+            con_impl->parse_config(conf);
 
         //打印帮助信息
         std::vector<std::string> str_vec;

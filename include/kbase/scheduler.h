@@ -111,7 +111,7 @@ namespace crx
          * ③头部键值对
          * ④响应体
          */
-        http_client get_http_client(std::function<void(int, int, std::map<std::string, const char*>&, char*, size_t)> f);
+        http_client get_http_client(std::function<void(int, int, std::map<std::string, std::string>&, char*, size_t)> f);
 
         /*
          * [单例] 获取http服务实例(自动释放),此处的port与tcp_server中的port含义相同,回调函数中的参数依次为
@@ -122,7 +122,7 @@ namespace crx
          * ⑤请求体(可能不存在)
          */
         http_server get_http_server(int port,
-                std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> f);
+                std::function<void(int, const std::string&, const std::string&, std::map<std::string, std::string>&, char*, size_t)> f);
 
         /*
          * [单例] 获取websocket客户端实例(自动释放)，回调函数中的参数依次为
@@ -139,5 +139,8 @@ namespace crx
          * 之所以需要将http升级为websocket协议，是因为在某些特殊的场景中需要server向client推送数据，而http协议无法满足此类需求
          */
         ws_server get_ws_server(int port, std::function<void(int, char*, size_t)> f);
+
+        // [单例] 获取etcd_client实例(自动释放)，只需要在ini文件中配置etcd_worker/etcd_master节区并设置好相关选项即可成功获取该实例
+        etcd_client get_etcd_client(ETCD_STRATEGY strategy = ES_ROUNDROBIN);
     };
 }

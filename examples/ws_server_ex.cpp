@@ -10,8 +10,8 @@ public:
 
     void destroy() override {}
 
-    void http_callback(int conn, const char *method, const char *router,
-            std::map<std::string, const char*>&ext_headers, char *data, size_t len);
+    void http_callback(int conn, const std::string& method, const std::string& router,
+            std::map<std::string, std::string> &ext_headers, char *data, size_t len);
 
     void notify_data(int count);
 
@@ -27,12 +27,12 @@ bool ws_server::init(int argc, char **argv)
     return true;
 }
 
-void ws_server::http_callback(int conn, const char *method, const char *router,
-        std::map<std::string, const char *> &ext_headers, char *data, size_t len) {
+void ws_server::http_callback(int conn, const std::string& method, const std::string& router,
+        std::map<std::string, std::string> &ext_headers, char *data, size_t len) {
     m_conn = conn;
-    printf("--- conn=%d, method=%s, router=%s\n", conn, method, router);
+    printf("--- conn=%d, method=%s, router=%s\n", conn, method.c_str(), router.c_str());
     for (auto& pair : ext_headers)
-        printf("\t%s ==> %s\n", pair.first.c_str(), pair.second);
+        printf("\t%s ==> %s\n", pair.first.c_str(), pair.second.c_str());
     if (data && len)
         printf("\tplayload: %s\n", data);
 }

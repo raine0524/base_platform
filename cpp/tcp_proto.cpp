@@ -116,41 +116,14 @@ namespace crx
         if (__glibc_likely(sts > 0))
             return;
 
-        auto impl = sch_impl.lock();        //读写操作检测到异常或发现对端已关闭连接
-        if (-1 == retry || (retry > 0 && cnt < retry)) {        //若不断尝试重连或重连次数还未满足要求，则不释放资源
-            if (is_connect) {       //已处于连接状态
-                tcp_client client;
-                client.m_impl = tcp_impl;       //创建一个新的连接
-                int conn = client.connect(ip_addr.c_str(), conn_sock.m_port, retry, timeout);
-                if (__glibc_likely(conn > 0)) {
-                    auto tcp_conn = std::dynamic_pointer_cast<tcp_client_conn>(impl->m_ev_array[conn]);
-                    tcp_conn->cache_data = std::move(cache_data);       //将当前缓存数据及扩展数据移入新的tcp_event上
-                    tcp_conn->ext_data = std::move(ext_data);
-                }
-            } else {
-                impl->m_wheel.add_handler((uint64_t)timeout*1000, std::bind(&tcp_client_conn::retry_connect, this));
-            }
-        }
-
         if (is_connect) {       //该套接字已经成功连接过对端，此时只能移除该套接字，无法复用
             if (!release_conn)
                 tcp_impl->m_util.m_f(fd, ip_addr, conn_sock.m_port, nullptr, 0);       //通知上层连接关闭
-            impl->remove_event(fd);
+            sch_impl.lock()->remove_event(fd);      //读写操作检测到异常或发现对端已关闭连接
         }
     }
 
-    void tcp_client_conn::retry_connect()
-    {
-        if (__glibc_unlikely(-1 == connect(conn_sock.m_sock_fd, (struct sockaddr*)&conn_sock.m_addr.trans,
-                sizeof(conn_sock.m_addr.trans)) && EINPROGRESS != errno))
-            g_lib_log.printf(LVL_ERROR, "retry connect failed: %s\n", strerror(errno));
-
-        cnt = retry > 0 ? (cnt+1) : cnt;
-        g_lib_log.printf(LVL_INFO, "try to connect conn=%d, ip=%s, port=%d, timeout=%d\n",
-                fd, ip_addr.c_str(), conn_sock.m_port, timeout);
-    }
-
-    int tcp_client::connect(const char *server, uint16_t port, int retry /*= 0*/, int timeout /*= 0*/)
+    int tcp_client::connect(const char *server, uint16_t port)
     {
         if (!server) return -1;
         auto tcp_impl = std::dynamic_pointer_cast<tcp_client_impl>(m_impl);
@@ -164,8 +137,6 @@ namespace crx
 
         conn->tcp_impl = tcp_impl;
         conn->domain_name = server;		//记录当前连接的主机地址
-        conn->retry = retry;
-        conn->timeout = timeout > 60 ? 60 : timeout;
 
         in_addr_t ret = inet_addr(server);  //判断服务器的地址是否为点分十进制的ip地址
         if (INADDR_NONE == ret) {           //需要对域名进行解析
@@ -203,6 +174,7 @@ namespace crx
             conn->ip_addr = server;
         }
 
+        conn->domain_name += ":"+std::to_string(port);
         conn->fd = conn->conn_sock.create(PRT_TCP, USR_CLIENT, conn->ip_addr.c_str(), port);
         if (-1 == conn->fd)
             return -3;
@@ -224,7 +196,6 @@ namespace crx
             return;
 
         auto cli_conn = std::dynamic_pointer_cast<tcp_client_conn>(sch_impl->m_ev_array[conn]);
-        cli_conn->retry = 0;
         tcp_impl->m_util.m_f(conn, cli_conn->ip_addr, cli_conn->conn_sock.m_port, nullptr, 0);  //通知上层连接关闭
         cli_conn->release();
     }

@@ -2,7 +2,7 @@
 
 namespace crx
 {
-    http_client scheduler::get_http_client(std::function<void(int, int, std::map<std::string, const char*>&, char*, size_t)> f)
+    http_client scheduler::get_http_client(std::function<void(int, int, std::map<std::string, std::string>&, char*, size_t)> f)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto& impl = sch_impl->m_util_impls[HTTP_CLI];
@@ -43,7 +43,7 @@ namespace crx
              {DST_QSTRING, "application/x-www-form-urlencoded"}};
 
     void http_client::request(int conn, const char *method, const char *post_page, std::map<std::string, std::string> *extra_headers,
-                              const char *ext_data, size_t ext_len, EXT_DST ed /*= DST_NONE*/)
+            const char *ext_data, size_t ext_len, EXT_DST ed /*= DST_NONE*/)
     {
         auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(m_impl);
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(http_impl->m_util.m_sch->m_impl);
@@ -93,7 +93,7 @@ namespace crx
         auto& impl = sch_impl->m_util_impls[WS_CLI];
         if (!impl) {
             auto http_cli_back = std::move(sch_impl->m_util_impls[HTTP_CLI]);
-            std::function<void(int, int, std::map<std::string, const char*>&, char*, size_t)> http_stub;
+            std::function<void(int, int, std::map<std::string, std::string>&, char*, size_t)> http_stub;
             auto http_client = get_http_client(http_stub);
             auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_client_impl>>(http_client.m_impl);
             http_impl->m_ws_cb = std::move(f);
@@ -161,7 +161,7 @@ namespace crx
     }
 
     http_server scheduler::get_http_server(int port,
-            std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> f)
+            std::function<void(int, const std::string&, const std::string&, std::map<std::string, std::string>&, char*, size_t)> f)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
         auto& impl = sch_impl->m_util_impls[HTTP_SVR];
@@ -292,7 +292,7 @@ namespace crx
         auto& impl = sch_impl->m_util_impls[WS_SVR];
         if (!impl) {
             auto http_svr_back = std::move(sch_impl->m_util_impls[HTTP_SVR]);
-            std::function<void(int, const char*, const char*, std::map<std::string, const char*>&, char*, size_t)> http_stub;
+            std::function<void(int, const std::string&, const std::string&, std::map<std::string, std::string>&, char*, size_t)> http_stub;
             auto http_server = get_http_server(port, http_stub);
             auto http_impl = std::dynamic_pointer_cast<http_impl_t<tcp_server_impl>>(http_server.m_impl);
             http_impl->m_ws_cb = std::move(f);

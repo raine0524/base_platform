@@ -10,11 +10,9 @@ namespace crx
          * 发起tcp连接请求，该接口是线程安全的
          * @server: 服务器主机地址，同时支持点分十进制格式的ip以及域名形式的主机地址
          * @port: 服务器的端口
-         * @retry: 是否尝试重连, -1:不断重连 0:不重连 n(>0):重连n次
-         * @timeout: 若尝试重连，timeout指明重连间隔，单位为秒
-         * @return value(conn): 唯一标识与指定主机的连接，-1表示连接失败
+         * @return value(conn): 唯一标识与指定主机的连接，< 0 表示连接失败
          */
-        int connect(const char *server, uint16_t port, int retry = 0, int timeout = 0);
+        int connect(const char *server, uint16_t port);
 
         //关闭tcp连接并释放已申请的资源
         void release(int conn);

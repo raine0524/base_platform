@@ -3,10 +3,10 @@
 class HttpProtoTest : public MockFileSystem
 {
 public:
-    void http_client_helper(int conn, int status, std::map<std::string, const char*>& ext_headers, char *data, size_t len);
+    void http_client_helper(int conn, int status, std::map<std::string, std::string>& ext_headers, char *data, size_t len);
 
-    void http_server_helper(int conn, const char *method, const char *router,
-            std::map<std::string, const char*>& ext_headers, char *data, size_t len);
+    void http_server_helper(int conn, const std::string& method, const std::string& router,
+            std::map<std::string, std::string>& ext_headers, char *data, size_t len);
 
     void ws_test_helper(bool client, int conn, char *data, size_t len);
 
@@ -42,7 +42,7 @@ protected:
     std::map<std::string, std::string> m_ext_headers;
 };
 
-void HttpProtoTest::http_client_helper(int conn, int status, std::map<std::string, const char*>& ext_headers, char *data, size_t len)
+void HttpProtoTest::http_client_helper(int conn, int status, std::map<std::string, std::string>& ext_headers, char *data, size_t len)
 {
     if (!data && !len)
         return;
@@ -55,16 +55,16 @@ void HttpProtoTest::http_client_helper(int conn, int status, std::map<std::strin
     impl->m_go_done = false;
 }
 
-void HttpProtoTest::http_server_helper(int conn, const char *method, const char *router,
-        std::map<std::string, const char*>& ext_headers, char *data, size_t len)
+void HttpProtoTest::http_server_helper(int conn, const std::string& method, const std::string& router,
+        std::map<std::string, std::string>& ext_headers, char *data, size_t len)
 {
     auto recv_data = m_send_data+std::to_string(m_send_cnt);
     ASSERT_STREQ(recv_data.c_str(), data);
     ASSERT_EQ(recv_data.size(), len);
     for (auto& pair : m_ext_headers)
-        ASSERT_STREQ(pair.second.c_str(), ext_headers[pair.first]);
+        ASSERT_STREQ(pair.second.c_str(), ext_headers[pair.first].c_str());
 
-    if (!strcmp(router, "/echo")) {
+    if ("/echo" == router) {
         auto echo_data = m_send_data+std::to_string(++m_send_cnt);
         m_http_server.response(conn, echo_data.c_str(), echo_data.size(), crx::DST_NONE);
     }

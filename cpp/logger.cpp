@@ -33,29 +33,56 @@ namespace crx
                 impl->rotate_log();
         }
 
+        int ts_len = 20, tag_len;
+        switch (level) {
+            case LVL_DEBUG:
+                strcpy(&impl->m_fmt_buf[ts_len], "[DEBUG] ");
+                tag_len = 28;
+                break;
+            case LVL_INFO:
+                strcpy(&impl->m_fmt_buf[ts_len], "[INFO] ");
+                tag_len = 27;
+                break;
+            case LVL_WARN:
+                strcpy(&impl->m_fmt_buf[ts_len], "[WARN] ");
+                tag_len = 27;
+                break;
+            case LVL_ERROR:
+                strcpy(&impl->m_fmt_buf[ts_len], "[ERROR] ");
+                tag_len = 28;
+                break;
+            case LVL_FATAL:
+                strcpy(&impl->m_fmt_buf[ts_len], "[FATAL] ");
+                tag_len = 28;
+                break;
+            default:
+                return;
+        }
+
         va_list var1, var2;
         va_start(var1, fmt);
         va_copy(var2, var1);
 
         char *data = &impl->m_fmt_buf[0];
-        size_t remain = impl->m_fmt_buf.size()-20;
-        size_t ret = (size_t)vsnprintf(&impl->m_fmt_buf[20], remain, fmt, var1);
+        size_t remain = impl->m_fmt_buf.size()-tag_len;
+        size_t ret = (size_t)vsnprintf(&impl->m_fmt_buf[tag_len], remain, fmt, var1);
         if (ret > remain) {
-            impl->m_fmt_tmp.resize(ret+21, 0);
+            impl->m_fmt_tmp.resize(ret+tag_len+1, 0);
             data = &impl->m_fmt_tmp[0];
-            strncpy(&impl->m_fmt_tmp[0], impl->m_fmt_buf.c_str(), 20);
-            ret = (size_t)vsnprintf(&impl->m_fmt_tmp[20], ret+1, fmt, var2);
+            strncpy(&impl->m_fmt_tmp[0], impl->m_fmt_buf.c_str(), (size_t)tag_len);
+            ret = (size_t)vsnprintf(&impl->m_fmt_tmp[tag_len], ret+1, fmt, var2);
         }
 
         va_end(var2);
         va_end(var1);
 
-        ret += 20;
+        ret += tag_len;
         if (impl->m_fp)
             fwrite(data, sizeof(char), ret, impl->m_fp);
 
         if (LVL_FATAL == level) {
             fprintf(stderr, "%s", data);
+            fflush(impl->m_fp);
             exit(EXIT_FAILURE);
         }
     }

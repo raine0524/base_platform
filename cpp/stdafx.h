@@ -14,6 +14,7 @@ extern crx::logger g_lib_log;
 #include "tcp_proto_impl.h"
 #include "http_proto_impl.h"
 #include "console_impl.h"
+#include "etcd_wrap_impl.h"
 
 //mock system object
 #include "sys_hook.h"

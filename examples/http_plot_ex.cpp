@@ -7,7 +7,7 @@ public:
     {
         m_ext_headers = {{"Figure-Name", "test-1"}};
         m_client = get_http_client([](int conn, int sts, std::map<std::string,
-                const char*>& headers, char *data, size_t len) {
+                std::string>& headers, char *data, size_t len) {
             printf("[%d] status: %d ==> %s", conn, sts, data);
         });
         return true;

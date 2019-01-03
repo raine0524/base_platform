@@ -214,7 +214,7 @@ namespace crx
                 if (elem.remain < this_slot.tick)
                     continue;
 
-                int quotient = (int)(elem.remain*1.0/this_slot.tick);
+                int quotient = (int)(elem.remain/this_slot.tick);
                 int new_idx = (int)((this_slot.slot_idx+quotient)%this_slot.elems.size());
                 this_slot.elems[new_idx].emplace_back();
 
@@ -233,7 +233,7 @@ namespace crx
         if (!m_impl || delay >= 24*60*60*1000-1000)
             return false;
 
-        delay = (delay/100+1)*100;        //首先将延迟时间正则化
+        delay = (size_t)(ceil(delay/100.0)*100);        //首先将延迟时间正则化
         auto tw_impl = std::dynamic_pointer_cast<timer_wheel_impl>(m_impl);
         for (int i = 0; i < tw_impl->m_timer_vec.size(); i++) {
             auto& this_slot = tw_impl->m_timer_vec[i];
@@ -248,9 +248,13 @@ namespace crx
             new_elem.f = std::move(f);
             new_elem.arg = arg;
             new_elem.remain = delay-this_slot.tick*quotient;
+
             for (int j = i+1; j < tw_impl->m_timer_vec.size(); j++) {
                 auto& nslot = tw_impl->m_timer_vec[j];
-                new_elem.remain += (nslot.elems.size() - nslot.slot_idx - 1) * nslot.tick;
+                if (3 == j)
+                    new_elem.remain += (nslot.slot_idx+1) * nslot.tick;
+                else
+                    new_elem.remain += nslot.slot_idx*nslot.tick;
             }
             break;
         }

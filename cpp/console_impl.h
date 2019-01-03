@@ -46,6 +46,8 @@ namespace crx
 
         bool preprocess(int argc, char *argv[]);
 
+        void parse_config(const char *config);
+
         void execute_cmd(const std::string& cmd, std::vector<std::string>& args);
 
         void listen_keyboard_input();

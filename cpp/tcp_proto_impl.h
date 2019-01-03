@@ -40,9 +40,7 @@ namespace crx
     class tcp_client_conn : public tcp_event
     {
     public:
-        tcp_client_conn(SOCK_TYPE type)
-        :tcp_event(type)
-        ,cnt(0)
+        tcp_client_conn(SOCK_TYPE type) : tcp_event(type)
         {
             name_reqs[0] = new gaicb;
             bzero(name_reqs[0], sizeof(gaicb));
@@ -57,8 +55,6 @@ namespace crx
 
         void tcp_client_callback(uint32_t events);
 
-        void retry_connect();
-
         //解析域名时需要用到的相关设施
         gaicb *name_reqs[1];
         addrinfo req_spec;
@@ -66,7 +62,6 @@ namespace crx
 
         std::shared_ptr<tcp_client_impl> tcp_impl;
         std::string domain_name;        //连接对端使用的主机地址
-        int retry, timeout, cnt;
     };
 
     class tcp_impl_xutil
