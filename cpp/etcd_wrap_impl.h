@@ -23,7 +23,10 @@ namespace crx
     class etcd_client_impl : public impl
     {
     public:
-        etcd_client_impl() : m_worker_conn(-1), m_get_wsts(1) {}
+        etcd_client_impl()
+        :m_test(false)
+        ,m_worker_conn(-1)
+        ,m_get_wsts(1) {}
 
         void periodic_heart_beat();     // worker
 
@@ -33,6 +36,7 @@ namespace crx
 
         void update_worker_info(rapidjson::Document& doc);
 
+        bool m_test;
         std::weak_ptr<scheduler_impl> m_sch_impl;
         http_client m_http_client;
         std::vector<endpoint> m_endpoints;

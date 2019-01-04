@@ -10,6 +10,9 @@ namespace crx
     class CRX_SHARE etcd_client : public kobj
     {
     public:
+        // 在etcd节区中配置了listen_addr字段时，可以通过此接口获取本节点的有效监听地址及端口
+        endpoint get_listen_addr();
+
         /*
          * 在etcd节区中配置了watch_paths字段时，可以通过此接口获取可用的节点，参数@svr_name表示path中的最后一部分
          * 例如，若watch path中存在以下路径： /test/example/foo，那么此处获取worker时需要填写的svr_name即为foo

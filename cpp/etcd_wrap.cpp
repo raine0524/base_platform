@@ -12,6 +12,12 @@ namespace crx
         return obj;
     }
 
+    endpoint etcd_client::get_listen_addr()
+    {
+        auto impl = std::dynamic_pointer_cast<etcd_client_impl>(m_impl);
+        return impl->m_worker_addr;
+    }
+
     endpoint etcd_client::get_worker(const std::string& svr_name)
     {
         auto impl = std::dynamic_pointer_cast<etcd_client_impl>(m_impl);
@@ -115,8 +121,11 @@ namespace crx
     {
         bool close = false;     //判断是否需要关闭连接
         auto it = ext_headers.find("Connection");
-        if (ext_headers.end() != it && "close" == it->second)
+        if (ext_headers.end() != it && "close" == it->second) {
             close = true;
+            if (m_test)
+                m_sch_impl.lock()->m_go_done = false;
+        }
 
         int chunk = 0;      // 0-非chunk 1-有载荷的chunk 2-空的chunk
         it = ext_headers.find("Transfer-Encoding");
@@ -127,10 +136,10 @@ namespace crx
         }
 
         if (chunk < 2) {
-            g_lib_log.printf(LVL_INFO, "conn=%d, status=%d\n", conn, status);
+            g_lib_log.printf(LVL_DEBUG, "conn=%d, status=%d\n", conn, status);
             for (auto& pair : ext_headers)
-                g_lib_log.printf(LVL_INFO, "===> %s: %s\n", pair.first.c_str(), pair.second.c_str());
-            g_lib_log.printf(LVL_INFO, "===> %s\n\n", data);
+                g_lib_log.printf(LVL_DEBUG, "===> %s: %s\n", pair.first.c_str(), pair.second.c_str());
+            g_lib_log.printf(LVL_DEBUG, "===> %s\n", data);
         }
 
         if (m_worker_conn == conn) {
