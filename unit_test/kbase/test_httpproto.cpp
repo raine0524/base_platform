@@ -87,7 +87,7 @@ TEST_F(HttpProtoTest, TestHTTP)
 
             auto send_data = m_send_data+std::to_string(++m_send_cnt);
             m_http_client.POST(conn, "/echo", &m_ext_headers, send_data.c_str(), send_data.size(), crx::DST_NONE);
-            sch_impl->main_coroutine(&m_sch);
+            sch_impl->main_coroutine();
         }
 
         m_http_client.release(conn);
@@ -106,7 +106,7 @@ void HttpProtoTest::ws_test_helper(bool client, int conn, char *data, size_t len
         for (int j = 0; j < 4096; j++) {
             auto notify_data = m_send_data+std::to_string(++m_send_cnt);
             m_ws_server.send_data(conn, notify_data.c_str(), notify_data.size());
-            sch_impl->main_coroutine(&m_sch);
+            sch_impl->main_coroutine();
         }
     }
     auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
@@ -123,7 +123,7 @@ TEST_F(HttpProtoTest, TestWebsocket)
 
         auto send_data = m_send_data+std::to_string(++m_send_cnt);
         m_ws_client.send_data(conn, send_data.c_str(), send_data.size());
-        sch_impl->main_coroutine(&m_sch);
+        sch_impl->main_coroutine();
     }
 }
 

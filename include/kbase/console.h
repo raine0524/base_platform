@@ -29,6 +29,12 @@ namespace crx
         void pout(const char *fmt, ...);
 
         /*
+         * clone出一个新的scheduler，新的调度器运行在一个新创建的epoll线程之上，且独立于其他的scheduler，
+         * 这意味着新的scheduler可以调用 get_xxx 接口获取一个新的功能类，即便它是单例模式
+         */
+        scheduler clone();
+
+        /*
          * 控制台带参运行时将会检测最后一个参数是否为-start/-stop
          * "-start": 以服务形式在后台运行
          * "-stop": 终止后台运行的服务

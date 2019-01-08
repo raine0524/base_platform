@@ -10,11 +10,11 @@ struct co_sates
 class SchedulerTest : public MockFileSystem
 {
 public:
-    void co_test_helper(crx::scheduler *sch, size_t co_id);
+    void co_test_helper(size_t co_id);
 
     void check_satellites(std::shared_ptr<crx::scheduler_impl>& impl);
 
-    void co_test_adder(crx::scheduler *sch, size_t co_id);
+    void co_test_adder(size_t co_id);
 
 protected:
     void SetUp() override
@@ -23,8 +23,8 @@ protected:
         srand((unsigned int)time(nullptr));
         g_mock_fs->m_hook_ewait = false;
         auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
-        std::function<void(crx::scheduler *sch, size_t co_id)> stub;
-        impl->co_create(stub, &m_sch, true, false, "main_coroutine");
+        std::function<void(size_t co_id)> stub;
+        impl->co_create(stub, true, false, "main_coroutine");
     }
 
     void TearDown() override
@@ -40,14 +40,14 @@ protected:
     int m_adder_cnt, m_adder_comp;
 };
 
-void SchedulerTest::co_test_helper(crx::scheduler *sch, size_t co_id)
+void SchedulerTest::co_test_helper(size_t co_id)
 {
     auto& sates = m_co_sates[co_id];
     sates.go = true;
     sates.copy_rand = sates.main_rand;
 
     while (sates.go) {
-        sch->co_yield(0);
+        m_sch.co_yield(0);
     }
 }
 
@@ -83,7 +83,7 @@ TEST_F(SchedulerTest, CoCreateYield)
     for (int i = 1; i < test_cos; i++) {        // 首先创建一批co
         bool is_share = rand()%2 == 1;
         std::string co_comment = "co_helper_"+std::to_string(i);
-        size_t co_id = m_sch.co_create(std::bind(&SchedulerTest::co_test_helper, this, _1, _2), is_share, co_comment.c_str());
+        size_t co_id = m_sch.co_create(std::bind(&SchedulerTest::co_test_helper, this, _1), is_share, co_comment.c_str());
 
         auto& sates = m_co_sates[co_id];
         sates.is_share = is_share;
@@ -113,7 +113,7 @@ TEST_F(SchedulerTest, CoCreateYield)
                     co_comment += std::to_string(impl->m_cos.size());
                 else
                     co_comment += std::to_string(impl->m_unused_cos.front());
-                size_t co_id = m_sch.co_create(std::bind(&SchedulerTest::co_test_helper, this, _1, _2), is_share, co_comment.c_str());
+                size_t co_id = m_sch.co_create(std::bind(&SchedulerTest::co_test_helper, this, _1), is_share, co_comment.c_str());
 
                 auto& sates = m_co_sates[co_id];
                 sates.is_share = is_share;
@@ -126,7 +126,7 @@ TEST_F(SchedulerTest, CoCreateYield)
     }
 }
 
-void SchedulerTest::co_test_adder(crx::scheduler *sch, size_t co_id)
+void SchedulerTest::co_test_adder(size_t co_id)
 {
     int calc_num = m_test_num/m_adder_cnt;
     int yield_cnt = rand()%5+20;       // 尝试切20次左右
@@ -142,7 +142,7 @@ void SchedulerTest::co_test_adder(crx::scheduler *sch, size_t co_id)
 
     m_adder_comp++;
     if (m_adder_cnt == m_adder_comp) {
-        auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(sch->m_impl);
+        auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
         impl->m_go_done = false;
     }
 }
@@ -159,12 +159,12 @@ TEST_F(SchedulerTest, CoAdder)
         m_test_num = m_test_num/m_adder_cnt*m_adder_cnt;
 
         for (int j = 0; j < m_adder_cnt; j++) {
-            size_t co_id = m_sch.co_create(std::bind(&SchedulerTest::co_test_adder, this, _1, _2), rand()%5 <= 2);
+            size_t co_id = m_sch.co_create(std::bind(&SchedulerTest::co_test_adder, this, _1), rand()%5 <= 2);
             m_sch.co_yield(co_id);
         }
 
         // 等待所有co退出
-        impl->main_coroutine(&m_sch);
+        impl->main_coroutine();
         ASSERT_EQ(m_accu_sum, m_test_num);
     }
     close(impl->m_epoll_fd);

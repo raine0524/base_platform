@@ -68,7 +68,7 @@ TEST_F(ConsoleTest, TestRunCmd)
         int adder_a = rand()%10000, adder_b = rand()%10000;
         int result = adder_a+adder_b;
         g_mock_fs->m_write_data = "test_adder "+std::to_string(adder_a)+" "+std::to_string(adder_b)+"\n";
-        sch_impl->main_coroutine(&m_con_helper);
+        sch_impl->main_coroutine();
         ASSERT_EQ(result, m_result);
     }
     close(sch_impl->m_epoll_fd);

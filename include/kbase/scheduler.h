@@ -31,8 +31,7 @@ namespace crx
         virtual ~scheduler();
 
         //创建一个协程, @share参数表示是否使用共享栈，创建成功返回该协程的id(> 0)
-        size_t co_create(std::function<void(scheduler *sch, size_t co_id)> f,
-                bool is_share = false, const char *comment = nullptr);
+        size_t co_create(std::function<void(size_t co_id)> f, bool is_share = false, const char *comment = nullptr);
 
         /*
          * 切换执行流，@co_id表示切换至哪个协程，若其为0则代表切换回主协程
@@ -59,7 +58,7 @@ namespace crx
         timer_wheel get_timer_wheel();
 
         //获取event实例(手动释放,多次申请将返回多个不同实例)
-        event get_event(std::function<void(int64_t)> f);
+        event get_event(std::function<void()> f);
 
         /*
          * 获取udp实例(手动释放,多次申请将返回多个不同实例)

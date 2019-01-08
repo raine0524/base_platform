@@ -39,7 +39,7 @@ void ws_server::http_callback(int conn, const std::string& method, const std::st
 
 void ws_server::notify_data(int count)
 {
-    size_t co_id = co_create([this, count](scheduler *sch, size_t co_id) {
+    size_t co_id = co_create([this, count](size_t co_id) {
         rapidjson::Document doc;
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);

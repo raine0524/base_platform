@@ -247,18 +247,18 @@ TEST_F(EtcdClientTest, TestPeriodicHeartBeat)
 
     etcd_impl->m_get_wsts = 1;      // test not found
     etcd_impl->periodic_heart_beat();
-    sch_impl->main_coroutine(&m_sch);
+    sch_impl->main_coroutine();
     ASSERT_EQ(2, etcd_impl->m_get_wsts);
 
     etcd_impl->m_get_wsts = 3;      // test delete worker info
     etcd_impl->periodic_heart_beat();
-    sch_impl->main_coroutine(&m_sch);
+    sch_impl->main_coroutine();
     ASSERT_EQ(4, etcd_impl->m_get_wsts);
 
     etcd_impl->m_get_wsts = 2;      // test set worker info
     for (int i = 0; i < 4096; i++) {
         etcd_impl->periodic_heart_beat();
-        sch_impl->main_coroutine(&m_sch);
+        sch_impl->main_coroutine();
         ASSERT_EQ(2, etcd_impl->m_get_wsts);
     }
 }
@@ -277,7 +277,7 @@ TEST_F(EtcdClientTest, TestPeriodicWaitEvent)
     etcd_impl->m_workers[info.service_name].emplace_back();
     ASSERT_FALSE(etcd_impl->m_workers[info.service_name].empty());
     etcd_impl->periodic_wait_event(0);
-    sch_impl->main_coroutine(&m_sch);
+    sch_impl->main_coroutine();
     ASSERT_TRUE(etcd_impl->m_workers[info.service_name].empty());
 
     info.valid = false;
@@ -285,14 +285,14 @@ TEST_F(EtcdClientTest, TestPeriodicWaitEvent)
     etcd_impl->m_workers[info.service_name].emplace_back();
     ASSERT_FALSE(etcd_impl->m_workers[info.service_name].empty());
     etcd_impl->periodic_wait_event(0);
-    sch_impl->main_coroutine(&m_sch);
+    sch_impl->main_coroutine();
     ASSERT_TRUE(etcd_impl->m_workers[info.service_name].empty());
     ASSERT_FALSE(info.get_result);
 
     info.valid = false;
     m_event_sts = 3;        // test dir not empty
     etcd_impl->periodic_wait_event(0);
-    sch_impl->main_coroutine(&m_sch);
+    sch_impl->main_coroutine();
     ASSERT_FALSE(etcd_impl->m_workers[info.service_name].empty());
     ASSERT_TRUE(info.get_result);
     ASSERT_TRUE(etcd_impl->m_workers[info.service_name].front().valid);
@@ -301,7 +301,7 @@ TEST_F(EtcdClientTest, TestPeriodicWaitEvent)
     m_event_sts = 4;        // test expire or delete event
     for (int i = 0; i < 128; i++) {
         etcd_impl->periodic_wait_event(0);
-        sch_impl->main_coroutine(&m_sch);
+        sch_impl->main_coroutine();
         ASSERT_FALSE(etcd_impl->m_workers[info.service_name].empty());
         ASSERT_TRUE(info.get_result);
         ASSERT_FALSE(etcd_impl->m_workers[info.service_name].front().valid);
@@ -311,7 +311,7 @@ TEST_F(EtcdClientTest, TestPeriodicWaitEvent)
     m_event_sts = 5;        // test set event
     for (int i = 0; i < 4096; i++) {
         etcd_impl->periodic_wait_event(0);
-        sch_impl->main_coroutine(&m_sch);
+        sch_impl->main_coroutine();
         ASSERT_FALSE(etcd_impl->m_workers[info.service_name].empty());
         ASSERT_TRUE(info.get_result);
         ASSERT_TRUE(etcd_impl->m_workers[info.service_name].front().valid);

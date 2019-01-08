@@ -62,8 +62,8 @@ TEST_F(TcpProtoTest, TestTCP)
         for (int j = 0; j < 4096; j++) {
             auto send_data = m_send_data+std::to_string(++m_send_cnt);
             m_tcp_client.send_data(m_cli_conn, send_data.c_str(), send_data.size());
-            sch_impl->main_coroutine(&m_sch);
-            sch_impl->main_coroutine(&m_sch);
+            sch_impl->main_coroutine();
+            sch_impl->main_coroutine();
         }
 
         m_tcp_client.release(m_cli_conn);

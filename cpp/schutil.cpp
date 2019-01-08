@@ -163,9 +163,9 @@ namespace crx
         auto& impl = sch_impl->m_util_impls[TMR_WHL];
         if (!impl) {
             auto tw_impl = std::make_shared<timer_wheel_impl>();
-            tw_impl->m_timer_vec.resize(4);
-            for (int i = 0; i < tw_impl->m_timer_vec.size(); i++) {
-                auto& slot = tw_impl->m_timer_vec[i];
+            tw_impl->m_slots.resize(4);
+            for (int i = 0; i < tw_impl->m_slots.size(); i++) {
+                auto& slot = tw_impl->m_slots[i];
                 slot.slot_idx = 0;
                 switch (i) {
                     case 0:     //时钟盘
@@ -187,10 +187,10 @@ namespace crx
                     default:
                         break;
                 }
-
-                slot.tmr = get_timer(std::bind(&timer_wheel_impl::timer_wheel_callback, tw_impl.get(), _1), i);
-                slot.tmr.start(slot.tick, slot.tick);
             }
+
+            tw_impl->m_milli_tmr = get_timer(std::bind(&timer_wheel_impl::timer_wheel_callback, tw_impl.get()));
+            tw_impl->m_milli_tmr.start(100, 100);
             impl = tw_impl;
         }
 
@@ -199,33 +199,38 @@ namespace crx
         return obj;
     }
 
-    void timer_wheel_impl::timer_wheel_callback(int64_t arg)
+    void timer_wheel_impl::timer_wheel_callback()
     {
-        auto& slot = m_timer_vec[arg];
-        slot.slot_idx = (slot.slot_idx+1)%slot.elems.size();
-        for (auto& elem : slot.elems[slot.slot_idx]) {
-            if (elem.remain <= 0) {
-                elem.f(elem.arg);
-                continue;
-            }
-
-            for (int i = (int)arg+1; i < m_timer_vec.size(); i++) {
-                auto& this_slot = m_timer_vec[i];
-                if (elem.remain < this_slot.tick)
+        for (int idx = 3; idx >= 0; idx--) {
+            auto& slot = m_slots[idx];
+            slot.slot_idx = (slot.slot_idx+1)%slot.elems.size();
+            for (auto& elem : slot.elems[slot.slot_idx]) {
+                if (elem.remain <= 0) {
+                    elem.f(elem.arg);
                     continue;
+                }
 
-                int quotient = (int)(elem.remain/this_slot.tick);
-                int new_idx = (int)((this_slot.slot_idx+quotient)%this_slot.elems.size());
-                this_slot.elems[new_idx].emplace_back();
+                for (int i = idx+1; i < m_slots.size(); i++) {
+                    auto& this_slot = m_slots[i];
+                    if (elem.remain < this_slot.tick)
+                        continue;
 
-                auto& new_elem = this_slot.elems[new_idx].back();
-                new_elem.remain = elem.remain-this_slot.tick*quotient;
-                new_elem.f = std::move(elem.f);
-                new_elem.arg = elem.arg;
-                break;
+                    int quotient = (int)(elem.remain/this_slot.tick);
+                    int new_idx = (int)((this_slot.slot_idx+quotient)%this_slot.elems.size());
+                    this_slot.elems[new_idx].emplace_back();
+
+                    auto& new_elem = this_slot.elems[new_idx].back();
+                    new_elem.remain = elem.remain-this_slot.tick*quotient;
+                    new_elem.f = std::move(elem.f);
+                    new_elem.arg = elem.arg;
+                    break;
+                }
             }
+
+            slot.elems[slot.slot_idx].clear();
+            if (slot.slot_idx)
+                break;
         }
-        slot.elems[slot.slot_idx].clear();
     }
 
     bool timer_wheel::add_handler(size_t delay, std::function<void(int64_t)> f, int64_t arg /*= 0*/)
@@ -235,8 +240,8 @@ namespace crx
 
         delay = (size_t)(ceil(delay/100.0)*100);        //首先将延迟时间正则化
         auto tw_impl = std::dynamic_pointer_cast<timer_wheel_impl>(m_impl);
-        for (int i = 0; i < tw_impl->m_timer_vec.size(); i++) {
-            auto& this_slot = tw_impl->m_timer_vec[i];
+        for (int i = 0; i < tw_impl->m_slots.size(); i++) {
+            auto& this_slot = tw_impl->m_slots[i];
             if (delay < this_slot.tick)
                 continue;
 
@@ -245,23 +250,20 @@ namespace crx
             this_slot.elems[new_idx].emplace_back();
 
             auto& new_elem = this_slot.elems[new_idx].back();
+            new_elem.remain = delay-this_slot.tick*quotient;
             new_elem.f = std::move(f);
             new_elem.arg = arg;
-            new_elem.remain = delay-this_slot.tick*quotient;
 
-            for (int j = i+1; j < tw_impl->m_timer_vec.size(); j++) {
-                auto& nslot = tw_impl->m_timer_vec[j];
-                if (3 == j)
-                    new_elem.remain += (nslot.slot_idx+1) * nslot.tick;
-                else
-                    new_elem.remain += nslot.slot_idx*nslot.tick;
+            for (int j = i+1; j < tw_impl->m_slots.size(); j++) {
+                auto& nslot = tw_impl->m_slots[j];
+                new_elem.remain += nslot.slot_idx*nslot.tick;
             }
             break;
         }
         return true;
     }
 
-    event scheduler::get_event(std::function<void(int64_t)> f)
+    event scheduler::get_event(std::function<void()> f)
     {
         auto ev_impl = std::make_shared<event_impl>();
         ev_impl->fd = eventfd(0, EFD_NONBLOCK);			//创建一个非阻塞的事件资源
@@ -285,16 +287,13 @@ namespace crx
     {
         eventfd_t val;
         eventfd_read(fd, &val);       //读操作将事件重置
-        for (auto signal : m_signals)
-            m_f(signal);			//执行事件回调函数
-        m_signals.clear();
+        m_f();      //执行事件回调函数
     }
 
-    void event::send_signal(int64_t signal)
+    void event::notify()
     {
         if (!m_impl) return;
         auto impl = std::dynamic_pointer_cast<event_impl>(m_impl);
-        impl->m_signals.push_back(signal);      //将信号加入事件相关的信号集
         eventfd_write(impl->fd, 1);             //设置事件
     }
 

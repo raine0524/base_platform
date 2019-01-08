@@ -41,7 +41,6 @@ namespace crx
 
     struct wheel_slot
     {
-        timer tmr;
         size_t slot_idx, tick;
         std::vector<std::vector<wheel_elem>> elems;
     };
@@ -51,14 +50,14 @@ namespace crx
     public:
         virtual ~timer_wheel_impl()
         {
-            for (auto& slot : m_timer_vec)
-                slot.tmr.detach();
-            m_timer_vec.clear();
+            m_milli_tmr.detach();
+            m_slots.clear();
         }
 
-        void timer_wheel_callback(int64_t arg);
+        void timer_wheel_callback();
 
-        std::vector<wheel_slot> m_timer_vec;     // 0-hour timer, 1-minute timer, 2-second timer, 3-mills timer
+        timer m_milli_tmr;
+        std::vector<wheel_slot> m_slots;     // 0-hour, 1-minute, 2-second, 3-mills
     };
 
     class event_impl : public eth_event
@@ -66,8 +65,7 @@ namespace crx
     public:
         void event_callback(uint32_t events);
 
-        std::list<int64_t> m_signals;		//同一个事件可以由多个信号源发送多个不同的信号
-        std::function<void(int64_t)> m_f;
+        std::function<void()> m_f;
     };
 
     class udp_ins_impl : public eth_event

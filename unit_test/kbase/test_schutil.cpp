@@ -9,7 +9,7 @@ public:
 
     void timer_wheel_helper(int64_t arg);
 
-    void event_test_helper(int64_t signal);
+    void event_test_helper();
 
     void udp_test_helper(bool client, const std::string& ip, uint16_t port, char *data, size_t len);
 
@@ -72,7 +72,7 @@ TEST_F(SchedUtilTest, TestSigCtl)
             sigqueue(getpid(), pair.first, sv);
         }
 
-        impl->main_coroutine(&m_sch);
+        impl->main_coroutine();
         ASSERT_EQ(origin, pair.second);
     }
 
@@ -112,9 +112,9 @@ TEST_F(SchedUtilTest, TestTimer)
     for (int i = 0; i < 256; i++) {
         m_rand_adder = rand()%100;
         int step_result = m_start_seed+m_rand_adder;
-        m_delay = rand()%10000+10000, m_interval = rand()%10000+10000;
+        m_delay = (uint64_t)(rand()%10000+10000), m_interval = (uint64_t)(rand()%10000+10000);
         m_tmr.start(m_delay, m_interval);
-        sch_impl->main_coroutine(&m_sch);
+        sch_impl->main_coroutine();
         ASSERT_EQ(m_start_seed, step_result);
     }
 
@@ -137,35 +137,29 @@ TEST_F(SchedUtilTest, TestTimerWheel)
     auto tw = m_sch.get_timer_wheel();
     auto tw_impl = std::dynamic_pointer_cast<crx::timer_wheel_impl>(tw.m_impl);
 
-    std::vector<int> tw_fds(tw_impl->m_timer_vec.size(), 0);
-    for (int i = 0; i < tw_impl->m_timer_vec.size(); i++) {     // 0-24hour 1-60minutes 2-60seconds 3-10#100millis
-        auto& slot = tw_impl->m_timer_vec[i];
+    for (int i = 0; i < tw_impl->m_slots.size(); i++) {     // 0-24hour 1-60minutes 2-60seconds 3-10#100millis
+        auto& slot = tw_impl->m_slots[i];
         slot.slot_idx = rand()%slot.elems.size();
-        tw_fds[i] = std::dynamic_pointer_cast<crx::timer_impl>(slot.tmr.m_impl)->fd;
     }
 
-    for (int i = 0; i < tw_fds.size(); i++) {       // 0-测试小时级别 1-测试分钟级别 2-测试秒级别 3-测试微妙级别
+    int timer_fd = std::dynamic_pointer_cast<crx::timer_impl>(tw_impl->m_milli_tmr.m_impl)->fd;
+    for (int i = 2; i < tw_impl->m_slots.size(); i++) {       // 0-测试小时级别(不测试) 1-测试分钟级别(不测试) 2-测试秒级别 3-测试微妙级别
         for (int j = 0; j < 16; j++) {
             m_rand_adder = rand()%100;
             int step_result = m_start_seed+m_rand_adder;
 
             size_t delay = 0;
-            for (int k = i; k < tw_fds.size(); k++) {
-                auto& slot = tw_impl->m_timer_vec[k];
-                if (0 == k)
-                    delay += (rand()%(slot.elems.size()-2)+1)*slot.tick;      // 避免delay被正则化为24小时这种极端情形
-                else
-                    delay += (rand()%(slot.elems.size()-1)+1)*slot.tick;
+            for (int k = i; k < tw_impl->m_slots.size(); k++) {
+                auto& slot = tw_impl->m_slots[k];
+                delay += (rand()%(slot.elems.size()-1)+1)*slot.tick;
             }
             delay += rand()%100;
+            m_efd_cnt.emplace_back(std::make_pair(timer_fd, 0));
 
-            for (int k = 0; k < tw_fds.size(); k++)
-                m_efd_cnt.emplace_back(std::make_pair(tw_fds[k], 0));
-
-            size_t new_delay = (delay/100+1)*100;
+            size_t new_delay = (size_t)(ceil(delay/100.0)*100);
             int inter_start = -1;
-            for (int k = 0; k < tw_fds.size(); k++) {
-                auto& slot = tw_impl->m_timer_vec[k];
+            for (int k = 1; k < tw_impl->m_slots.size(); k++) {
+                auto& slot = tw_impl->m_slots[k];
                 if (new_delay < slot.tick)
                     continue;
 
@@ -173,30 +167,26 @@ TEST_F(SchedUtilTest, TestTimerWheel)
                     inter_start = k;
 
                 int quotient = (int)(new_delay/slot.tick);
-                m_efd_cnt[k].second += quotient;
+                m_efd_cnt[0].second += quotient*slot.tick/100;
                 new_delay -= slot.tick*quotient;
             }
 
-            for (int k = inter_start+1; k < tw_fds.size(); k++) {
-                auto& nslot = tw_impl->m_timer_vec[k];
-                if (3 == k)
-                    m_efd_cnt[k].second += nslot.slot_idx+1;
-                else
-                    m_efd_cnt[k].second += nslot.slot_idx;
+            for (int k = inter_start+1; k < tw_impl->m_slots.size(); k++) {
+                auto& nslot = tw_impl->m_slots[k];
+                m_efd_cnt[0].second += nslot.slot_idx*nslot.tick/100;
             }
 
             tw.add_handler(delay, std::bind(&SchedUtilTest::timer_wheel_helper, this, _1));
-            sch_impl->main_coroutine(&m_sch);
+            sch_impl->main_coroutine();
             ASSERT_EQ(m_start_seed, step_result);
             m_efd_cnt.clear();
         }
     }
 }
 
-void SchedUtilTest::event_test_helper(int64_t signal)
+void SchedUtilTest::event_test_helper()
 {
-    ASSERT_EQ(signal, m_rand_adder);
-    m_start_seed += signal;
+    m_start_seed += m_rand_adder;
     auto impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
     impl->m_go_done = false;
 }
@@ -205,14 +195,14 @@ TEST_F(SchedUtilTest, TestEvent)
 {
     auto sch_impl = std::dynamic_pointer_cast<crx::scheduler_impl>(m_sch.m_impl);
     for (int i = 0; i < 16; i++) {
-        auto ev = m_sch.get_event(std::bind(&SchedUtilTest::event_test_helper, this, _1));
+        auto ev = m_sch.get_event(std::bind(&SchedUtilTest::event_test_helper, this));
         int ev_fd = std::dynamic_pointer_cast<crx::event_impl>(ev.m_impl)->fd;
         for (int j = 0; j < 256; j++) {
             m_rand_adder = rand()%100;
             int step_result = m_start_seed+m_rand_adder;
-            ev.send_signal(m_rand_adder);
+            ev.notify();
 
-            sch_impl->main_coroutine(&m_sch);
+            sch_impl->main_coroutine();
             ASSERT_EQ(m_start_seed, step_result);
         }
         ev.detach();
@@ -247,8 +237,8 @@ TEST_F(SchedUtilTest, TestUDP)
         for (int j = 0; j < 4096; j++) {
             auto send_data = m_send_data+std::to_string(++m_send_cnt);
             m_udp_client.send_data("127.0.0.1", svr_port, send_data.c_str(), send_data.size());
-            sch_impl->main_coroutine(&m_sch);
-            sch_impl->main_coroutine(&m_sch);
+            sch_impl->main_coroutine();
+            sch_impl->main_coroutine();
         }
         m_udp_client.detach();
         ASSERT_TRUE(sch_impl->m_ev_array.size() <= cli_fd || !sch_impl->m_ev_array[cli_fd].get());

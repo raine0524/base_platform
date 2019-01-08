@@ -29,7 +29,7 @@ private:
 
 void http_plot::plot_2d_func()
 {
-    size_t co_id = co_create([this](scheduler *sch, size_t co_id) {
+    size_t co_id = co_create([this](size_t co_id) {
         rapidjson::Document doc;
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -145,7 +145,7 @@ std::vector<double> http_plot::lorenz(std::vector<double> &point, double s /*= 1
 
 void http_plot::plot_3d_func()
 {
-    size_t co_id = co_create([this](scheduler *sch, size_t co_id) {
+    size_t co_id = co_create([this](size_t co_id) {
         rapidjson::Document doc;
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);

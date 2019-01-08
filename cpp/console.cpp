@@ -79,7 +79,7 @@ namespace crx
         m_client.send_data(m_conn, m_simp_buf.data(), m_simp_buf.length());
 
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
-        sch_impl->main_coroutine(m_c);      //进入主协程
+        sch_impl->main_coroutine();      //进入主协程
         m_client.release(m_conn);
         m_client.m_impl.reset();
         m_conn = -1;
@@ -166,7 +166,7 @@ namespace crx
             listen_keyboard_input();
 
             auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_c->m_impl);
-            sch_impl->main_coroutine(m_c);
+            sch_impl->main_coroutine();
             return true;
         }
         return false;		//预处理失败表示在当前环境下还需要做进一步处理
@@ -273,6 +273,14 @@ namespace crx
         if (!m_as_shell)        //以shell方式运行时不需要执行init/destroy操作
             m_c->destroy();
 
+        for (auto& new_sch : m_schs) {
+            if (new_sch->m_th.joinable()) {
+                new_sch->m_go_done = false;
+                new_sch->m_th.join();
+            }
+        }
+        m_schs.clear();
+
         auto etcd_impl = std::dynamic_pointer_cast<etcd_client_impl>(sch_impl->m_util_impls[ETCD_CLI]);
         if (!etcd_impl->m_worker_path.empty())
             etcd_impl->m_get_wsts = 3;      // bye to etcd
@@ -336,6 +344,31 @@ namespace crx
         con_impl->m_server.send_data(con_impl->m_conn, con_impl->m_simp_buf.data(), con_impl->m_simp_buf.size());
     }
 
+    scheduler console::clone()
+    {
+        scheduler sch;
+        auto new_sch = std::make_shared<scheduler_impl>();
+        new_sch->m_epoll_fd = epoll_create(EPOLL_SIZE);
+        if (__glibc_unlikely(-1 == new_sch->m_epoll_fd)) {
+            g_lib_log.printf(LVL_ERROR, "epoll create failed: %s\n", strerror(errno));
+            return sch;
+        }
+
+        std::function<void(size_t co_id)> stub;
+        new_sch->co_create(stub, true, false, "main coroutine");        //创建主协程
+
+        if (!new_sch->m_wheel.m_impl)
+            new_sch->m_wheel = get_timer_wheel();
+
+        new_sch->m_th = std::thread(std::bind(&scheduler_impl::main_coroutine, new_sch.get()));
+        sch.m_impl = new_sch;
+
+        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
+        auto con_impl = std::dynamic_pointer_cast<console_impl>(sch_impl->m_util_impls[EXT_DATA]);
+        con_impl->m_schs.push_back(new_sch);
+        return sch;
+    }
+
     void console_impl::bind_core(int which)
     {
         cpu_set_t mask;
@@ -362,8 +395,8 @@ namespace crx
             sch_impl->m_back_cnt = ini_parser.get_int("backup_cnt");
 
             mkdir_multi(sch_impl->m_log_root.c_str());
-            g_lib_log.m_impl = sch_impl->get_logger("kbase");
-            g_app_log.m_impl = sch_impl->get_logger(g_server_name.c_str());
+            g_lib_log.m_impl = sch_impl->get_logger(m_c, "kbase", 1);
+            g_app_log.m_impl = sch_impl->get_logger(m_c, g_server_name.c_str(), 2);
         }
 
         auto etcd_impl = std::make_shared<etcd_client_impl>();
@@ -489,8 +522,8 @@ namespace crx
             return EXIT_FAILURE;
         }
 
-        std::function<void(scheduler *sch, size_t co_id)> stub;
-        sch_impl->co_create(stub, this, true, false, "main coroutine");        //创建主协程
+        std::function<void(size_t co_id)> stub;
+        sch_impl->co_create(stub, true, false, "main coroutine");        //创建主协程
 
         /*
          * 首先执行预处理操作，预处理主要和当前运行环境以及运行时所带参数有关，在预处理操作中可能只是简单的停止后台服务，或连接后台服务
@@ -527,7 +560,7 @@ namespace crx
         if (!con_impl->m_is_service)        //前台运行时在控制台输入接收命令
             con_impl->listen_keyboard_input();
 
-        sch_impl->main_coroutine(this);     //进入主协程
+        sch_impl->main_coroutine();     //进入主协程
         return EXIT_SUCCESS;
     }
 }

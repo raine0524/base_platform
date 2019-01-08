@@ -18,7 +18,7 @@ private:
 void simple_crawler::get_web_page(std::vector<std::string>& urls)
 {
     for (auto& url : urls) {
-        size_t co_id = co_create([this](crx::scheduler *sch, size_t co_id) {
+        size_t co_id = co_create([this](size_t co_id) {
             auto& co_url = m_co_url[co_id];
             int conn = m_http_client.connect(co_url.c_str(), 80);
             if (-1 == conn) {

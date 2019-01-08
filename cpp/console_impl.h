@@ -76,6 +76,7 @@ namespace crx
          */
         bool m_is_service, m_as_shell, m_close_exp;
         std::vector<console_cmd> m_cmd_vec;
+        std::vector<std::shared_ptr<scheduler_impl>> m_schs;
 
         int m_conn;     //无论何时都只能存在一个有效连接
         tcp_client m_client;

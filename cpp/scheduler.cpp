@@ -17,59 +17,17 @@ namespace crx
             close(impl->m_epoll_fd);
     }
 
-    size_t scheduler::co_create(std::function<void(scheduler *sch, size_t co_id)> f,
+    size_t scheduler::co_create(std::function<void(size_t co_id)> f,
             bool is_share /*= false*/, const char *comment /*= nullptr*/)
     {
         auto impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-        return impl->co_create(f, this, false, is_share, comment);
+        return impl->co_create(f, false, is_share, comment);
     }
 
     void scheduler::co_yield(size_t co_id, SUS_TYPE type /*= WAIT_EVENT*/)
     {
         auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(m_impl);
-        if (co_id >= sch_impl->m_cos.size())
-            return;
-
-        if (sch_impl->m_running_co == co_id)        //co_id无效或对自身进行切换，直接返回
-            return;
-
-        auto yield_co = sch_impl->m_cos[co_id];
-        if (!yield_co || CO_UNKNOWN == yield_co->status)
-            return;               //指定协程无效或者状态指示不可用，同样不发生切换
-
-        auto main_co = sch_impl->m_cos[0];
-        auto curr_co = sch_impl->m_cos[sch_impl->m_running_co];
-        if (curr_co->is_share)      //当前协程使用的是共享栈模式，其使用的栈是主协程中申请的空间
-            sch_impl->save_stack(curr_co, main_co->stack.data()+STACK_SIZE);
-
-        curr_co->status = CO_SUSPEND;
-        curr_co->type = type;
-        sch_impl->m_running_co = (int)co_id;
-
-        //当前协程与待切换的协程都使用了共享栈
-        if (curr_co->is_share && yield_co->is_share && CO_SUSPEND == yield_co->status) {
-            sch_impl->m_next_co = (int)co_id;
-            if (__glibc_unlikely(-1 == swapcontext(&curr_co->ctx, &main_co->ctx)))      //先切换回主协程
-                g_lib_log.printf(LVL_ERROR, "swapcontext failed: %s\n", strerror(errno));
-        } else {
-            //待切换的协程使用的是共享栈模式并且当前处于挂起状态，恢复其栈空间至主协程的缓冲区中
-            if (yield_co->is_share && CO_SUSPEND == yield_co->status)
-                memcpy(&main_co->stack[0]+STACK_SIZE-yield_co->size, yield_co->stack.data(), yield_co->size);
-
-            sch_impl->m_next_co = -1;
-            yield_co->status = CO_RUNNING;
-            if (__glibc_unlikely(-1 == swapcontext(&curr_co->ctx, &yield_co->ctx)))
-                g_lib_log.printf(LVL_ERROR, "swapcontext failed: %s\n", strerror(errno));
-        }
-
-        //此时位于主协程中，且主协程用于帮助从一个使用共享栈的协程切换到另一个使用共享栈的协程中
-        if (-1 != sch_impl->m_next_co) {
-            auto next_co = sch_impl->m_cos[sch_impl->m_next_co];
-            memcpy(&main_co->stack[0]+STACK_SIZE-next_co->size, next_co->stack.data(), next_co->size);
-            next_co->status = CO_RUNNING;
-            if (__glibc_unlikely(-1 == swapcontext(&main_co->ctx, &next_co->ctx)))
-                g_lib_log.printf(LVL_ERROR, "swapcontext failed: %s\n", strerror(errno));
-        }
+        sch_impl->co_yield(co_id, type);
     }
 
     void scheduler::co_sleep(int seconds)
@@ -93,8 +51,8 @@ namespace crx
         return cos;
     }
 
-    size_t scheduler_impl::co_create(std::function<void(scheduler *sch, size_t co_id)>& f, scheduler *sch,
-            bool is_main_co, bool is_share /*= false*/, const char *comment /*= nullptr*/)
+    size_t scheduler_impl::co_create(std::function<void(size_t co_id)>& f, bool is_main_co,
+            bool is_share /*= false*/, const char *comment /*= nullptr*/)
     {
         std::shared_ptr<coroutine_impl> co_impl;
         if (m_unused_cos.empty()) {
@@ -133,10 +91,57 @@ namespace crx
             co_impl->ctx.uc_stack.ss_size = STACK_SIZE;
             co_impl->ctx.uc_link = &main_co->ctx;
 
-            auto ptr = (uint64_t)sch;
+            auto ptr = (uint64_t)this;
             makecontext(&co_impl->ctx, (void (*)())coroutine_wrap, 2, (uint32_t)ptr, (uint32_t)(ptr>>32));
         }
         return co_impl->co_id;
+    }
+
+    void scheduler_impl::co_yield(size_t co_id, SUS_TYPE type)
+    {
+        if (co_id >= m_cos.size())
+            return;
+
+        if (m_running_co == co_id)        //co_id无效或对自身进行切换，直接返回
+            return;
+
+        auto yield_co = m_cos[co_id];
+        if (!yield_co || CO_UNKNOWN == yield_co->status)
+            return;               //指定协程无效或者状态指示不可用，同样不发生切换
+
+        auto main_co = m_cos[0];
+        auto curr_co = m_cos[m_running_co];
+        if (curr_co->is_share)      //当前协程使用的是共享栈模式，其使用的栈是主协程中申请的空间
+            save_stack(curr_co, main_co->stack.data()+STACK_SIZE);
+
+        curr_co->status = CO_SUSPEND;
+        curr_co->type = type;
+        m_running_co = (int)co_id;
+
+        //当前协程与待切换的协程都使用了共享栈
+        if (curr_co->is_share && yield_co->is_share && CO_SUSPEND == yield_co->status) {
+            m_next_co = (int)co_id;
+            if (__glibc_unlikely(-1 == swapcontext(&curr_co->ctx, &main_co->ctx)))      //先切换回主协程
+                g_lib_log.printf(LVL_ERROR, "swapcontext failed: %s\n", strerror(errno));
+        } else {
+            //待切换的协程使用的是共享栈模式并且当前处于挂起状态，恢复其栈空间至主协程的缓冲区中
+            if (yield_co->is_share && CO_SUSPEND == yield_co->status)
+                memcpy(&main_co->stack[0]+STACK_SIZE-yield_co->size, yield_co->stack.data(), yield_co->size);
+
+            m_next_co = -1;
+            yield_co->status = CO_RUNNING;
+            if (__glibc_unlikely(-1 == swapcontext(&curr_co->ctx, &yield_co->ctx)))
+                g_lib_log.printf(LVL_ERROR, "swapcontext failed: %s\n", strerror(errno));
+        }
+
+        //此时位于主协程中，且主协程用于帮助从一个使用共享栈的协程切换到另一个使用共享栈的协程中
+        if (-1 != m_next_co) {
+            auto next_co = m_cos[m_next_co];
+            memcpy(&main_co->stack[0]+STACK_SIZE-next_co->size, next_co->stack.data(), next_co->size);
+            next_co->status = CO_RUNNING;
+            if (__glibc_unlikely(-1 == swapcontext(&main_co->ctx, &next_co->ctx)))
+                g_lib_log.printf(LVL_ERROR, "swapcontext failed: %s\n", strerror(errno));
+        }
     }
 
     void scheduler_impl::save_stack(std::shared_ptr<coroutine_impl>& co_impl, const char *top)
@@ -154,10 +159,9 @@ namespace crx
     void scheduler_impl::coroutine_wrap(uint32_t low32, uint32_t hi32)
     {
         uintptr_t this_ptr = ((uintptr_t)hi32 << 32) | (uintptr_t)low32;
-        auto sch = (scheduler*)this_ptr;
-        auto sch_impl = std::dynamic_pointer_cast<scheduler_impl>(sch->m_impl);
+        auto sch_impl = (scheduler_impl*)this_ptr;
         auto co_impl = sch_impl->m_cos[sch_impl->m_running_co];
-        co_impl->f(sch, (size_t)sch_impl->m_running_co);
+        co_impl->f((size_t)sch_impl->m_running_co);
 
         //协程执行完成后退出，此时处于不可用状态，进入未使用队列等待复用
         co_impl->status = CO_UNKNOWN;
@@ -169,7 +173,7 @@ namespace crx
         sch_impl->m_cos[0]->status = CO_RUNNING;
     }
 
-    void scheduler_impl::main_coroutine(scheduler *sch)
+    void scheduler_impl::main_coroutine()
     {
         std::vector<epoll_event> events(EPOLL_SIZE);
         m_go_done = true;
@@ -191,7 +195,7 @@ namespace crx
             i = 1;
             while (i < m_cos.size()) {
                 if (CO_SUSPEND == m_cos[i]->status && HAVE_REST == m_cos[i]->type)
-                    sch->co_yield(i);
+                    co_yield(i, WAIT_EVENT);
                 ++i;
             }
 

@@ -2,7 +2,7 @@
 
 namespace crx
 {
-    static const int EPOLL_SIZE = 512;
+    static const int EPOLL_SIZE = 1024;
 
     static const int STACK_SIZE = 256*1024;     //栈大小设置为256K
 
@@ -34,7 +34,7 @@ namespace crx
     struct coroutine_impl : public coroutine
     {
         SUS_TYPE type;
-        std::function<void(crx::scheduler *sch, size_t co_id)> f;
+        std::function<void(size_t co_id)> f;
 
         ucontext_t ctx;
         std::string stack;
@@ -55,11 +55,13 @@ namespace crx
         :m_sch_impl(nullptr)
         ,m_last_sec(-1)
         ,m_last_date(-1)
-        ,m_fmt_buf(1024, 0)
+        ,m_fmt_buf(27, 0)
         ,m_log_buf(65536, 0)
         ,m_fp(nullptr) {}
 
         void init_logger();
+
+        void write_logger_str();
 
         void rotate_log();
 
@@ -69,8 +71,9 @@ namespace crx
         scheduler_impl *m_sch_impl;
         datetime m_now;
 
+        int m_logger_cmd;       // 1-lib log 2-app log
         int64_t m_last_sec, m_last_date;
-        std::string m_fmt_buf, m_fmt_tmp, m_log_buf;
+        std::string m_fmt_buf, m_log_buf;
         FILE *m_fp;
     };
 
@@ -89,6 +92,12 @@ namespace crx
         IDX_MAX,
     };
 
+    struct logger_cmd
+    {
+        int cmd;
+        std::string logger_str;
+    };
+
     class scheduler_impl : public impl
     {
     public:
@@ -103,12 +112,14 @@ namespace crx
             m_util_impls.resize(IDX_MAX);
         }
 
-        size_t co_create(std::function<void(crx::scheduler *sch, size_t co_id)>& f, scheduler *sch,
-                         bool is_main_co, bool is_share = false, const char *comment = nullptr);
+        size_t co_create(std::function<void(size_t co_id)>& f, bool is_main_co,
+                bool is_share = false, const char *comment = nullptr);
+
+        void co_yield(size_t co_id, SUS_TYPE type);
 
         static void coroutine_wrap(uint32_t low32, uint32_t hi32);
 
-        void main_coroutine(scheduler *sch);
+        void main_coroutine();
 
         void save_stack(std::shared_ptr<coroutine_impl>& co_impl, const char *top);
 
@@ -124,7 +135,7 @@ namespace crx
 
         void periodic_trim_memory();
 
-        std::shared_ptr<logger_impl> get_logger(const char *prefix);
+        std::shared_ptr<logger_impl> get_logger(scheduler *sch, const char *prefix, int logger_cmd);
 
     public:
         int m_running_co, m_next_co;
@@ -139,6 +150,11 @@ namespace crx
         std::string m_log_root;
         int m_back_cnt;
 
+        event m_log_ev;
+        std::mutex m_mtx;
+        std::vector<logger_cmd> m_logger_strs;
+
+        std::thread m_th;
         timer_wheel m_wheel;
         std::vector<std::shared_ptr<impl>> m_util_impls;
     };

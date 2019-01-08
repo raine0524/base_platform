@@ -2,12 +2,15 @@
 
 namespace crx
 {
-    std::shared_ptr<logger_impl> scheduler_impl::get_logger(const char *prefix)
+    std::shared_ptr<logger_impl> scheduler_impl::get_logger(scheduler *sch, const char *prefix, int logger_cmd)
     {
         auto impl = std::make_shared<logger_impl>();
         impl->m_prefix = prefix;
         impl->m_log_file = m_log_root+"/"+prefix+".log";
         impl->m_sch_impl = this;
+        impl->m_logger_cmd = logger_cmd;
+        if (!m_log_ev.m_impl)
+            m_log_ev = sch->get_event(std::bind(&logger_impl::write_logger_str, impl.get()));
         return impl;
     }
 
@@ -18,42 +21,28 @@ namespace crx
         if (level < impl->m_sch_impl->m_log_lvl)
             return;
 
-        if (!impl->m_fp)
-            impl->init_logger();
-
-        timeval tv = {0};
-        gettimeofday(&tv, nullptr);
-        if (tv.tv_sec != impl->m_last_sec) {
-            impl->m_last_sec = tv.tv_sec;
-            impl->m_now = get_datetime(&tv);
-            sprintf(&impl->m_fmt_buf[0], "%04d/%02d/%02d %02d:%02d:%02d ", impl->m_now.t->tm_year+1900, impl->m_now.t->tm_mon+1,
-                    impl->m_now.t->tm_mday, impl->m_now.t->tm_hour, impl->m_now.t->tm_min, impl->m_now.t->tm_sec);
-
-            if (impl->m_now.date != impl->m_last_date)      //日期更新，创建新的日志文件
-                impl->rotate_log();
-        }
-
-        int ts_len = 20, tag_len;
+        int tag_len;
+        std::string fmt_buf;
         switch (level) {
             case LVL_DEBUG:
-                strcpy(&impl->m_fmt_buf[ts_len], "[DEBUG] ");
-                tag_len = 28;
+                fmt_buf = "[DEBUG] ";
+                tag_len = 8;
                 break;
             case LVL_INFO:
-                strcpy(&impl->m_fmt_buf[ts_len], "[INFO] ");
-                tag_len = 27;
+                fmt_buf = "[INFO] ";
+                tag_len = 7;
                 break;
             case LVL_WARN:
-                strcpy(&impl->m_fmt_buf[ts_len], "[WARN] ");
-                tag_len = 27;
+                fmt_buf = "[WARN] ";
+                tag_len = 7;
                 break;
             case LVL_ERROR:
-                strcpy(&impl->m_fmt_buf[ts_len], "[ERROR] ");
-                tag_len = 28;
+                fmt_buf = "[ERROR] ";
+                tag_len = 8;
                 break;
             case LVL_FATAL:
-                strcpy(&impl->m_fmt_buf[ts_len], "[FATAL] ");
-                tag_len = 28;
+                fmt_buf = "[FATAL] ";
+                tag_len = 8;
                 break;
             default:
                 return;
@@ -63,26 +52,70 @@ namespace crx
         va_start(var1, fmt);
         va_copy(var2, var1);
 
-        char *data = &impl->m_fmt_buf[0];
-        size_t remain = impl->m_fmt_buf.size()-tag_len;
-        size_t ret = (size_t)vsnprintf(&impl->m_fmt_buf[tag_len], remain, fmt, var1);
-        if (ret > remain) {
-            impl->m_fmt_tmp.resize(ret+tag_len+1, 0);
-            data = &impl->m_fmt_tmp[0];
-            strncpy(&impl->m_fmt_tmp[0], impl->m_fmt_buf.c_str(), (size_t)tag_len);
-            ret = (size_t)vsnprintf(&impl->m_fmt_tmp[tag_len], ret+1, fmt, var2);
-        }
+        fmt_buf.resize((size_t)(1+tag_len+vsnprintf(nullptr, 0, fmt, var1)));
+        vsnprintf(&fmt_buf[tag_len], fmt_buf.size()-tag_len, fmt, var2);
 
         va_end(var2);
         va_end(var1);
 
-        ret += tag_len;
-        if (impl->m_fp)
-            fwrite(data, sizeof(char), ret, impl->m_fp);
+        logger_cmd cmd;
+        cmd.cmd = impl->m_logger_cmd;
+        cmd.logger_str = std::move(fmt_buf);
 
-        if (LVL_FATAL == level) {
-            fprintf(stderr, "%s", data);
-            fflush(impl->m_fp);
+        {
+            std::lock_guard<std::mutex> lck(impl->m_sch_impl->m_mtx);
+            impl->m_sch_impl->m_logger_strs.push_back(std::move(cmd));
+        }
+        impl->m_sch_impl->m_log_ev.notify();
+    }
+
+    void logger_impl::write_logger_str()
+    {
+        std::vector<logger_cmd> logger_cmds;
+        {
+            std::lock_guard<std::mutex> lck(m_sch_impl->m_mtx);
+            logger_cmds = std::move(m_sch_impl->m_logger_strs);
+        }
+
+        timeval tv = {0};
+        std::string fatal_str;
+        std::shared_ptr<logger_impl> impl;
+
+        for (auto& cmd : logger_cmds) {
+            if (1 == cmd.cmd)           // 1-lib log
+                impl = std::dynamic_pointer_cast<logger_impl>(g_lib_log.m_impl);
+            else if (2 == cmd.cmd)      // 2-app log
+                impl = std::dynamic_pointer_cast<logger_impl>(g_app_log.m_impl);
+            else        // unknown log
+                continue;
+
+            if (!impl->m_fp)
+                init_logger();
+
+            gettimeofday(&tv, nullptr);
+            if (tv.tv_sec != impl->m_last_sec) {
+                impl->m_last_sec = tv.tv_sec;
+                impl->m_now = get_datetime(&tv);
+                sprintf(&impl->m_fmt_buf[0], "%04d/%02d/%02d %02d:%02d:%02d ", impl->m_now.t->tm_year+1900, impl->m_now.t->tm_mon+1,
+                        impl->m_now.t->tm_mday, impl->m_now.t->tm_hour, impl->m_now.t->tm_min, impl->m_now.t->tm_sec);
+
+                if (impl->m_now.date != impl->m_last_date)      //日期更新，创建新的日志文件
+                    impl->rotate_log();
+            }
+
+            if (impl->m_fp) {
+                fwrite(impl->m_fmt_buf.c_str(), sizeof(char), impl->m_fmt_buf.size(), impl->m_fp);
+                fwrite(cmd.logger_str.c_str(), sizeof(char), cmd.logger_str.size()-1, impl->m_fp);
+
+                if (!strncmp(&cmd.logger_str[1], "FATAL", 5)) {
+                    fatal_str = std::move(cmd.logger_str);
+                    fflush(impl->m_fp);
+                }
+            }
+        }
+
+        if (!fatal_str.empty()) {
+            fprintf(stderr, "%s", fatal_str.c_str());
             exit(EXIT_FAILURE);
         }
     }
