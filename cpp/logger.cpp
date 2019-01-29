@@ -90,7 +90,7 @@ namespace crx
                 continue;
 
             if (!impl->m_fp)
-                init_logger();
+                impl->init_logger();
 
             gettimeofday(&tv, nullptr);
             if (tv.tv_sec != impl->m_last_sec) {

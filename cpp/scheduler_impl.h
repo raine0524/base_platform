@@ -55,7 +55,7 @@ namespace crx
         :m_sch_impl(nullptr)
         ,m_last_sec(-1)
         ,m_last_date(-1)
-        ,m_fmt_buf(27, 0)
+        ,m_fmt_buf(20, 0)
         ,m_log_buf(65536, 0)
         ,m_fp(nullptr) {}
 

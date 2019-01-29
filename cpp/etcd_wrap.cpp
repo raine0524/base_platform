@@ -34,10 +34,17 @@ namespace crx
 
         auto& workers = impl->m_workers[svr_name];
         auto& info = impl->m_master_infos[index];
-        endpoint point = workers[info.rr_idx].node_addr;
-        info.rr_idx++;
-        if (info.rr_idx == workers.size())
-            info.rr_idx = 0;
+        endpoint point;
+
+        switch (impl->m_strategy) {
+            case ES_ROUNDROBIN: {
+                point = workers[info.rr_idx].node_addr;
+                info.rr_idx++;
+                if (info.rr_idx == workers.size())
+                    info.rr_idx = 0;
+                break;
+            }
+        }
         return point;
     }
 

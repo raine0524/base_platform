@@ -1,5 +1,50 @@
 {
 	"comment": "",
 	"ignore": "test",
-	"package": []
+	"package": [
+		{
+			"checksumSHA1": "butr+Orbf1fd1hcLqNXYwUDAjcI=",
+			"origin": "go.etcd.io/etcd/vendor/github.com/coreos/go-semver/semver",
+			"path": "github.com/coreos/go-semver/semver",
+			"revision": "329be66e8b3f9e2e6af83c123ff89297e49ebd15",
+			"revisionTime": "2019-01-25T16:53:12Z"
+		},
+		{
+			"checksumSHA1": "HoliVPPMY+Igm4svvxT4xxIAWcM=",
+			"origin": "go.etcd.io/etcd/vendor/github.com/ugorji/go/codec",
+			"path": "github.com/ugorji/go/codec",
+			"revision": "329be66e8b3f9e2e6af83c123ff89297e49ebd15",
+			"revisionTime": "2019-01-25T16:53:12Z"
+		},
+		{
+			"checksumSHA1": "LKYBHXfd+sg25r82HXXl424LH54=",
+			"path": "go.etcd.io/etcd/client",
+			"revision": "329be66e8b3f9e2e6af83c123ff89297e49ebd15",
+			"revisionTime": "2019-01-25T16:53:12Z"
+		},
+		{
+			"checksumSHA1": "Q4ZZnZeTbMHrXKZxTd6EQjSf4uY=",
+			"path": "go.etcd.io/etcd/pkg/pathutil",
+			"revision": "329be66e8b3f9e2e6af83c123ff89297e49ebd15",
+			"revisionTime": "2019-01-25T16:53:12Z"
+		},
+		{
+			"checksumSHA1": "f0XHkJGhyhBIlx+AuLyv2lc519w=",
+			"path": "go.etcd.io/etcd/pkg/srv",
+			"revision": "329be66e8b3f9e2e6af83c123ff89297e49ebd15",
+			"revisionTime": "2019-01-25T16:53:12Z"
+		},
+		{
+			"checksumSHA1": "VL9HsNKbbCb1Ntj9VcFCfiTmjmM=",
+			"path": "go.etcd.io/etcd/pkg/types",
+			"revision": "329be66e8b3f9e2e6af83c123ff89297e49ebd15",
+			"revisionTime": "2019-01-25T16:53:12Z"
+		},
+		{
+			"checksumSHA1": "Vyt9fFWEV2/sagq9KmkVbPn+LFM=",
+			"path": "go.etcd.io/etcd/version",
+			"revision": "329be66e8b3f9e2e6af83c123ff89297e49ebd15",
+			"revisionTime": "2019-01-25T16:53:12Z"
+		}
+	]
 }

@@ -5,3 +5,4 @@ login_aliyun
 release.tar.gz
 python/logs*
 *__pycache__*
+golang/pkg
